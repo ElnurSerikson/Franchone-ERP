@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import type { Role } from '@/types'
 import { useApp, useCurrentUser, roleLabel } from '@/store'
-import { tasks } from '@/data/mock'
+import { useData } from '@/lib/useData'
 import Avatar from './ui/Avatar'
 
 interface NavItem {
@@ -24,11 +24,9 @@ interface NavItem {
   badge?: number
 }
 
-const activeTasks = tasks.filter((t) => t.status !== 'done').length
-
 const menu: NavItem[] = [
   { to: '/', label: 'Дашборд', icon: LayoutDashboard, roles: ['owner', 'head', 'employee'] },
-  { to: '/tasks', label: 'Задачи', icon: CheckSquare, roles: ['owner', 'head', 'employee'], badge: activeTasks },
+  { to: '/tasks', label: 'Задачи', icon: CheckSquare, roles: ['owner', 'head', 'employee'] },
   { to: '/kpi', label: 'KPI', icon: Target, roles: ['owner', 'head', 'employee'] },
 ]
 
@@ -67,6 +65,8 @@ function Item({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
 export default function Sidebar() {
   const { role } = useApp()
   const user = useCurrentUser()
+  const { tasks } = useData()
+  const activeTasks = tasks.filter((t) => t.status !== 'done').length
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('sidebar-collapsed') === '1',
   )
@@ -112,7 +112,11 @@ export default function Sidebar() {
       {!collapsed && <div className={label}>МЕНЮ</div>}
       <nav className="flex flex-col gap-1">
         {visible(menu).map((i) => (
-          <Item key={i.to} item={i} collapsed={collapsed} />
+          <Item
+            key={i.to}
+            item={i.to === '/tasks' ? { ...i, badge: activeTasks } : i}
+            collapsed={collapsed}
+          />
         ))}
       </nav>
 

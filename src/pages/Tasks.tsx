@@ -1,22 +1,43 @@
+import { useState } from 'react'
 import { Plus, MessageSquare, Paperclip, CheckSquare, ListFilter, LayoutGrid } from 'lucide-react'
+import { useMutation } from 'convex/react'
+import { api } from '../../convex/_generated/api'
+import type { Id } from '../../convex/_generated/dataModel'
 import PageHeader from '@/components/PageHeader'
 import Avatar from '@/components/ui/Avatar'
-import { PriorityChip } from '@/components/ui/StatusChip'
-import { statusMeta } from '@/components/ui/StatusChip'
-import { employees, tasks } from '@/data/mock'
+import { PriorityChip, statusMeta } from '@/components/ui/StatusChip'
+import { useData } from '@/lib/useData'
 import { isOverdue } from '@/lib/selectors'
 import { shortDate } from '@/lib/format'
-import type { Task, TaskStatus } from '@/types'
+import type { Employee, Task, TaskStatus } from '@/types'
 
 const columns: TaskStatus[] = ['backlog', 'progress', 'review', 'done']
 
-function TaskCard({ task }: { task: Task }) {
-  const a = employees.find((e) => e.id === task.assigneeId)!
+function TaskCard({
+  task,
+  assignee,
+  onDragStart,
+  onDragEnd,
+  dragging,
+}: {
+  task: Task
+  assignee?: Employee
+  onDragStart: () => void
+  onDragEnd: () => void
+  dragging: boolean
+}) {
   const doneItems = task.checklist.filter((c) => c.done).length
   const over = isOverdue(task)
 
   return (
-    <div className="bg-card border border-line rounded-2xl p-3.5 shadow-card hover:shadow-soft transition-shadow cursor-pointer">
+    <div
+      draggable
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
+      className={`bg-card border border-line rounded-2xl p-3.5 shadow-card hover:shadow-soft transition-all cursor-grab active:cursor-grabbing ${
+        dragging ? 'opacity-40' : ''
+      }`}
+    >
       <div className="flex items-center justify-between mb-2">
         <PriorityChip priority={task.priority} />
         {task.kpiRef && (
@@ -55,7 +76,7 @@ function TaskCard({ task }: { task: Task }) {
 
       <div className="flex items-center justify-between pt-2 border-t border-line">
         <div className="flex items-center gap-3 text-muted">
-          <Avatar initials={a.initials} color={a.avatarColor} size={26} />
+          {assignee && <Avatar initials={assignee.initials} color={assignee.avatarColor} size={26} />}
           <span className={`text-[11px] ${over ? 'text-[#c53030] font-semibold' : ''}`}>
             {over ? 'Просрочено ' : ''}
             {shortDate(task.deadline)}
@@ -87,11 +108,27 @@ function TaskCard({ task }: { task: Task }) {
 }
 
 export default function Tasks() {
+  const { tasks, employees } = useData()
+  const setStatus = useMutation(api.tasks.setStatus)
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [overCol, setOverCol] = useState<TaskStatus | null>(null)
+
+  const assigneeOf = (id: string) => employees.find((e) => e.id === id)
+
+  const handleDrop = (col: TaskStatus) => {
+    const t = tasks.find((x) => x.id === dragId)
+    if (t && t.status !== col) {
+      setStatus({ id: t.id as Id<'tasks'>, status: col })
+    }
+    setDragId(null)
+    setOverCol(null)
+  }
+
   return (
     <>
       <PageHeader
         title="Задачи"
-        subtitle="Kanban-доска команды. Планируй, распределяй и контролируй сроки."
+        subtitle="Kanban-доска команды. Перетаскивайте карточки — статус сохраняется в базу."
         actions={
           <>
             <button className="btn btn-ghost">
@@ -123,12 +160,31 @@ export default function Tasks() {
                   <Plus size={16} />
                 </button>
               </div>
-              <div className="flex flex-col gap-3 rounded-2xl bg-black/[0.015] p-2 min-h-[120px] flex-1">
+              <div
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  if (overCol !== col) setOverCol(col)
+                }}
+                onDrop={() => handleDrop(col)}
+                className={`flex flex-col gap-3 rounded-2xl p-2 min-h-[120px] flex-1 transition-colors ${
+                  overCol === col ? 'bg-green-light/15 ring-2 ring-green-light/40' : 'bg-black/[0.015]'
+                }`}
+              >
                 {list.map((t) => (
-                  <TaskCard key={t.id} task={t} />
+                  <TaskCard
+                    key={t.id}
+                    task={t}
+                    assignee={assigneeOf(t.assigneeId)}
+                    dragging={dragId === t.id}
+                    onDragStart={() => setDragId(t.id)}
+                    onDragEnd={() => {
+                      setDragId(null)
+                      setOverCol(null)
+                    }}
+                  />
                 ))}
                 {list.length === 0 && (
-                  <div className="text-xs text-muted-2 text-center py-6">Нет задач</div>
+                  <div className="text-xs text-muted-2 text-center py-6">Перетащите сюда</div>
                 )}
               </div>
             </div>

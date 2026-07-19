@@ -1,6 +1,6 @@
 import { Sliders, Users2, Building2, Wallet } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
-import { smmMetrics, campaigns, employees } from '@/data/mock'
+import { useData } from '@/lib/useData'
 import { LEAD_WEIGHT, CPL_WEIGHT } from '@/lib/kpi'
 import { kzt, pct } from '@/lib/format'
 
@@ -8,6 +8,7 @@ const th = 'text-left text-[11px] font-semibold text-muted uppercase tracking-wi
 const td = 'px-3 py-2.5 text-sm text-ink-2 border-t border-line'
 
 export default function Settings() {
+  const { smmMetrics, campaigns, employees } = useData()
   return (
     <>
       <PageHeader title="Настройки" subtitle="Веса KPI, оклады и справочники системы" />

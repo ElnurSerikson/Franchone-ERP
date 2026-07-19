@@ -1,6 +1,6 @@
-import type { Employee, Task } from '@/types'
-import { campaigns, smmMetrics, TODAY } from '@/data/mock'
+import type { Campaign, Employee, SmmMetric, Task } from '@/types'
 import { computeSmm, computeTargetolog, payout } from './kpi'
+import { TODAY } from './constants'
 
 export interface EmployeeKpi {
   employee: Employee
@@ -8,7 +8,11 @@ export interface EmployeeKpi {
   payout: number | null
 }
 
-export function employeeKpi(emp: Employee): EmployeeKpi {
+export function employeeKpi(
+  emp: Employee,
+  smmMetrics: SmmMetric[],
+  campaigns: Campaign[],
+): EmployeeKpi {
   if (emp.role === 'owner') return { employee: emp, kpi: null, payout: null }
   if (emp.position === 'smm') {
     const kpi = computeSmm(smmMetrics).totalKpi

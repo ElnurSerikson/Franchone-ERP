@@ -3,7 +3,7 @@ import { Info } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
 import Avatar from '@/components/ui/Avatar'
 import { KpiChip } from '@/components/ui/StatusChip'
-import { employees, smmMetrics, campaigns, REPORT_MONTH } from '@/data/mock'
+import { useData } from '@/lib/useData'
 import { computeSmm, computeTargetolog, LEAD_WEIGHT, CPL_WEIGHT } from '@/lib/kpi'
 import { employeeKpi } from '@/lib/selectors'
 import { kzt, num, pct } from '@/lib/format'
@@ -24,6 +24,7 @@ export default function Kpi() {
   const [tab, setTab] = useState<Tab>('facts')
   const [model, setModel] = useState<Model>('smm')
 
+  const { smmMetrics, campaigns, reportMonth } = useData()
   const smm = computeSmm(smmMetrics)
   const tg = computeTargetolog(campaigns)
 
@@ -31,8 +32,8 @@ export default function Kpi() {
     <>
       <PageHeader
         title="KPI"
-        subtitle={`Планы, факт и выплаты · ${REPORT_MONTH}`}
-        actions={<button className="btn btn-green">{REPORT_MONTH}</button>}
+        subtitle={`Планы, факт и выплаты · ${reportMonth}`}
+        actions={<button className="btn btn-green">{reportMonth}</button>}
       />
 
       {/* Tabs */}
@@ -303,7 +304,10 @@ export default function Kpi() {
 }
 
 function Payouts() {
-  const rows = employees.map(employeeKpi).filter((r) => r.kpi !== null)
+  const { employees, smmMetrics, campaigns, reportMonth } = useData()
+  const rows = employees
+    .map((e) => employeeKpi(e, smmMetrics, campaigns))
+    .filter((r) => r.kpi !== null)
   const total = rows.reduce((s, r) => s + (r.payout ?? 0), 0)
 
   return (
@@ -320,7 +324,7 @@ function Payouts() {
 
       <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="sec-title">К начислению · {REPORT_MONTH}</h3>
+          <h3 className="sec-title">К начислению · {reportMonth}</h3>
           <button className="mini-btn">Утвердить месяц</button>
         </div>
         <div className="overflow-x-auto">

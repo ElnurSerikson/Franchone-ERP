@@ -4,13 +4,14 @@ import StatCard from '@/components/ui/StatCard'
 import Avatar from '@/components/ui/Avatar'
 import { ProgressBar } from '@/components/ui/Progress'
 import { KpiChip, PriorityChip } from '@/components/ui/StatusChip'
-import { employees, campaigns, tasks, REPORT_MONTH } from '@/data/mock'
+import { useData } from '@/lib/useData'
 import { computeTargetolog, spendBySource } from '@/lib/kpi'
 import { employeeKpi, taskCounts, isOverdue } from '@/lib/selectors'
 import { kzt, num, pct, shortDate } from '@/lib/format'
 
 export default function Dashboard() {
-  const kpis = employees.map(employeeKpi)
+  const { employees, campaigns, tasks, smmMetrics, reportMonth } = useData()
+  const kpis = employees.map((e) => employeeKpi(e, smmMetrics, campaigns))
   const withKpi = kpis.filter((k) => k.kpi !== null)
   const teamKpi = withKpi.reduce((s, k) => s + (k.kpi ?? 0), 0) / (withKpi.length || 1)
   const totalPayout = withKpi.reduce((s, k) => s + (k.payout ?? 0), 0)
@@ -25,13 +26,13 @@ export default function Dashboard() {
     <>
       <PageHeader
         title="Дашборд"
-        subtitle={`Обзор команды и KPI · ${REPORT_MONTH}`}
+        subtitle={`Обзор команды и KPI · ${reportMonth}`}
         actions={
           <>
             <button className="btn btn-ghost">
               <Download size={16} /> Экспорт
             </button>
-            <button className="btn btn-green">{REPORT_MONTH}</button>
+            <button className="btn btn-green">{reportMonth}</button>
           </>
         }
       />
@@ -116,7 +117,7 @@ export default function Dashboard() {
             ))}
           </div>
           <div className="mt-4 pt-4 border-t border-line flex items-center justify-between">
-            <span className="text-sm text-muted">Итого за {REPORT_MONTH}</span>
+            <span className="text-sm text-muted">Итого за {reportMonth}</span>
             <span className="text-lg font-bold text-green-d">{kzt(totalPayout)}</span>
           </div>
         </div>

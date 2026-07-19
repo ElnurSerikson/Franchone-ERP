@@ -2,7 +2,7 @@ import { UserPlus, Search, Pencil, Archive, MoreHorizontal, Mail, Phone } from '
 import PageHeader from '@/components/PageHeader'
 import Avatar from '@/components/ui/Avatar'
 import { KpiChip } from '@/components/ui/StatusChip'
-import { employees } from '@/data/mock'
+import { useData } from '@/lib/useData'
 import { employeeKpi } from '@/lib/selectors'
 import { kzt, pct } from '@/lib/format'
 import { roleLabel } from '@/store'
@@ -10,9 +10,9 @@ import { roleLabel } from '@/store'
 const th = 'text-left text-[11px] font-semibold text-muted uppercase tracking-wide px-4 py-3'
 const td = 'px-4 py-3 text-sm text-ink-2 border-t border-line align-middle'
 
-const departments = Array.from(new Set(employees.map((e) => e.department)))
-
 export default function Team() {
+  const { employees, smmMetrics, campaigns } = useData()
+  const departments = Array.from(new Set(employees.map((e) => e.department)))
   return (
     <>
       <PageHeader
@@ -56,7 +56,7 @@ export default function Team() {
             </thead>
             <tbody>
               {employees.map((e) => {
-                const { kpi } = employeeKpi(e)
+                const { kpi } = employeeKpi(e, smmMetrics, campaigns)
                 return (
                   <tr key={e.id} className="hover:bg-chip/40 transition-colors">
                     <td className={td}>
