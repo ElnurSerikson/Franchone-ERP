@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --green: #1c7d4d;
+    --green-2: #20915a;
+    --green-d: #0f5c34;
+    --green-light: #57c78a;
+    --ink: #1c1d22;
+    --muted: #9498a1;
+    --line: #eef0f1;
+    --bg: #f4f4f4;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-bg text-ink font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  /* Thin, subtle scrollbars to match the clean template look */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: #d7dade transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  *::-webkit-scrollbar-thumb {
+    background: #d7dade;
+    border-radius: 999px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-card border border-line rounded-card shadow-card;
+  }
+
+  .sec-title {
+    @apply text-[15px] font-semibold text-ink;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 h-10 px-4 rounded-xl text-sm font-semibold transition-colors;
+  }
+  .btn-green {
+    @apply bg-green text-white hover:bg-green-d;
+  }
+  .btn-ghost {
+    @apply bg-white text-ink-2 border border-line-2 hover:bg-chip;
+  }
+  .btn-dark {
+    @apply bg-dark text-white hover:opacity-90;
+  }
+  .mini-btn {
+    @apply inline-flex items-center gap-1 h-8 px-3 rounded-lg text-xs font-semibold bg-chip text-ink-2 hover:bg-line-2 transition-colors;
+  }
+  .ico-btn {
+    @apply inline-flex items-center justify-center w-10 h-10 rounded-xl border border-line-2 bg-white text-ink-2 hover:bg-chip transition-colors;
+  }
+
+  /* Chips / statuses */
+  .chip {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold;
+  }
+
+  /* Diagonal hatch fill used by the demo's empty bars */
+  .hatch {
+    background-image: repeating-linear-gradient(
+      45deg,
+      #eaecee 0,
+      #eaecee 6px,
+      #f4f5f6 6px,
+      #f4f5f6 12px
+    );
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 h-11 px-3 rounded-xl text-sm font-medium text-ink-2/80 hover:bg-chip transition-colors;
+  }
+  .nav-item-active {
+    @apply bg-dark text-white hover:bg-dark;
+  }
+}
