@@ -5,8 +5,12 @@ import { ConvexProvider, ConvexReactClient } from 'convex/react'
 import App from './App'
 import './index.css'
 
-// Адрес бэкенда Convex из .env.local (создаётся командой `npx convex dev`).
-const convexUrl = import.meta.env.VITE_CONVEX_URL as string | undefined
+// Адрес бэкенда Convex из .env.local (локально) или из переменных Vercel (прод).
+// Срезаем пробелы и завершающие слэши: иначе Convex строит WebSocket-адрес
+// с двойным слэшем и соединение падает (код 1006) — «вечная загрузка».
+const convexUrl = (import.meta.env.VITE_CONVEX_URL as string | undefined)
+  ?.trim()
+  .replace(/\/+$/, '')
 const convex = convexUrl ? new ConvexReactClient(convexUrl) : null
 
 const root = ReactDOM.createRoot(document.getElementById('root')!)
