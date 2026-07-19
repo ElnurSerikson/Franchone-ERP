@@ -1,0 +1,90 @@
+import { defineSchema, defineTable } from 'convex/server'
+import { v } from 'convex/values'
+
+// Модель данных FRANCHONE ERP. Отражает src/types.ts.
+// Связи между сущностями — через v.id("employees").
+
+export default defineSchema({
+  employees: defineTable({
+    name: v.string(),
+    role: v.union(v.literal('owner'), v.literal('head'), v.literal('employee')),
+    position: v.union(
+      v.literal('smm'),
+      v.literal('targetolog'),
+      v.literal('sales'),
+      v.literal('packer'),
+    ),
+    positionLabel: v.string(),
+    department: v.string(),
+    salary: v.number(), // оклад, ₸
+    email: v.string(),
+    phone: v.string(),
+    avatarColor: v.string(),
+    initials: v.string(),
+    status: v.union(v.literal('active'), v.literal('archived')),
+    hiredAt: v.string(),
+  }).index('by_status', ['status']),
+
+  // KPI SMM — по одной строке на аккаунт×формат для сотрудника-SMM
+  smmMetrics: defineTable({
+    employeeId: v.id('employees'),
+    account: v.union(v.literal('FRANCHONE'), v.literal('ANUAR')),
+    format: v.union(v.literal('Рилсы'), v.literal('Сторис'), v.literal('Карусели')),
+    weight: v.number(),
+    weekPlans: v.array(v.number()), // 5 недель
+    weekFacts: v.array(v.number()), // 5 недель
+  }).index('by_employee', ['employeeId']),
+
+  // KPI Таргетолог — рекламные кампании
+  campaigns: defineTable({
+    code: v.string(), // человеко-читаемый ID, напр. FR-001
+    employeeId: v.optional(v.id('employees')),
+    account: v.string(),
+    category: v.string(),
+    brand: v.string(),
+    campaign: v.string(),
+    moneySource: v.union(v.literal('FRANCHONE'), v.literal('Партнёр')),
+    status: v.union(v.literal('Активна'), v.literal('Пауза'), v.literal('Завершена')),
+    weight: v.number(),
+    planBudget: v.number(),
+    planLeads: v.number(),
+    factBudget: v.number(),
+    factLeads: v.number(),
+  }).index('by_code', ['code']),
+
+  // Задачи (Kanban)
+  tasks: defineTable({
+    title: v.string(),
+    description: v.optional(v.string()),
+    status: v.union(
+      v.literal('backlog'),
+      v.literal('progress'),
+      v.literal('review'),
+      v.literal('done'),
+    ),
+    priority: v.union(
+      v.literal('low'),
+      v.literal('medium'),
+      v.literal('high'),
+      v.literal('urgent'),
+    ),
+    assigneeId: v.id('employees'),
+    reporterId: v.id('employees'),
+    deadline: v.string(),
+    tags: v.array(v.string()),
+    checklist: v.array(v.object({ text: v.string(), done: v.boolean() })),
+    attachments: v.number(),
+    comments: v.number(),
+    kpiRef: v.optional(v.string()),
+  })
+    .index('by_status', ['status'])
+    .index('by_assignee', ['assigneeId']),
+
+  // Настройки (одна запись-синглтон с key = "global")
+  settings: defineTable({
+    key: v.string(),
+    leadWeight: v.number(), // вес заявок (0.7)
+    cplWeight: v.number(), // вес CPL (0.3)
+    reportMonth: v.string(),
+  }).index('by_key', ['key']),
+})

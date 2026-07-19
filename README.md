@@ -5,7 +5,7 @@
 (зелёная палитра, шрифт Inter), интерфейс на русском.
 
 ## Стек
-React 18 · TypeScript · Vite · Tailwind CSS · React Router · lucide-react
+React 18 · TypeScript · Vite · Tailwind CSS · React Router · lucide-react · **Convex** (бэкенд)
 
 ## Запуск
 ```bash
@@ -42,6 +42,22 @@ src/
 docs/               ТЗ, KPI-таблицы, презентация, demo_design.html
 ```
 
+## Бэкенд — Convex
+
+Бэкенд (база данных + серверные функции) — на [Convex](https://convex.dev). Код в папке `convex/`:
+- `schema.ts` — модель данных (employees, smmMetrics, campaigns, tasks, settings).
+- `employees.ts` · `tasks.ts` · `campaigns.ts` · `smm.ts` · `settings.ts` — queries и mutations (CRUD).
+- `seed.ts` — наполнение базы демо-данными.
+
+**Первый запуск (нужен вход в аккаунт Convex — делается один раз):**
+```bash
+npx convex dev        # войти/создать проект → создаст .env.local и convex/_generated/
+npx convex run seed:run   # наполнить базу демо-данными
+```
+`npx convex dev` держите запущенным в отдельном терминале рядом с `npm run dev`.
+Пока `VITE_CONVEX_URL` не задан, приложение работает на демо-данных из `src/data/mock.ts`.
+
 ## Статус
-UI-полный прототип на демо-данных (в памяти). Дальше: подключить реальные CRUD-действия
-(формы создания/редактирования, drag-and-drop канбана) и бэкенд/хранилище.
+UI-полный прототип. Бэкенд Convex подключён и описан (схема + функции + сид). Дальше:
+после `npx convex dev` — связать экраны с базой (`useQuery`/`useMutation`), оживить CRUD
+(drag-and-drop канбана, формы создания/редактирования, команда).

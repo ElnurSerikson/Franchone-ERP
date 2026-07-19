@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -6,6 +7,8 @@ import {
   Users,
   Settings,
   LogOut,
+  PanelLeftClose,
+  PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react'
 import type { Role } from '@/types'
@@ -34,20 +37,28 @@ const manage: NavItem[] = [
   { to: '/settings', label: 'Настройки', icon: Settings, roles: ['owner'] },
 ]
 
-function Item({ item }: { item: NavItem }) {
+function Item({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
   const Icon = item.icon
   return (
     <NavLink
       to={item.to}
       end={item.to === '/'}
-      className={({ isActive }) => `nav-item ${isActive ? 'nav-item-active' : ''}`}
+      title={collapsed ? item.label : undefined}
+      className={({ isActive }) =>
+        `relative flex items-center h-11 rounded-xl text-sm font-medium transition-colors ${
+          collapsed ? 'w-11 justify-center mx-auto px-0' : 'gap-3 px-3'
+        } ${isActive ? 'nav-item-active' : 'text-ink-2/80 hover:bg-chip'}`
+      }
     >
       <Icon size={19} strokeWidth={2} />
-      <span className="flex-1">{item.label}</span>
-      {item.badge ? (
+      {!collapsed && <span className="flex-1">{item.label}</span>}
+      {!collapsed && item.badge ? (
         <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-light/25 text-green-d">
           {item.badge}
         </span>
+      ) : null}
+      {collapsed && item.badge ? (
+        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-green ring-2 ring-card" />
       ) : null}
     </NavLink>
   )
@@ -56,47 +67,89 @@ function Item({ item }: { item: NavItem }) {
 export default function Sidebar() {
   const { role } = useApp()
   const user = useCurrentUser()
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('sidebar-collapsed') === '1',
+  )
+
+  const toggle = () => {
+    setCollapsed((c) => {
+      localStorage.setItem('sidebar-collapsed', c ? '0' : '1')
+      return !c
+    })
+  }
 
   const visible = (items: NavItem[]) => items.filter((i) => i.roles.includes(role))
+  const label = 'text-[11px] font-semibold text-muted-2 tracking-wider px-3 mb-1'
 
   return (
-    <aside className="w-[264px] shrink-0 h-screen sticky top-0 bg-card border-r border-line flex flex-col px-4 py-5">
-      {/* Brand */}
-      <div className="flex items-center gap-2.5 px-2 mb-6">
-        <div className="w-9 h-9 rounded-xl bg-green flex items-center justify-center text-white font-extrabold">
+    <aside
+      className={`shrink-0 h-screen sticky top-0 bg-card border-r border-line flex flex-col py-5 transition-[width] duration-200 ease-in-out ${
+        collapsed ? 'w-[76px] px-3' : 'w-[264px] px-4'
+      }`}
+    >
+      {/* Brand + toggle */}
+      <div className={`flex mb-6 ${collapsed ? 'flex-col items-center gap-2' : 'items-center gap-2.5 px-1'}`}>
+        <div className="w-9 h-9 rounded-xl bg-green flex items-center justify-center text-white font-extrabold shrink-0">
           F
         </div>
-        <div className="leading-tight">
-          <div className="font-extrabold tracking-tight text-ink">FRANCHONE</div>
-          <div className="text-[11px] text-muted -mt-0.5">ERP · Панель</div>
-        </div>
+        {!collapsed && (
+          <div className="leading-tight flex-1 min-w-0">
+            <div className="font-extrabold tracking-tight text-ink">FRANCHONE</div>
+            <div className="text-[11px] text-muted -mt-0.5">ERP · Панель</div>
+          </div>
+        )}
+        <button
+          onClick={toggle}
+          aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'}
+          title={collapsed ? 'Развернуть меню' : 'Свернуть меню'}
+          className="w-8 h-8 rounded-lg flex items-center justify-center text-muted hover:text-ink hover:bg-chip transition-colors shrink-0"
+        >
+          {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+        </button>
       </div>
 
       {/* Menu */}
-      <div className="text-[11px] font-semibold text-muted-2 tracking-wider px-3 mb-1">МЕНЮ</div>
-      <nav className="flex flex-col gap-1">{visible(menu).map((i) => <Item key={i.to} item={i} />)}</nav>
+      {!collapsed && <div className={label}>МЕНЮ</div>}
+      <nav className="flex flex-col gap-1">
+        {visible(menu).map((i) => (
+          <Item key={i.to} item={i} collapsed={collapsed} />
+        ))}
+      </nav>
 
       {visible(manage).length > 0 && (
         <>
-          <div className="my-4 border-t border-line" />
-          <div className="text-[11px] font-semibold text-muted-2 tracking-wider px-3 mb-1">УПРАВЛЕНИЕ</div>
-          <nav className="flex flex-col gap-1">{visible(manage).map((i) => <Item key={i.to} item={i} />)}</nav>
+          <div className={`my-4 border-t border-line ${collapsed ? 'mx-1' : ''}`} />
+          {!collapsed && <div className={label}>УПРАВЛЕНИЕ</div>}
+          <nav className="flex flex-col gap-1">
+            {visible(manage).map((i) => (
+              <Item key={i.to} item={i} collapsed={collapsed} />
+            ))}
+          </nav>
         </>
       )}
 
       <div className="flex-1" />
 
-      {/* Profile card (заменяет промо-карточку demo) */}
-      <div className="rounded-2xl bg-chip border border-line p-3 flex items-center gap-3">
-        <Avatar initials={user.initials} color={user.avatarColor} size={40} />
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold text-ink truncate">{user.name}</div>
-          <div className="text-[11px] text-muted truncate">{roleLabel[role]}</div>
-        </div>
-        <button className="text-muted hover:text-ink transition-colors" title="Выйти">
-          <LogOut size={17} />
+      {/* Profile (заменяет промо-карточку demo) */}
+      {collapsed ? (
+        <button
+          title={`${user.name} · ${roleLabel[role]}`}
+          className="mx-auto rounded-full hover:ring-2 hover:ring-line-2 transition-all"
+        >
+          <Avatar initials={user.initials} color={user.avatarColor} size={40} />
         </button>
-      </div>
+      ) : (
+        <div className="rounded-2xl bg-chip border border-line p-3 flex items-center gap-3">
+          <Avatar initials={user.initials} color={user.avatarColor} size={40} />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-ink truncate">{user.name}</div>
+            <div className="text-[11px] text-muted truncate">{roleLabel[role]}</div>
+          </div>
+          <button className="text-muted hover:text-ink transition-colors" title="Выйти">
+            <LogOut size={17} />
+          </button>
+        </div>
+      )}
     </aside>
   )
 }
