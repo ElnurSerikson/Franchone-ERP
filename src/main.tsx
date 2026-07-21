@@ -1,7 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
-import { ConvexProvider, ConvexReactClient } from 'convex/react'
+import { ConvexReactClient } from 'convex/react'
+import { ConvexAuthProvider } from '@convex-dev/auth/react'
 import App from './App'
 import './index.css'
 
@@ -31,8 +31,7 @@ if (!convex) {
       <div>
         <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Бэкенд Convex не настроен</h1>
         <p style={{ color: '#9498a1' }}>
-          Запустите <code>npx convex dev</code> в папке проекта — появится VITE_CONVEX_URL,
-          и приложение подключится к базе.
+          Задайте переменную <code>VITE_CONVEX_URL</code>, и приложение подключится к базе.
         </p>
       </div>
     </div>,
@@ -40,11 +39,9 @@ if (!convex) {
 } else {
   root.render(
     <React.StrictMode>
-      <ConvexProvider client={convex}>
-        <BrowserRouter>
-          <App />
-        </BrowserRouter>
-      </ConvexProvider>
+      <ConvexAuthProvider client={convex}>
+        <App />
+      </ConvexAuthProvider>
     </React.StrictMode>,
   )
 }

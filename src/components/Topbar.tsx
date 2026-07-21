@@ -6,7 +6,7 @@ import Avatar from './ui/Avatar'
 const roles: Role[] = ['owner', 'head', 'employee']
 
 export default function Topbar() {
-  const { role, setRole } = useApp()
+  const { role, setRole, isOwner } = useApp()
   const user = useCurrentUser()
 
   return (
@@ -25,22 +25,24 @@ export default function Topbar() {
 
       <div className="flex-1" />
 
-      {/* Демо: переключатель роли */}
-      <div className="hidden md:flex items-center gap-2 h-11 pl-3 pr-2 rounded-xl bg-card border border-line-2">
-        <Eye size={16} className="text-muted" />
-        <span className="text-xs text-muted">Просмотр как</span>
-        <select
-          value={role}
-          onChange={(e) => setRole(e.target.value as Role)}
-          className="text-sm font-semibold text-ink bg-transparent focus:outline-none cursor-pointer"
-        >
-          {roles.map((r) => (
-            <option key={r} value={r}>
-              {roleLabel[r]}
-            </option>
-          ))}
-        </select>
-      </div>
+      {/* Владелец может посмотреть панель «глазами» другой роли */}
+      {isOwner && (
+        <div className="hidden md:flex items-center gap-2 h-11 pl-3 pr-2 rounded-xl bg-card border border-line-2">
+          <Eye size={16} className="text-muted" />
+          <span className="text-xs text-muted">Просмотр как</span>
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value as Role)}
+            className="text-sm font-semibold text-ink bg-transparent focus:outline-none cursor-pointer"
+          >
+            {roles.map((r) => (
+              <option key={r} value={r}>
+                {roleLabel[r]}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <button className="ico-btn" title="Уведомления">
         <Bell size={18} />

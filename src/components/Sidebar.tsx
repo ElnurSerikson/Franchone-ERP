@@ -11,6 +11,7 @@ import {
   PanelLeftOpen,
   type LucideIcon,
 } from 'lucide-react'
+import { useAuthActions } from '@convex-dev/auth/react'
 import type { Role } from '@/types'
 import { useApp, useCurrentUser, roleLabel } from '@/store'
 import { useData } from '@/lib/useData'
@@ -65,6 +66,7 @@ function Item({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
 export default function Sidebar() {
   const { role } = useApp()
   const user = useCurrentUser()
+  const { signOut } = useAuthActions()
   const { tasks } = useData()
   const activeTasks = tasks.filter((t) => t.status !== 'done').length
   const [collapsed, setCollapsed] = useState(
@@ -137,7 +139,8 @@ export default function Sidebar() {
       {/* Profile (заменяет промо-карточку demo) */}
       {collapsed ? (
         <button
-          title={`${user.name} · ${roleLabel[role]}`}
+          onClick={() => void signOut()}
+          title={`${user.name} · выйти`}
           className="mx-auto rounded-full hover:ring-2 hover:ring-line-2 transition-all"
         >
           <Avatar initials={user.initials} color={user.avatarColor} size={40} />
@@ -147,9 +150,13 @@ export default function Sidebar() {
           <Avatar initials={user.initials} color={user.avatarColor} size={40} />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold text-ink truncate">{user.name}</div>
-            <div className="text-[11px] text-muted truncate">{roleLabel[role]}</div>
+            <div className="text-[11px] text-muted truncate">{roleLabel[user.role]}</div>
           </div>
-          <button className="text-muted hover:text-ink transition-colors" title="Выйти">
+          <button
+            onClick={() => void signOut()}
+            className="text-muted hover:text-ink transition-colors"
+            title="Выйти"
+          >
             <LogOut size={17} />
           </button>
         </div>

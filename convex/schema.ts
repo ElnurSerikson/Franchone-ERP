@@ -1,10 +1,14 @@
 import { defineSchema, defineTable } from 'convex/server'
 import { v } from 'convex/values'
+import { authTables } from '@convex-dev/auth/server'
 
 // Модель данных FRANCHONE ERP. Отражает src/types.ts.
 // Связи между сущностями — через v.id("employees").
 
 export default defineSchema({
+  // Таблицы авторизации Convex Auth (users, authAccounts, authSessions, ...)
+  ...authTables,
+
   employees: defineTable({
     name: v.string(),
     role: v.union(v.literal('owner'), v.literal('head'), v.literal('employee')),
@@ -17,13 +21,16 @@ export default defineSchema({
     positionLabel: v.string(),
     department: v.string(),
     salary: v.number(), // оклад, ₸
-    email: v.string(),
+    email: v.string(), // хранится в нижнем регистре — это же логин (инвайт)
     phone: v.string(),
     avatarColor: v.string(),
     initials: v.string(),
     status: v.union(v.literal('active'), v.literal('archived')),
     hiredAt: v.string(),
-  }).index('by_status', ['status']),
+    lastLoginAt: v.optional(v.number()), // время последнего входа
+  })
+    .index('by_status', ['status'])
+    .index('by_email', ['email']),
 
   // KPI SMM — по одной строке на аккаунт×формат для сотрудника-SMM
   smmMetrics: defineTable({

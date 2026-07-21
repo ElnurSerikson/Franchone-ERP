@@ -1,31 +1,22 @@
 import { createContext, useContext, useMemo, useState, type ReactNode } from 'react'
+import { useQuery } from 'convex/react'
+import { api } from '../convex/_generated/api'
 import type { Employee, Role } from '@/types'
-import { useData } from '@/lib/useData'
+import { mapEmployee } from '@/lib/mappers'
 
 interface AppState {
-  role: Role
+  role: Role // эффективная роль для видимости (владелец может смотреть «как другая роль»)
   setRole: (r: Role) => void
+  isOwner: boolean
 }
 
 const AppCtx = createContext<AppState | null>(null)
 
-export function AppProvider({ children }: { children: ReactNode }) {
-  const [role, setRole] = useState<Role>('owner')
-  const value = useMemo(() => ({ role, setRole }), [role])
-  return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>
-}
-
-export function useApp() {
-  const ctx = useContext(AppCtx)
-  if (!ctx) throw new Error('useApp must be used within AppProvider')
-  return ctx
-}
-
-// Запасной пользователь на время загрузки данных из базы.
+// Запасной пользователь на время загрузки данных.
 const PLACEHOLDER: Employee = {
   id: '',
   name: '—',
-  role: 'owner',
+  role: 'employee',
   position: 'sales',
   positionLabel: '',
   department: '',
@@ -38,22 +29,30 @@ const PLACEHOLDER: Employee = {
   hiredAt: '',
 }
 
-// Для демонстрации ролевого доступа подбираем репрезентативного сотрудника роли.
-function pickForRole(list: Employee[], role: Role): Employee {
-  if (!list.length) return PLACEHOLDER
-  if (role === 'owner') return list.find((e) => e.role === 'owner') ?? list[0]
-  if (role === 'head') return list.find((e) => e.role === 'head') ?? list[0]
-  return (
-    list.find((e) => e.position === 'smm') ??
-    list.find((e) => e.role === 'employee') ??
-    list[0]
-  )
+// Реальный вошедший сотрудник (по авторизации, матчинг по email).
+export function useCurrentUser(): Employee {
+  const doc = useQuery(api.users.currentEmployee, {})
+  return doc ? mapEmployee(doc) : PLACEHOLDER
 }
 
-export function useCurrentUser(): Employee {
-  const { role } = useApp()
-  const { employees } = useData()
-  return pickForRole(employees, role)
+export function AppProvider({ children }: { children: ReactNode }) {
+  const user = useCurrentUser()
+  const isOwner = user.role === 'owner'
+  const [viewAs, setViewAs] = useState<Role | null>(null)
+
+  const role: Role = isOwner && viewAs ? viewAs : user.role
+  const setRole = (r: Role) => {
+    if (isOwner) setViewAs(r)
+  }
+
+  const value = useMemo(() => ({ role, setRole, isOwner }), [role, isOwner])
+  return <AppCtx.Provider value={value}>{children}</AppCtx.Provider>
+}
+
+export function useApp() {
+  const ctx = useContext(AppCtx)
+  if (!ctx) throw new Error('useApp must be used within AppProvider')
+  return ctx
 }
 
 export const roleLabel: Record<Role, string> = {
