@@ -3,6 +3,7 @@ import { Resend as ResendAPI } from 'resend'
 import { ConvexError } from 'convex/values'
 import type { AnyDataModel, GenericActionCtx } from 'convex/server'
 import { internal } from './_generated/api'
+import { otpEmail } from './emails'
 
 // OTP-провайдер: отправляет 6-значный код на почту через Resend.
 // Ключ Resend — в переменной окружения AUTH_RESEND_KEY (задаётся в Convex).
@@ -40,6 +41,7 @@ export const ResendOTP = Email({
     }
 
     const apiKey = provider.apiKey
+    const { subject, html, text } = otpEmail(token)
     if (!apiKey) {
       // dev-режим без Resend
       console.log(`[DEV OTP] Код входа для ${email}: ${token}`)
@@ -49,10 +51,9 @@ export const ResendOTP = Email({
     const { error } = await resend.emails.send({
       from: process.env.AUTH_EMAIL_FROM ?? 'FRANCHONE <onboarding@resend.dev>',
       to: [email],
-      subject: 'Код входа в FRANCHONE',
-      text:
-        `Ваш код для входа в FRANCHONE: ${token}\n\n` +
-        `Код действует 10 минут. Если вы не запрашивали вход — просто проигнорируйте это письмо.`,
+      subject,
+      html,
+      text,
     })
     if (error) {
       throw new Error('Не удалось отправить код: ' + JSON.stringify(error))
