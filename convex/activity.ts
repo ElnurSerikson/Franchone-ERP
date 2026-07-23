@@ -7,7 +7,7 @@ export const overview = query({
     const emps = await ctx.db.query('employees').collect()
     const now = Date.now()
     const D = 24 * 60 * 60 * 1000
-    const active = emps.filter((e) => e.status === 'active')
+    const active = emps.filter((e) => e.status === 'active' && !e.hidden)
 
     return Promise.all(
       active.map(async (e) => {

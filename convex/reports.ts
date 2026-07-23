@@ -147,7 +147,7 @@ export const discipline = query({
         .query('employees')
         .withIndex('by_status', (q) => q.eq('status', 'active'))
         .collect()
-    ).filter((e) => e.role !== 'owner' && REPORTING.has(e.position))
+    ).filter((e) => !e.hidden && e.role !== 'owner' && REPORTING.has(e.position))
 
     const rows = []
     for (const e of emps) {

@@ -1,10 +1,11 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 
+// Список сотрудников для фронта — скрытые служебные аккаунты не отдаём.
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query('employees').collect()
+    return (await ctx.db.query('employees').collect()).filter((e) => !e.hidden)
   },
 })
 
