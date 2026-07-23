@@ -25,19 +25,16 @@ export default function Team() {
         }
       />
 
-      {/* toolbar */}
-      <div className="flex flex-wrap items-center gap-2 mb-4">
-        <button className="mini-btn h-10 px-3">Все отделы</button>
-        <button className="mini-btn h-10 px-3">Все роли</button>
-        <button className="mini-btn h-10 px-3">Активные</button>
-      </div>
-
       <div className="card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[680px]">
             <thead>
-              <tr className="bg-chip/60">
-                <th className={`${th} sticky left-0 z-20 bg-[#f4f5f6] border-r border-line`}>Сотрудник</th>
+              <tr className="bg-chip">
+                <th
+                  className={`${th} sticky left-0 z-20 bg-chip border-r border-line md:static md:z-auto md:border-r-0`}
+                >
+                  Сотрудник
+                </th>
                 <th className={th}>Должность</th>
                 <th className={th}>Отдел</th>
                 <th className={th}>Роль</th>
@@ -48,7 +45,9 @@ export default function Team() {
             <tbody>
               {employees.map((e) => (
                 <tr key={e.id} className="hover:bg-chip/40 transition-colors">
-                  <td className={`${td} sticky left-0 z-10 bg-card border-r border-line`}>
+                  <td
+                    className={`${td} sticky left-0 z-10 bg-card border-r border-line md:static md:z-auto md:border-r-0 md:bg-transparent`}
+                  >
                     <div className="flex items-center gap-3">
                       <Avatar initials={e.initials} color={e.avatarColor} size={38} />
                       <div className="min-w-0">
