@@ -63,21 +63,34 @@ function Item({
         } ${isActive ? 'nav-item-active' : 'text-ink-2/80 hover:bg-chip'}`
       }
     >
-      <Icon size={19} strokeWidth={2} />
-      {!collapsed && <span className="flex-1">{item.label}</span>}
-      {!collapsed && item.badge ? (
-        <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-light/25 text-green-d">
-          {item.badge}
-        </span>
-      ) : null}
-      {collapsed && item.badge ? (
-        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-green ring-2 ring-card" />
-      ) : null}
-      {/* Бейдж с названием раздела при наведении на иконку в рейле */}
-      {collapsed && (
-        <span className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 whitespace-nowrap rounded-lg bg-dark px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-soft transition-opacity group-hover:opacity-100">
-          {item.label}
-        </span>
+      {({ isActive }) => (
+        <>
+          <Icon size={19} strokeWidth={2} />
+          {!collapsed && <span className="flex-1">{item.label}</span>}
+          {/* На активном пункте плашка тёмная — счётчик переключаем на белый. */}
+          {!collapsed && item.badge ? (
+            <span
+              className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${
+                isActive ? 'bg-white/15 text-white' : 'bg-green-light/25 text-green-d'
+              }`}
+            >
+              {item.badge}
+            </span>
+          ) : null}
+          {collapsed && item.badge ? (
+            <span
+              className={`absolute top-1.5 right-1.5 w-2 h-2 rounded-full ring-2 ${
+                isActive ? 'bg-white ring-dark' : 'bg-green ring-card'
+              }`}
+            />
+          ) : null}
+          {/* Бейдж с названием раздела при наведении на иконку в рейле */}
+          {collapsed && (
+            <span className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 whitespace-nowrap rounded-lg bg-dark px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-soft transition-opacity group-hover:opacity-100">
+              {item.label}
+            </span>
+          )}
+        </>
       )}
     </NavLink>
   )
