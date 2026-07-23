@@ -17,6 +17,7 @@ import type * as employees from "../employees.js";
 import type * as http from "../http.js";
 import type * as lib from "../lib.js";
 import type * as reports from "../reports.js";
+import type * as sales from "../sales.js";
 import type * as seed from "../seed.js";
 import type * as settings from "../settings.js";
 import type * as setup from "../setup.js";
@@ -40,6 +41,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   lib: typeof lib;
   reports: typeof reports;
+  sales: typeof sales;
   seed: typeof seed;
   settings: typeof settings;
   setup: typeof setup;
