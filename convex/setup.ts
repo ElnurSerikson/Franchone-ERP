@@ -161,6 +161,54 @@ export const seedSmm = mutation({
   },
 })
 
+// ДЕМО: мок-данные рекламных кампаний для таба «Таргетолог».
+// Удаляется мутацией setup:clearCampaigns по команде.
+export const seedCampaigns = mutation({
+  args: {},
+  handler: async (ctx) => {
+    for (const c of await ctx.db.query('campaigns').collect()) await ctx.db.delete(c._id)
+
+    const CAMPAIGNS = [
+      { code: 'FR-001', account: 'FRANCHONE', category: 'Свои услуги', brand: 'Подбор франшизы', campaign: 'Подбор франшизы', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 400000, planLeads: 80, factBudget: 385000, factLeads: 96 },
+      { code: 'FR-002', account: 'FRANCHONE', category: 'Свои услуги', brand: 'Брокеридж', campaign: 'Брокеридж', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 300000, planLeads: 40, factBudget: 320000, factLeads: 33 },
+      { code: 'FR-003', account: 'FRANCHONE', category: 'Свои услуги', brand: 'Invite', campaign: 'Invite', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 250000, planLeads: 50, factBudget: 240000, factLeads: 44 },
+      { code: 'AN-001', account: 'ANUAR', category: 'Свои услуги', brand: 'Упаковка франшизы', campaign: 'Упаковка франшизы', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 500000, planLeads: 25, factBudget: 520000, factLeads: 22 },
+      { code: 'AN-002', account: 'ANUAR', category: 'Свои услуги', brand: 'Настройка продаж', campaign: 'Настройка продаж', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 200000, planLeads: 30, factBudget: 180000, factLeads: 20 },
+      { code: 'AN-003', account: 'ANUAR', category: 'Свои услуги', brand: 'Консультации', campaign: 'Консультации', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 150000, planLeads: 40, factBudget: 160000, factLeads: 51 },
+      { code: 'PT-001', account: 'GREEK FOOD', category: 'Партнёр', brand: 'Greek Food', campaign: 'Лидген франшизы', moneySource: 'Партнёр', status: 'Активна', weight: 0.125, planBudget: 300000, planLeads: 60, factBudget: 310000, factLeads: 72 },
+      { code: 'PT-002', account: 'ROMANTIC', category: 'Партнёр', brand: 'Romantic Flowers', campaign: 'Лидген франшизы', moneySource: 'Партнёр', status: 'Пауза', weight: 0.125, planBudget: 200000, planLeads: 50, factBudget: 195000, factLeads: 45 },
+    ] as const
+
+    for (const c of CAMPAIGNS) {
+      await ctx.db.insert('campaigns', {
+        code: c.code,
+        account: c.account,
+        category: c.category,
+        brand: c.brand,
+        campaign: c.campaign,
+        moneySource: c.moneySource,
+        status: c.status,
+        weight: c.weight,
+        planBudget: c.planBudget,
+        planLeads: c.planLeads,
+        factBudget: c.factBudget,
+        factLeads: c.factLeads,
+      })
+    }
+    return { campaigns: CAMPAIGNS.length }
+  },
+})
+
+// Удалить все кампании (снять демо-данные таргетолога).
+export const clearCampaigns = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const all = await ctx.db.query('campaigns').collect()
+    for (const c of all) await ctx.db.delete(c._id)
+    return { deleted: all.length }
+  },
+})
+
 // Сделать аккаунт скрытым владельцем (служебный/разработчик): полный доступ
 // по роли owner, но невидим во всех списках фронта. Вход и роль работают
 // (currentEmployee/isInvited матчат по email независимо от hidden).
