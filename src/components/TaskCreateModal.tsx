@@ -3,6 +3,7 @@ import { useMutation } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
 import { X, Loader2 } from 'lucide-react'
+import DatePicker from './ui/DatePicker'
 import type { Employee, Priority } from '@/types'
 
 const inputCls =
@@ -92,7 +93,7 @@ export default function TaskCreateModal({
             </div>
             <div>
               <label className="block text-sm font-medium text-ink-2 mb-1.5">Срок</label>
-              <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)} required className={inputCls} />
+              <DatePicker value={deadline} onChange={setDeadline} />
             </div>
             <div>
               <label className="block text-sm font-medium text-ink-2 mb-1.5">Метки</label>
@@ -103,7 +104,11 @@ export default function TaskCreateModal({
 
         <div className="flex items-center justify-end gap-2 px-6 py-4 border-t border-line">
           <button type="button" onClick={onClose} className="btn btn-ghost">Отмена</button>
-          <button type="submit" disabled={loading} className="btn btn-green disabled:opacity-60">
+          <button
+            type="submit"
+            disabled={loading || !title.trim() || !deadline}
+            className="btn btn-green disabled:opacity-60"
+          >
             {loading ? <Loader2 size={16} className="animate-spin" /> : null}
             Создать задачу
           </button>

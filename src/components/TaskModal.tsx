@@ -9,6 +9,7 @@ import type { Employee, Priority, Task, TaskStatus } from '@/types'
 import { isOverdue } from '@/lib/selectors'
 import { shortDate } from '@/lib/format'
 import Avatar from './ui/Avatar'
+import DatePicker from './ui/DatePicker'
 import { statusMeta } from './ui/StatusChip'
 
 const statuses: TaskStatus[] = ['assigned', 'in_progress', 'done']
@@ -165,11 +166,9 @@ export default function TaskModal({
               </select>
             </Field>
             <Field label="Срок">
-              <input
-                type="date"
-                defaultValue={task.deadline}
-                onChange={(e) => e.target.value && update({ id: tid, patch: { deadline: e.target.value } })}
-                className={inputCls}
+              <DatePicker
+                value={task.deadline}
+                onChange={(v) => v && update({ id: tid, patch: { deadline: v } })}
               />
             </Field>
             <Field label="Постановщик">
