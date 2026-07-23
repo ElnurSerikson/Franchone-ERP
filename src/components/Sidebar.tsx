@@ -244,7 +244,11 @@ export default function Sidebar({
             <Avatar initials={user.initials} color={user.avatarColor} size={40} />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-ink truncate">{user.name}</div>
-              <div className="text-[11px] text-muted truncate">{roleLabel[user.role]}</div>
+              {/* Должность, а не роль: роль — это уровень доступа, а под именем
+                  полезнее видеть, чем человек занимается. */}
+              <div className="text-[11px] text-muted truncate">
+                {user.positionLabel || roleLabel[user.role]}
+              </div>
             </div>
             <button
               onClick={() => void signOut()}
