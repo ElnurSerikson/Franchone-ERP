@@ -11,7 +11,7 @@ export default {
           d: '#044f48',
           light: '#4db3a6',
         },
-        dark: '#0c1f16',
+        dark: '#04332e',
         ink: {
           DEFAULT: '#1c1d22',
           2: '#3a3d44',
