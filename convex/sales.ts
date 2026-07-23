@@ -1,16 +1,17 @@
 import { query } from './_generated/server'
+import { v } from 'convex/values'
 
 // Текущий месяц в часовом поясе Алматы (YYYY-MM).
 function businessMonth(): string {
   return new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 7)
 }
 
-// Сводка по отделу продаж за текущий месяц — агрегируем ежедневные отчёты
+// Сводка по отделу продаж за месяц — агрегируем ежедневные отчёты
 // с продажным блоком (§3.3). Пусто, пока нет отчётов.
 export const summary = query({
-  args: {},
-  handler: async (ctx) => {
-    const month = businessMonth()
+  args: { month: v.optional(v.string()) },
+  handler: async (ctx, { month: arg }) => {
+    const month = arg ?? businessMonth()
     const reports = await ctx.db.query('dailyReports').collect()
     let leads = 0
     let meetings = 0

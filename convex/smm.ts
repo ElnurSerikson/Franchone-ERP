@@ -2,9 +2,10 @@ import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 
 export const list = query({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db.query('smmMetrics').collect()
+  args: { month: v.optional(v.string()) },
+  handler: async (ctx, { month }) => {
+    const rows = await ctx.db.query('smmMetrics').collect()
+    return month ? rows.filter((r) => r.month === month) : rows
   },
 })
 

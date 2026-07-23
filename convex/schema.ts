@@ -44,6 +44,7 @@ export default defineSchema({
     weight: v.number(),
     weekPlans: v.array(v.number()), // 5 недель
     weekFacts: v.array(v.number()), // 5 недель
+    month: v.optional(v.string()), // месяц данных, YYYY-MM
   }).index('by_employee', ['employeeId']),
 
   // KPI Таргетолог — рекламные кампании
@@ -61,6 +62,7 @@ export default defineSchema({
     planLeads: v.number(),
     factBudget: v.number(),
     factLeads: v.number(),
+    month: v.optional(v.string()), // месяц данных, YYYY-MM
   }).index('by_code', ['code']),
 
   // Задачи (Kanban). Статусы по ТЗ: assigned / in_progress / done.

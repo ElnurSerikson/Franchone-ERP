@@ -155,6 +155,7 @@ export const seedSmm = mutation({
         weight: m.weight,
         weekPlans: [...m.weekPlans],
         weekFacts: [...m.weekFacts],
+        month: '2026-07',
       })
     }
     return { rows: SMM.length }
@@ -193,6 +194,7 @@ export const seedCampaigns = mutation({
         planLeads: c.planLeads,
         factBudget: c.factBudget,
         factLeads: c.factLeads,
+        month: '2026-07',
       })
     }
     return { campaigns: CAMPAIGNS.length }

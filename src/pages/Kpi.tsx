@@ -2,19 +2,33 @@ import { useState, type ReactNode } from 'react'
 import { useQuery } from 'convex/react'
 import {
   TrendingUp, Wallet, Building2, User, Users, Target,
-  ShoppingCart, Percent, Receipt, Loader2, type LucideIcon,
+  ShoppingCart, Percent, Receipt, Loader2, ChevronLeft, ChevronRight, type LucideIcon,
 } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
-import type { Campaign, SmmMetric } from '@/types'
 import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
-import { useData } from '@/lib/useData'
 import { computeSmm, computeTargetolog, spendBySource } from '@/lib/kpi'
+import { mapSmm, mapCampaign } from '@/lib/mappers'
 import { kzt, num, pct } from '@/lib/format'
 
 // Базы выплат (KPI_SMM / KPI_TARGETOLOG). Выплата = база × Итоговый KPI.
 const SMM_BASE = 600000
 const TARGETOLOG_BASE = 200000
+
+const MONTHS = [
+  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+]
+function formatMonth(ym: string): string {
+  const [y, m] = ym.split('-').map(Number)
+  return `${MONTHS[m - 1]} ${y}`
+}
+function addMonth(ym: string, delta: number): string {
+  const [y, m] = ym.split('-').map(Number)
+  const d = new Date(y, m - 1 + delta, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+const CURRENT_MONTH = new Date().toISOString().slice(0, 7)
 
 type Dept = 'smm' | 'targetolog' | 'sales'
 const DEPTS: { id: Dept; label: string }[] = [
@@ -27,21 +41,46 @@ const acctShort = (a: string) => (a === 'FRANCHONE' ? 'FR' : a === 'ANUAR' ? 'An
 
 export default function Kpi() {
   const [dept, setDept] = useState<Dept>('smm')
-  const { smmMetrics, campaigns, reportMonth } = useData()
+  const [month, setMonth] = useState(CURRENT_MONTH)
+  const monthLabel = formatMonth(month)
+  const atCurrent = month >= CURRENT_MONTH
 
   const subtitle =
     dept === 'smm'
-      ? `Контент · FRANCHONE + ANUAR · ${reportMonth}`
+      ? `Контент · FRANCHONE + ANUAR · ${monthLabel}`
       : dept === 'targetolog'
-        ? `Реклама · кампании · ${reportMonth}`
-        : `Отдел продаж · ${reportMonth}`
+        ? `Реклама · кампании · ${monthLabel}`
+        : `Отдел продаж · ${monthLabel}`
 
   return (
     <>
       <PageHeader
         title="KPI"
         subtitle={subtitle}
-        actions={<button className="btn btn-green">{reportMonth}</button>}
+        actions={
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setMonth(addMonth(month, -1))}
+              className="ico-btn w-9 h-9"
+              aria-label="Предыдущий месяц"
+              title="Предыдущий месяц"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <div className="btn btn-green min-w-[132px] justify-center cursor-default select-none">
+              {monthLabel}
+            </div>
+            <button
+              onClick={() => setMonth(addMonth(month, 1))}
+              disabled={atCurrent}
+              className="ico-btn w-9 h-9 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-white"
+              aria-label="Следующий месяц"
+              title={atCurrent ? 'Текущий месяц' : 'Следующий месяц'}
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        }
       />
 
       {/* Переключатель отделов (по должности, без имён) */}
@@ -59,15 +98,35 @@ export default function Kpi() {
         ))}
       </div>
 
-      {dept === 'smm' && <SmmKpi smmMetrics={smmMetrics} reportMonth={reportMonth} />}
-      {dept === 'targetolog' && <TargetologKpi campaigns={campaigns} reportMonth={reportMonth} />}
-      {dept === 'sales' && <SalesKpi reportMonth={reportMonth} />}
+      {dept === 'smm' && <SmmKpi month={month} monthLabel={monthLabel} />}
+      {dept === 'targetolog' && <TargetologKpi month={month} monthLabel={monthLabel} />}
+      {dept === 'sales' && <SalesKpi month={month} monthLabel={monthLabel} />}
     </>
   )
 }
 
+function Loading() {
+  return (
+    <div className="card p-10 grid place-items-center text-muted">
+      <Loader2 className="animate-spin" size={20} />
+    </div>
+  )
+}
+
 // ——— SMM: контент-KPI (FRANCHONE + ANUAR) ———
-function SmmKpi({ smmMetrics, reportMonth }: { smmMetrics: SmmMetric[]; reportMonth: string }) {
+function SmmKpi({ month, monthLabel }: { month: string; monthLabel: string }) {
+  const raw = useQuery(api.smm.list, { month })
+  if (raw === undefined) return <Loading />
+  const smmMetrics = raw.map(mapSmm)
+  if (smmMetrics.length === 0)
+    return (
+      <EmptyKpi
+        icon={TrendingUp}
+        title="Нет данных за этот месяц"
+        hint="Контент-показатели SMM за выбранный месяц ещё не заведены. Переключите месяц или добавьте план и факт."
+      />
+    )
+
   const smm = computeSmm(smmMetrics)
   const payoutVal = Math.round(SMM_BASE * smm.totalKpi)
 
@@ -75,8 +134,8 @@ function SmmKpi({ smmMetrics, reportMonth }: { smmMetrics: SmmMetric[]; reportMo
     id: r.metric.id,
     label: `${acctShort(r.metric.account)} — ${r.metric.format}`,
     plan: r.plan,
-    done: r.plan ? r.fact / r.plan : 0, // выполнение (может быть >100%)
-    ratio: r.ratio, // ограничено 100% — для графика
+    done: r.plan ? r.fact / r.plan : 0,
+    ratio: r.ratio,
   }))
 
   return (
@@ -96,7 +155,7 @@ function SmmKpi({ smmMetrics, reportMonth }: { smmMetrics: SmmMetric[]; reportMo
 
       <div className="card overflow-hidden mb-5">
         <div className="px-5 py-3.5 border-b border-line">
-          <h3 className="sec-title">План и выполнение · {reportMonth}</h3>
+          <h3 className="sec-title">План и выполнение · {monthLabel}</h3>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[440px]">
@@ -134,14 +193,17 @@ function SmmKpi({ smmMetrics, reportMonth }: { smmMetrics: SmmMetric[]; reportMo
 }
 
 // ——— Таргетолог: KPI по рекламным кампаниям ———
-function TargetologKpi({ campaigns, reportMonth }: { campaigns: Campaign[]; reportMonth: string }) {
+function TargetologKpi({ month, monthLabel }: { month: string; monthLabel: string }) {
+  const raw = useQuery(api.campaigns.list, { month })
+  if (raw === undefined) return <Loading />
+  const campaigns = raw.map(mapCampaign)
+
   const tg = computeTargetolog(campaigns)
   const src = spendBySource(campaigns)
   const payoutVal = Math.round(TARGETOLOG_BASE * tg.totalKpi)
 
   return (
     <>
-      {/* Главные метрики */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
         <StatCard highlight label="Общий расход" value={kzt(tg.totalSpend)} foot="реклама за месяц" icon={Wallet} />
         <StatCard label="Деньги FRANCHONE" value={kzt(src.FRANCHONE.spend)} foot="свои услуги" icon={Building2} />
@@ -149,21 +211,19 @@ function TargetologKpi({ campaigns, reportMonth }: { campaigns: Campaign[]; repo
         <StatCard label="Заявки" value={num(tg.totalLeads)} foot="всего за месяц" icon={Target} />
       </div>
 
-      {/* Доп. метрики — компактной полосой */}
       <div className="card grid grid-cols-3 divide-x divide-line mb-5">
         <MiniMetric label="Средний CPL" value={kzt(tg.avgCpl)} />
         <MiniMetric label="Общий KPI" value={pct(tg.totalKpi, 1)} accent />
         <MiniMetric label="Выплата" value={kzt(payoutVal)} />
       </div>
 
-      {/* Кампании */}
       <div className="card overflow-hidden">
         <div className="px-5 py-3.5 border-b border-line">
-          <h3 className="sec-title">Кампании · {reportMonth}</h3>
+          <h3 className="sec-title">Кампании · {monthLabel}</h3>
         </div>
         {campaigns.length === 0 ? (
           <div className="p-10 text-center text-sm text-muted">
-            Нет активных кампаний. Добавьте кампании, чтобы наполнить показатели.
+            Нет активных кампаний за этот месяц. Добавьте кампании, чтобы наполнить показатели.
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -210,14 +270,9 @@ function TargetologKpi({ campaigns, reportMonth }: { campaigns: Campaign[]; repo
 }
 
 // ——— Отдел продаж: результаты + воронка (данные из ежедневных отчётов §3.3) ———
-function SalesKpi({ reportMonth }: { reportMonth: string }) {
-  const s = useQuery(api.sales.summary, {})
-  if (s === undefined)
-    return (
-      <div className="card p-10 grid place-items-center text-muted">
-        <Loader2 className="animate-spin" size={20} />
-      </div>
-    )
+function SalesKpi({ month, monthLabel }: { month: string; monthLabel: string }) {
+  const s = useQuery(api.sales.summary, { month })
+  if (s === undefined) return <Loading />
 
   const { leads, meetings, deals, revenue, days } = s
 
@@ -225,7 +280,7 @@ function SalesKpi({ reportMonth }: { reportMonth: string }) {
     return (
       <EmptyKpi
         icon={ShoppingCart}
-        title="Пока нет данных по продажам"
+        title="Нет данных по продажам за этот месяц"
         hint="Показатели соберутся из ежедневных отчётов отдела продаж (§3.3): заявки, звонки/встречи, сделки и выручка."
       />
     )
@@ -254,7 +309,7 @@ function SalesKpi({ reportMonth }: { reportMonth: string }) {
       </div>
 
       <div className="card p-5">
-        <h3 className="sec-title mb-4">Воронка продаж · {reportMonth}</h3>
+        <h3 className="sec-title mb-4">Воронка продаж · {monthLabel}</h3>
         <div className="flex flex-col gap-3.5">
           {funnel.map((st, i) => (
             <div key={st.label}>
