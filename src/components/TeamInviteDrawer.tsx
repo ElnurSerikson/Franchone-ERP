@@ -3,7 +3,6 @@ import { useMutation } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import { UserPlus, X, Loader2, CheckCircle2, Mail } from 'lucide-react'
 import Select from './ui/Select'
-import DatePicker from './ui/DatePicker'
 
 const inputCls =
   'w-full rounded-lg border border-line-2 px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-green-light bg-white'
@@ -16,13 +15,6 @@ const POSITIONS: { value: Position; label: string; dept: string }[] = [
   { value: 'targetolog', label: 'Таргетолог', dept: 'Маркетинг' },
   { value: 'sales', label: 'Менеджер по продажам', dept: 'Продажи' },
   { value: 'packer', label: 'Упаковщик / проект-менеджер', dept: 'Производство' },
-]
-
-const DEPARTMENTS = ['Руководство', 'Маркетинг', 'Продажи', 'Производство']
-
-const ROLES = [
-  { value: 'employee', label: 'Сотрудник' },
-  { value: 'head', label: 'Руководитель отдела' },
 ]
 
 const today = () => new Date().toISOString().slice(0, 10)
@@ -65,22 +57,12 @@ export default function TeamInviteDrawer({ onClose }: { onClose: () => void }) {
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
   const [position, setPosition] = useState<Position>('smm')
-  const [department, setDepartment] = useState('Маркетинг')
-  const [role, setRole] = useState('employee')
-  const [salary, setSalary] = useState('')
-  const [hiredAt, setHiredAt] = useState(today())
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [invited, setInvited] = useState<{ name: string; email: string } | null>(null)
 
   const posMeta = useMemo(() => POSITIONS.find((p) => p.value === position)!, [position])
-
-  const onPosition = (v: string) => {
-    const p = v as Position
-    setPosition(p)
-    setDepartment(POSITIONS.find((x) => x.value === p)?.dept ?? department)
-  }
 
   const canSubmit = firstName.trim() && lastName.trim() && email.trim() && !loading
 
@@ -98,10 +80,11 @@ export default function TeamInviteDrawer({ onClose }: { onClose: () => void }) {
         phone: phone.trim(),
         position,
         positionLabel: posMeta.label,
-        department,
-        role: role as 'head' | 'employee',
-        salary: Number(salary) || 0,
-        hiredAt,
+        // Скрытые поля — значения по умолчанию (редактируются позже в карточке).
+        department: posMeta.dept,
+        role: 'employee',
+        salary: 0,
+        hiredAt: today(),
       })
       setInvited({ name, email: email.trim().toLowerCase() })
     } catch (err) {
@@ -117,10 +100,6 @@ export default function TeamInviteDrawer({ onClose }: { onClose: () => void }) {
     setEmail('')
     setPhone('')
     setPosition('smm')
-    setDepartment('Маркетинг')
-    setRole('employee')
-    setSalary('')
-    setHiredAt(today())
     setError(null)
     setInvited(null)
   }
@@ -159,80 +138,51 @@ export default function TeamInviteDrawer({ onClose }: { onClose: () => void }) {
         ) : (
           <form onSubmit={submit} className="flex-1 min-h-0 flex flex-col">
             <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5 flex flex-col gap-4">
-              <Section title="Профиль">
-                <Field label="Имя">
-                  <input
-                    ref={firstRef}
-                    value={firstName}
-                    onChange={(e) => setFirstName(e.target.value)}
-                    className={inputCls}
-                    placeholder="Нурай"
-                    required
-                  />
-                </Field>
-                <Field label="Фамилия">
-                  <input
-                    value={lastName}
-                    onChange={(e) => setLastName(e.target.value)}
-                    className={inputCls}
-                    placeholder="Сагатова"
-                    required
-                  />
-                </Field>
-                <Field label="Email (логин)">
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className={inputCls}
-                    placeholder="nuray@franchone.kz"
-                    required
-                  />
-                </Field>
-                <Field label="Телефон">
-                  <input
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className={inputCls}
-                    placeholder="+7 707 000 00 00"
-                  />
-                </Field>
-              </Section>
-
-              <Section title="Должность и доступ">
-                <Field label="Должность">
-                  <Select
-                    value={position}
-                    onChange={onPosition}
-                    options={POSITIONS.map((p) => ({ value: p.value, label: p.label }))}
-                  />
-                </Field>
-                <Field label="Отдел">
-                  <Select
-                    value={department}
-                    onChange={setDepartment}
-                    options={DEPARTMENTS.map((d) => ({ value: d, label: d }))}
-                  />
-                </Field>
-                <Field label="Роль">
-                  <Select value={role} onChange={setRole} options={ROLES} />
-                </Field>
-              </Section>
-
-              <Section title="Оплата">
-                <Field label="Оклад, ₸">
-                  <input
-                    inputMode="numeric"
-                    value={salary}
-                    onChange={(e) => setSalary(e.target.value.replace(/[^\d]/g, ''))}
-                    className={inputCls}
-                    placeholder="0"
-                  />
-                </Field>
-                <Field label="Дата найма">
-                  <DatePicker value={hiredAt} onChange={setHiredAt} />
-                </Field>
-              </Section>
+              <Field label="Имя">
+                <input
+                  ref={firstRef}
+                  value={firstName}
+                  onChange={(e) => setFirstName(e.target.value)}
+                  className={inputCls}
+                  placeholder="Введите имя"
+                  required
+                />
+              </Field>
+              <Field label="Фамилия">
+                <input
+                  value={lastName}
+                  onChange={(e) => setLastName(e.target.value)}
+                  className={inputCls}
+                  placeholder="Введите фамилию"
+                  required
+                />
+              </Field>
+              <Field label="Email (логин)">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className={inputCls}
+                  placeholder="you@franchone.kz"
+                  required
+                />
+              </Field>
+              <Field label="Телефон">
+                <input
+                  inputMode="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className={inputCls}
+                  placeholder="+7 701 111 22 33"
+                />
+              </Field>
+              <Field label="Должность">
+                <Select
+                  value={position}
+                  onChange={(v) => setPosition(v as Position)}
+                  options={POSITIONS.map((p) => ({ value: p.value, label: p.label }))}
+                />
+              </Field>
             </div>
 
             {/* footer */}
@@ -289,17 +239,6 @@ function SuccessPanel({
           Готово
         </button>
       </div>
-    </div>
-  )
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div>
-      <div className="text-[11px] font-semibold text-muted-2 uppercase tracking-wider mb-2">
-        {title}
-      </div>
-      <div className="flex flex-col gap-3">{children}</div>
     </div>
   )
 }
