@@ -159,7 +159,7 @@ function SmmKpi({ month }: { month: string }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[440px]">
             <thead>
-              <tr className="bg-line-2">
+              <tr className="bg-[#e2f2ef]">
                 <Th>Показатель</Th>
                 <Th right>План</Th>
                 <Th right>Выполнение</Th>
@@ -217,7 +217,7 @@ function TargetologKpi({ month }: { month: string }) {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[680px]">
               <thead>
-                <tr className="bg-line-2">
+                <tr className="bg-[#e2f2ef]">
                   <Th>Кампания</Th>
                   <Th>Источник</Th>
                   <Th right>Бюджет</Th>
@@ -350,7 +350,7 @@ function EmptyKpi({ icon: Icon, title, hint }: { icon: LucideIcon; title: string
 function Th({ children, right }: { children: ReactNode; right?: boolean }) {
   return (
     <th
-      className={`px-5 py-3 text-[11px] font-semibold text-ink uppercase tracking-wide ${
+      className={`px-5 py-3 text-[11px] font-semibold text-green-d uppercase tracking-wide ${
         right ? 'text-right' : 'text-left'
       }`}
     >

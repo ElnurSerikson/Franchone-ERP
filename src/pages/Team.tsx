@@ -12,7 +12,7 @@ import { useData } from '@/lib/useData'
 import { errMessage } from '@/lib/errors'
 import { roleLabel, useCurrentUser } from '@/store'
 
-const thBase = 'text-[11px] font-semibold text-ink uppercase tracking-wide px-4 py-3'
+const thBase = 'text-[11px] font-semibold text-green-d uppercase tracking-wide px-4 py-3'
 const th = `text-left ${thBase}`
 const thCenter = `text-center ${thBase}`
 const td = 'px-4 py-3 text-sm text-ink-2 border-t border-line align-middle'
@@ -62,9 +62,9 @@ export default function Team() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[680px]">
             <thead>
-              <tr className="bg-line-2">
+              <tr className="bg-[#e2f2ef]">
                 <th
-                  className={`${th} sticky left-0 z-20 bg-line-2 border-r border-line md:static md:z-auto md:border-r-0`}
+                  className={`${th} sticky left-0 z-20 bg-[#e2f2ef] border-r border-line md:static md:z-auto md:border-r-0`}
                 >
                   Сотрудник
                 </th>
