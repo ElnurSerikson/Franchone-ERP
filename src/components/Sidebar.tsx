@@ -57,9 +57,8 @@ function Item({
       to={item.to}
       end={item.to === '/'}
       onClick={onNavigate}
-      title={collapsed ? item.label : undefined}
       className={({ isActive }) =>
-        `relative flex items-center h-11 rounded-xl text-sm font-medium transition-colors ${
+        `group relative flex items-center h-11 rounded-xl text-sm font-medium transition-colors ${
           collapsed ? 'w-11 justify-center mx-auto px-0' : 'gap-3 px-3'
         } ${isActive ? 'nav-item-active' : 'text-ink-2/80 hover:bg-chip'}`
       }
@@ -74,6 +73,12 @@ function Item({
       {collapsed && item.badge ? (
         <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-green ring-2 ring-card" />
       ) : null}
+      {/* Бейдж с названием раздела при наведении на иконку в рейле */}
+      {collapsed && (
+        <span className="pointer-events-none absolute left-full ml-2 top-1/2 -translate-y-1/2 z-50 whitespace-nowrap rounded-lg bg-dark px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-soft transition-opacity group-hover:opacity-100">
+          {item.label}
+        </span>
+      )}
     </NavLink>
   )
 }
@@ -109,7 +114,11 @@ export default function Sidebar({
   }
 
   const visible = (items: NavItem[]) => items.filter((i) => i.roles.includes(role))
-  const label = 'text-[11px] font-semibold text-muted-2 tracking-wider px-3 mb-1'
+  // whitespace-nowrap + overflow-hidden: в свёрнутом рейле заголовок прячется через
+  // invisible, но продолжает резервировать ровно одну строку — иконки разделов
+  // остаются на той же высоте, что и в развёрнутом сайдбаре.
+  const label =
+    'text-[11px] font-semibold text-muted-2 tracking-wider px-3 mb-1 whitespace-nowrap overflow-hidden'
   const onNavigate = isPhone ? onClose : undefined
 
   return (
@@ -126,46 +135,63 @@ export default function Sidebar({
       <aside
         className={`shrink-0 h-screen bg-card border-r border-line flex flex-col py-5 fixed top-0 left-0 z-50 shadow-soft transition-transform duration-200 ease-in-out w-[280px] px-4 ${
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
-        } md:sticky md:top-0 md:left-auto md:z-auto md:shadow-none md:translate-x-0 md:transition-[width] ${
+        } md:sticky md:top-0 md:left-auto md:z-30 md:shadow-none md:translate-x-0 md:transition-[width] ${
           collapsed ? 'md:w-[76px] md:px-3' : 'md:w-[264px] md:px-4'
         }`}
       >
         {/* Brand + toggle/close */}
-        <div className={`flex mb-6 ${collapsed ? 'flex-col items-center gap-2' : 'items-center gap-2 px-1'}`}>
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-green flex items-center justify-center text-white text-[17px] font-extrabold shrink-0 select-none">
-              F
+        <div className={`flex mb-6 ${collapsed ? 'justify-center' : 'items-center gap-2 px-1'}`}>
+          {collapsed ? (
+            // В рейле: иконка бренда, по ховеру в той же ячейке — кнопка раскрытия.
+            <div className="group relative w-9 h-9">
+              <div className="w-9 h-9 rounded-xl bg-green flex items-center justify-center text-white text-[17px] font-extrabold select-none transition-opacity group-hover:opacity-0">
+                F
+              </div>
+              <button
+                onClick={toggle}
+                aria-label="Развернуть меню"
+                title="Развернуть меню"
+                className="absolute inset-0 rounded-xl flex items-center justify-center bg-chip text-ink-2 hover:text-ink opacity-0 transition-opacity group-hover:opacity-100"
+              >
+                <PanelLeftOpen size={18} />
+              </button>
             </div>
-            {!collapsed && (
-              <span className="text-[20px] font-extrabold tracking-tight leading-none select-none">
-                <span className="text-ink">FRANCH</span>
-                <span className="text-green">ONE</span>
-              </span>
-            )}
-          </div>
-          {!collapsed && <div className="flex-1" />}
-          {isPhone ? (
-            <button
-              onClick={onClose}
-              aria-label="Закрыть меню"
-              className="w-9 h-9 rounded-lg flex items-center justify-center text-muted hover:text-ink hover:bg-chip transition-colors shrink-0 md:hidden"
-            >
-              <X size={18} />
-            </button>
           ) : (
-            <button
-              onClick={toggle}
-              aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'}
-              title={collapsed ? 'Развернуть меню' : 'Свернуть меню'}
-              className="w-8 h-8 rounded-lg items-center justify-center text-muted hover:text-ink hover:bg-chip transition-colors shrink-0 hidden md:flex"
-            >
-              {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
-            </button>
+            <>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-green flex items-center justify-center text-white text-[17px] font-extrabold shrink-0 select-none">
+                  F
+                </div>
+                <span className="text-[20px] font-extrabold tracking-tight leading-none select-none">
+                  <span className="text-ink">FRANCH</span>
+                  <span className="text-green">ONE</span>
+                </span>
+              </div>
+              <div className="flex-1" />
+              {isPhone ? (
+                <button
+                  onClick={onClose}
+                  aria-label="Закрыть меню"
+                  className="w-9 h-9 rounded-lg flex items-center justify-center text-muted hover:text-ink hover:bg-chip transition-colors shrink-0 md:hidden"
+                >
+                  <X size={18} />
+                </button>
+              ) : (
+                <button
+                  onClick={toggle}
+                  aria-label="Свернуть меню"
+                  title="Свернуть меню"
+                  className="w-8 h-8 rounded-lg items-center justify-center text-muted hover:text-ink hover:bg-chip transition-colors shrink-0 hidden md:flex"
+                >
+                  <PanelLeftClose size={18} />
+                </button>
+              )}
+            </>
           )}
         </div>
 
         {/* Menu */}
-        {!collapsed && <div className={label}>МЕНЮ</div>}
+        <div className={`${label} ${collapsed ? 'invisible' : ''}`}>МЕНЮ</div>
         <nav className="flex flex-col gap-1">
           {visible(menu).map((i) => (
             <Item
@@ -180,7 +206,7 @@ export default function Sidebar({
         {visible(manage).length > 0 && (
           <>
             <div className={`my-4 border-t border-line ${collapsed ? 'mx-1' : ''}`} />
-            {!collapsed && <div className={label}>УПРАВЛЕНИЕ</div>}
+            <div className={`${label} ${collapsed ? 'invisible' : ''}`}>УПРАВЛЕНИЕ</div>
             <nav className="flex flex-col gap-1">
               {visible(manage).map((i) => (
                 <Item key={i.to} item={i} collapsed={collapsed} onNavigate={onNavigate} />
