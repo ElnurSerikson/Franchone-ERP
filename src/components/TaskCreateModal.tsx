@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'rea
 import { useMutation } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
-import { X, Loader2, ListPlus } from 'lucide-react'
+import { X, Loader2, ListPlus, Link2, Upload, Paperclip } from 'lucide-react'
 import DatePicker from './ui/DatePicker'
 import Select, { type SelectOption } from './ui/Select'
 import type { Employee, Priority } from '@/types'
@@ -18,6 +18,12 @@ export const PRIORITY_OPTS: SelectOption[] = [
   { value: 'urgent', label: 'Срочный', dot: '#c53030' },
 ]
 
+// Вложение, добавленное до создания задачи. Файлы держим локально и заливаем
+// только при отправке — иначе отменённая форма оставляла бы мусор в хранилище.
+type Pending =
+  | { kind: 'link'; name: string; url: string }
+  | { kind: 'file'; name: string; file: File }
+
 // Drawer создания задачи — тот же шаблон, что и у карточки сотрудника:
 // выезжает справа, шапка с иконкой, поля в одну колонку, липкий футер.
 export default function TaskCreateModal({
@@ -28,11 +34,16 @@ export default function TaskCreateModal({
   onClose: () => void
 }) {
   const create = useMutation(api.tasks.create)
+  const addLinkMut = useMutation(api.tasks.addLink)
+  const addFileMut = useMutation(api.tasks.addFile)
+  const generateUploadUrl = useMutation(api.tasks.generateUploadUrl)
+
   // Назначать можно только действующих сотрудников.
   const assignable = employees.filter((e) => e.status === 'active')
 
   const [shown, setShown] = useState(false)
   const firstRef = useRef<HTMLInputElement>(null)
+  const fileRef = useRef<HTMLInputElement>(null)
   useEffect(() => {
     const id = requestAnimationFrame(() => setShown(true))
     // Фокус на первое поле, но без прокрутки формы (иначе прячется верхняя метка).
@@ -52,31 +63,62 @@ export default function TaskCreateModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Ничего не предвыбираем — исполнителя и приоритет выбирает пользователь.
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [assigneeId, setAssigneeId] = useState(assignable[0]?.id ?? '')
-  const [priority, setPriority] = useState<Priority>('medium')
+  const [assigneeId, setAssigneeId] = useState('')
+  const [priority, setPriority] = useState<Priority | ''>('')
   const [deadline, setDeadline] = useState('')
   const [tags, setTags] = useState('')
+  const [attachments, setAttachments] = useState<Pending[]>([])
+  const [linkUrl, setLinkUrl] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const canSubmit = title.trim() && assigneeId && deadline && !loading
+  // Обязательно всё, кроме меток и вложений.
+  const canSubmit =
+    title.trim() && description.trim() && assigneeId && priority && deadline && !loading
+
+  const addLink = () => {
+    const url = linkUrl.trim()
+    if (!url) return
+    setAttachments((a) => [...a, { kind: 'link', name: url, url }])
+    setLinkUrl('')
+  }
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
     if (!canSubmit) return
+    setError(null)
     setLoading(true)
     try {
-      await create({
+      const taskId = await create({
         title: title.trim(),
-        description: description.trim() || undefined,
+        description: description.trim(),
         assigneeId: assigneeId as Id<'employees'>,
-        priority,
+        priority: priority as Priority,
         deadline,
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
       })
+
+      // Вложения цепляем уже к созданной задаче.
+      for (const a of attachments) {
+        if (a.kind === 'link') {
+          await addLinkMut({ taskId, name: a.name, url: a.url })
+        } else {
+          const uploadUrl = await generateUploadUrl()
+          const res = await fetch(uploadUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': a.file.type },
+            body: a.file,
+          })
+          const { storageId } = await res.json()
+          await addFileMut({ taskId, storageId, name: a.name })
+        }
+      }
       close()
-    } finally {
+    } catch {
+      setError('Не удалось создать задачу. Попробуйте ещё раз.')
       setLoading(false)
     }
   }
@@ -127,22 +169,92 @@ export default function TaskCreateModal({
                 rows={3}
                 className={`${inputCls} resize-y`}
                 placeholder="Детали задачи…"
+                required
               />
             </Field>
             <Field label="Исполнитель">
               <Select
                 value={assigneeId}
                 onChange={setAssigneeId}
+                placeholder="Выберите исполнителя"
                 options={assignable.map((e) => ({ value: e.id, label: e.name, dot: e.avatarColor }))}
               />
             </Field>
             <Field label="Приоритет">
-              <Select value={priority} onChange={(v) => setPriority(v as Priority)} options={PRIORITY_OPTS} />
+              <Select
+                value={priority}
+                onChange={(v) => setPriority(v as Priority)}
+                placeholder="Выберите приоритет"
+                options={PRIORITY_OPTS}
+              />
             </Field>
             <Field label="Срок">
               <DatePicker value={deadline} onChange={setDeadline} />
             </Field>
-            <Field label="Метки">
+
+            <Field label="Вложения" hint="необязательно">
+              {attachments.length > 0 && (
+                <div className="flex flex-col gap-1.5 mb-2">
+                  {attachments.map((a, i) => (
+                    <div
+                      key={i}
+                      className="flex items-center gap-2 text-sm rounded-lg border border-line-2 bg-white px-2.5 py-2"
+                    >
+                      {a.kind === 'file' ? (
+                        <Paperclip size={14} className="text-muted shrink-0" />
+                      ) : (
+                        <Link2 size={14} className="text-muted shrink-0" />
+                      )}
+                      <span className="flex-1 truncate text-ink-2">{a.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setAttachments((list) => list.filter((_, j) => j !== i))}
+                        className="text-muted hover:text-[#c53030] shrink-0"
+                        title="Убрать"
+                      >
+                        <X size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-2">
+                <input
+                  value={linkUrl}
+                  onChange={(e) => setLinkUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addLink()
+                    }
+                  }}
+                  className={inputCls}
+                  placeholder="Вставьте ссылку…"
+                />
+                <button type="button" onClick={addLink} className="mini-btn h-10 shrink-0">
+                  <Link2 size={14} /> Ссылка
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className="mini-btn h-10 shrink-0"
+                >
+                  <Upload size={14} /> Файл
+                </button>
+              </div>
+              <input
+                ref={fileRef}
+                type="file"
+                hidden
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  if (f) setAttachments((a) => [...a, { kind: 'file', name: f.name, file: f }])
+                  e.target.value = ''
+                }}
+              />
+            </Field>
+
+            <Field label="Метки" hint="необязательно">
               <input
                 value={tags}
                 onChange={(e) => setTags(e.target.value)}
@@ -154,6 +266,7 @@ export default function TaskCreateModal({
 
           {/* footer */}
           <div className="shrink-0 border-t border-line bg-white px-5 sm:px-6 py-4 [padding-bottom:max(1rem,env(safe-area-inset-bottom))]">
+            {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
             <div className="flex items-center gap-2">
               <button type="button" onClick={close} className="btn btn-ghost flex-1">
                 Отмена
@@ -170,10 +283,13 @@ export default function TaskCreateModal({
   )
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div>
-      <label className={labelCls}>{label}</label>
+      <label className={labelCls}>
+        {label}
+        {hint && <span className="text-muted-2 font-normal"> · {hint}</span>}
+      </label>
       {children}
     </div>
   )
