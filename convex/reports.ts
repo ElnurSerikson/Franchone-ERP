@@ -88,8 +88,8 @@ export const submit = mutation({
   },
   handler: async (ctx, args) => {
     const me = await requireEmployee(ctx)
-    if (!REPORTING.has(me.position)) {
-      throw new Error('Для вашей должности дневной отчёт не предусмотрен')
+    if (me.role === 'owner' || !REPORTING.has(me.position)) {
+      throw new Error('Для вашей роли ежедневный отчёт не предусмотрен')
     }
     const position = me.position as 'smm' | 'targetolog' | 'sales'
     const date = args.date ?? businessToday()
@@ -147,7 +147,7 @@ export const discipline = query({
         .query('employees')
         .withIndex('by_status', (q) => q.eq('status', 'active'))
         .collect()
-    ).filter((e) => REPORTING.has(e.position))
+    ).filter((e) => e.role !== 'owner' && REPORTING.has(e.position))
 
     const rows = []
     for (const e of emps) {

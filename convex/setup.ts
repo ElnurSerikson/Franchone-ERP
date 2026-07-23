@@ -124,7 +124,6 @@ export const seedReports = mutation({
       emps.find((e) => e.position === p && (role ? e.role === role : true))!
     const smm = byPos('smm')
     const targ = byPos('targetolog')
-    const salesOwner = byPos('sales', 'owner')
     const salesHead = byPos('sales', 'head')
 
     const today = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
@@ -159,7 +158,7 @@ export const seedReports = mutation({
     }
 
     // Нурай (SMM) — дисциплинирован, одно опоздание, один пропуск.
-    await insert(smm, '-ooooloooo-ooo', (date) => {
+    await insert(smm, 'oooooloooo-ooo', (date) => {
       const seed = Number(date.slice(-2))
       return {
         smm: [
@@ -189,22 +188,8 @@ export const seedReports = mutation({
       }
     })
 
-    // Ануар (владелец, продажи) — заполняет стабильно, включая сегодня.
-    await insert(salesOwner, 'oooooolooooooo', (date) => {
-      const seed = Number(date.slice(-2))
-      return {
-        sales: {
-          leads: 14 + (seed % 8),
-          meetings: 4 + (seed % 3),
-          sales: 1 + (seed % 3),
-          revenue: (1 + (seed % 3)) * 350000,
-          note: '',
-        },
-      }
-    })
-
-    // Аружан (руководитель, продажи) — стабильно, пара опозданий и пропуск.
-    await insert(salesHead, '-oloooooolo--o', (date) => {
+    // Аружан (руководитель отдела продаж) — сдаёт наравне с сотрудниками.
+    await insert(salesHead, 'ooloooooolo--o', (date) => {
       const seed = Number(date.slice(-2))
       return {
         sales: {
