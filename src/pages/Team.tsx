@@ -1,7 +1,9 @@
+import { useState } from 'react'
 import { UserPlus, Search, Pencil, Archive, MoreHorizontal, Mail, Phone } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
 import Avatar from '@/components/ui/Avatar'
 import { KpiChip } from '@/components/ui/StatusChip'
+import TeamInviteDrawer from '@/components/TeamInviteDrawer'
 import { useData } from '@/lib/useData'
 import { employeeKpi } from '@/lib/selectors'
 import { kzt, pct } from '@/lib/format'
@@ -13,13 +15,14 @@ const td = 'px-4 py-3 text-sm text-ink-2 border-t border-line align-middle'
 export default function Team() {
   const { employees, smmMetrics, campaigns } = useData()
   const departments = Array.from(new Set(employees.map((e) => e.department)))
+  const [inviting, setInviting] = useState(false)
   return (
     <>
       <PageHeader
         title="Команда"
         subtitle={`${employees.length} сотрудников · ${departments.length} отдела`}
         actions={
-          <button className="btn btn-green">
+          <button className="btn btn-green" onClick={() => setInviting(true)}>
             <UserPlus size={16} /> Добавить сотрудника
           </button>
         }
@@ -114,6 +117,8 @@ export default function Team() {
           </table>
         </div>
       </div>
+
+      {inviting && <TeamInviteDrawer onClose={() => setInviting(false)} />}
     </>
   )
 }
