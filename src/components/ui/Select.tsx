@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, Check } from 'lucide-react'
 import { useIsSmDown } from '@/lib/useMediaQuery'
+import AnchoredPopover from './AnchoredPopover'
 
 export interface SelectOption {
   value: string
@@ -27,19 +28,10 @@ export default function Select({
   align?: 'left' | 'right'
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
   const selected = options.find((o) => o.value === value)
   const isSheet = useIsSmDown() // на телефоне открываем bottom-sheet
-
-  // Клик вне — закрыть (только для абсолютного поповера; у листа есть свой backdrop).
-  useEffect(() => {
-    if (!open || isSheet) return
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open, isSheet])
+  // Клик вне: на десктопе им занимается AnchoredPopover, у листа свой backdrop.
 
   const trigger =
     variant === 'ghost'
@@ -69,8 +61,8 @@ export default function Select({
   )
 
   return (
-    <div ref={ref} className={`relative ${variant === 'ghost' ? 'inline-block' : ''} ${className}`}>
-      <button type="button" onClick={() => setOpen((o) => !o)} className={trigger}>
+    <div className={`relative ${variant === 'ghost' ? 'inline-block' : ''} ${className}`}>
+      <button ref={btnRef} type="button" onClick={() => setOpen((o) => !o)} className={trigger}>
         {selected?.dot && (
           <span className="w-2 h-2 rounded-full shrink-0" style={{ background: selected.dot }} />
         )}
@@ -99,13 +91,16 @@ export default function Select({
             document.body,
           )
         ) : (
-          <div
-            className={`absolute z-[60] mt-1.5 bg-white rounded-xl border border-line shadow-soft p-1.5 max-h-64 overflow-y-auto max-w-[calc(100vw-1.5rem)] ${
-              align === 'right' ? 'right-0' : 'left-0'
-            } ${variant === 'ghost' ? 'min-w-[170px]' : 'w-full min-w-max'}`}
+          <AnchoredPopover
+            anchorRef={btnRef}
+            onClose={() => setOpen(false)}
+            align={align}
+            minWidth={variant === 'ghost' ? 170 : btnRef.current?.offsetWidth}
           >
-            {options.map((o) => optionBtn(o))}
-          </div>
+            <div className="bg-white rounded-xl border border-line shadow-soft p-1.5 max-h-64 overflow-y-auto max-w-[calc(100vw-1.5rem)]">
+              {options.map((o) => optionBtn(o))}
+            </div>
+          </AnchoredPopover>
         ))}
     </div>
   )

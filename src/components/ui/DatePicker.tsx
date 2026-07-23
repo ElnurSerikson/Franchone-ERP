@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useIsSmDown } from '@/lib/useMediaQuery'
+import AnchoredPopover from './AnchoredPopover'
 
 const MONTHS = [
   'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
@@ -36,17 +37,9 @@ export default function DatePicker({
   const selected = parse(value)
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<Date>(() => selected ?? new Date())
-  const ref = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
   const isSheet = useIsSmDown() // на телефоне — bottom-sheet
-
-  useEffect(() => {
-    if (!open || isSheet) return
-    const onDoc = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', onDoc)
-    return () => document.removeEventListener('mousedown', onDoc)
-  }, [open, isSheet])
+  // Клик вне: на десктопе им занимается AnchoredPopover, у листа свой backdrop.
 
   const today = new Date()
   const y = view.getFullYear()
@@ -133,8 +126,9 @@ export default function DatePicker({
   )
 
   return (
-    <div ref={ref} className="relative">
+    <div className="relative">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => {
           if (!open && selected) setView(selected)
@@ -158,9 +152,11 @@ export default function DatePicker({
             document.body,
           )
         ) : (
-          <div className="absolute z-[60] mt-1.5 w-64 max-w-[calc(100vw-1.5rem)] bg-white rounded-xl border border-line shadow-soft p-3">
-            {calendar}
-          </div>
+          <AnchoredPopover anchorRef={btnRef} onClose={() => setOpen(false)}>
+            <div className="w-64 max-w-[calc(100vw-1.5rem)] bg-white rounded-xl border border-line shadow-soft p-3">
+              {calendar}
+            </div>
+          </AnchoredPopover>
         ))}
     </div>
   )
