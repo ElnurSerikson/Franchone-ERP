@@ -241,7 +241,13 @@ function SalesKpi({ reportMonth }: { reportMonth: string }) {
         <StatCard label="Средний чек" value={kzt(avgCheck)} foot="выручка / сделки" icon={Receipt} />
       </div>
 
-      <div className="card p-5 mb-5">
+      <div className="card grid grid-cols-3 divide-x divide-line mb-5">
+        <MiniMetric label="Заявка → встреча" value={pct(leads ? meetings / leads : 0, 0)} />
+        <MiniMetric label="Встреча → сделка" value={pct(meetings ? deals / meetings : 0, 0)} accent />
+        <MiniMetric label="Сделок за месяц" value={num(deals)} />
+      </div>
+
+      <div className="card p-5">
         <h3 className="sec-title mb-4">Воронка продаж · {reportMonth}</h3>
         <div className="flex flex-col gap-3.5">
           {funnel.map((st, i) => (
@@ -264,12 +270,6 @@ function SalesKpi({ reportMonth }: { reportMonth: string }) {
             </div>
           ))}
         </div>
-      </div>
-
-      <div className="card grid grid-cols-3 divide-x divide-line">
-        <MiniMetric label="Заявка → встреча" value={pct(leads ? meetings / leads : 0, 0)} />
-        <MiniMetric label="Встреча → сделка" value={pct(meetings ? deals / meetings : 0, 0)} accent />
-        <MiniMetric label="Сделок в день" value={days ? num(deals / days, 1) : '—'} />
       </div>
     </>
   )
