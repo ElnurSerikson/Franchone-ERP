@@ -101,8 +101,8 @@ export default function Kpi() {
         ))}
       </div>
 
-      {dept === 'smm' && <SmmKpi month={month} monthLabel={monthLabel} />}
-      {dept === 'targetolog' && <TargetologKpi month={month} monthLabel={monthLabel} />}
+      {dept === 'smm' && <SmmKpi month={month} />}
+      {dept === 'targetolog' && <TargetologKpi month={month} />}
       {dept === 'sales' && <SalesKpi month={month} monthLabel={monthLabel} />}
     </>
   )
@@ -117,7 +117,7 @@ function Loading() {
 }
 
 // ——— SMM: контент-KPI (FRANCHONE + ANUAR) ———
-function SmmKpi({ month, monthLabel }: { month: string; monthLabel: string }) {
+function SmmKpi({ month }: { month: string }) {
   const raw = useQuery(api.smm.list, { month })
   if (raw === undefined) return <Loading />
   const smmMetrics = raw.map(mapSmm)
@@ -157,9 +157,6 @@ function SmmKpi({ month, monthLabel }: { month: string; monthLabel: string }) {
       </div>
 
       <div className="card overflow-hidden mb-5">
-        <div className="px-5 py-3.5 border-b border-line">
-          <h3 className="sec-title">План и выполнение · {monthLabel}</h3>
-        </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[440px]">
             <thead>
@@ -193,7 +190,7 @@ function SmmKpi({ month, monthLabel }: { month: string; monthLabel: string }) {
 }
 
 // ——— Таргетолог: KPI по рекламным кампаниям ———
-function TargetologKpi({ month, monthLabel }: { month: string; monthLabel: string }) {
+function TargetologKpi({ month }: { month: string }) {
   const raw = useQuery(api.campaigns.list, { month })
   if (raw === undefined) return <Loading />
   const campaigns = raw.map(mapCampaign)
@@ -218,9 +215,6 @@ function TargetologKpi({ month, monthLabel }: { month: string; monthLabel: strin
       </div>
 
       <div className="card overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-line">
-          <h3 className="sec-title">Кампании · {monthLabel}</h3>
-        </div>
         {campaigns.length === 0 ? (
           <div className="p-10 text-center text-sm text-muted">
             Нет активных кампаний за этот месяц. Добавьте кампании, чтобы наполнить показатели.
