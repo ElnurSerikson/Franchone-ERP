@@ -29,9 +29,9 @@ export default function Team() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[680px]">
             <thead>
-              <tr className="bg-chip">
+              <tr className="bg-line-2">
                 <th
-                  className={`${th} sticky left-0 z-20 bg-chip border-r border-line md:static md:z-auto md:border-r-0`}
+                  className={`${th} sticky left-0 z-20 bg-line-2 border-r border-line md:static md:z-auto md:border-r-0`}
                 >
                   Сотрудник
                 </th>
