@@ -132,16 +132,17 @@ export default function Sidebar({
       >
         {/* Brand + toggle/close */}
         <div className={`flex mb-6 ${collapsed ? 'flex-col items-center gap-2' : 'items-center gap-2 px-1'}`}>
-          {collapsed ? (
-            <div className="w-9 h-9 rounded-xl bg-green flex items-center justify-center text-white font-extrabold shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-green flex items-center justify-center text-white text-[17px] font-extrabold shrink-0 select-none">
               F
             </div>
-          ) : (
-            <span className="text-[20px] font-extrabold tracking-tight leading-none select-none shrink-0">
-              <span className="text-ink">FRANCH</span>
-              <span className="text-green">ONE</span>
-            </span>
-          )}
+            {!collapsed && (
+              <span className="text-[20px] font-extrabold tracking-tight leading-none select-none">
+                <span className="text-ink">FRANCH</span>
+                <span className="text-green">ONE</span>
+              </span>
+            )}
+          </div>
           {!collapsed && <div className="flex-1" />}
           {isPhone ? (
             <button
