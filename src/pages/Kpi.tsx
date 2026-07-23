@@ -1,5 +1,10 @@
 import { useState, type ReactNode } from 'react'
-import { TrendingUp, Wallet, Building2, User, Users, Target, Wrench, type LucideIcon } from 'lucide-react'
+import { useQuery } from 'convex/react'
+import {
+  TrendingUp, Wallet, Building2, User, Users, Target,
+  ShoppingCart, Percent, Receipt, Loader2, type LucideIcon,
+} from 'lucide-react'
+import { api } from '../../convex/_generated/api'
 import type { Campaign, SmmMetric } from '@/types'
 import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
@@ -56,13 +61,7 @@ export default function Kpi() {
 
       {dept === 'smm' && <SmmKpi smmMetrics={smmMetrics} reportMonth={reportMonth} />}
       {dept === 'targetolog' && <TargetologKpi campaigns={campaigns} reportMonth={reportMonth} />}
-      {dept === 'sales' && (
-        <EmptyKpi
-          icon={Wrench}
-          title="KPI-модель уточняется"
-          hint="Метрики отдела продаж будут определены дополнительно. Как только зададим формулу — здесь появятся показатели и выплаты."
-        />
-      )}
+      {dept === 'sales' && <SalesKpi reportMonth={reportMonth} />}
     </>
   )
 }
@@ -199,6 +198,78 @@ function TargetologKpi({ campaigns, reportMonth }: { campaigns: Campaign[]; repo
             </table>
           </div>
         )}
+      </div>
+    </>
+  )
+}
+
+// ——— Отдел продаж: результаты + воронка (данные из ежедневных отчётов §3.3) ———
+function SalesKpi({ reportMonth }: { reportMonth: string }) {
+  const s = useQuery(api.sales.summary, {})
+  if (s === undefined)
+    return (
+      <div className="card p-10 grid place-items-center text-muted">
+        <Loader2 className="animate-spin" size={20} />
+      </div>
+    )
+
+  const { leads, meetings, deals, revenue, days } = s
+
+  if (days === 0)
+    return (
+      <EmptyKpi
+        icon={ShoppingCart}
+        title="Пока нет данных по продажам"
+        hint="Показатели соберутся из ежедневных отчётов отдела продаж (§3.3): заявки, звонки/встречи, сделки и выручка."
+      />
+    )
+
+  const conv = leads ? deals / leads : 0
+  const avgCheck = deals ? revenue / deals : 0
+  const funnel = [
+    { label: 'Заявки', value: leads, color: '#057269' },
+    { label: 'Звонки / встречи', value: meetings, color: '#0a857a' },
+    { label: 'Сделки', value: deals, color: '#4db3a6' },
+  ]
+
+  return (
+    <>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
+        <StatCard highlight label="Выручка" value={kzt(revenue)} foot="за месяц" icon={Wallet} />
+        <StatCard label="Сделок" value={num(deals)} foot="закрыто за месяц" icon={ShoppingCart} />
+        <StatCard label="Конверсия" value={pct(conv, 1)} foot="заявка → сделка" icon={Percent} />
+        <StatCard label="Средний чек" value={kzt(avgCheck)} foot="выручка / сделки" icon={Receipt} />
+      </div>
+
+      <div className="card p-5 mb-5">
+        <h3 className="sec-title mb-4">Воронка продаж · {reportMonth}</h3>
+        <div className="flex flex-col gap-3.5">
+          {funnel.map((st, i) => (
+            <div key={st.label}>
+              <div className="flex items-baseline justify-between text-sm mb-1.5">
+                <span className="text-ink-2">{st.label}</span>
+                <span className="font-semibold text-ink tabular-nums">
+                  {num(st.value)}
+                  {i > 0 && leads ? (
+                    <span className="text-muted font-normal"> · {pct(st.value / leads, 0)}</span>
+                  ) : null}
+                </span>
+              </div>
+              <div className="h-3.5 rounded-full bg-line overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{ width: `${leads ? Math.max((st.value / leads) * 100, 2) : 0}%`, background: st.color }}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="card grid grid-cols-3 divide-x divide-line">
+        <MiniMetric label="Заявка → встреча" value={pct(leads ? meetings / leads : 0, 0)} />
+        <MiniMetric label="Встреча → сделка" value={pct(meetings ? deals / meetings : 0, 0)} accent />
+        <MiniMetric label="Сделок в день" value={days ? num(deals / days, 1) : '—'} />
       </div>
     </>
   )

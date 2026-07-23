@@ -209,6 +209,73 @@ export const clearCampaigns = mutation({
   },
 })
 
+// ДЕМО: продажные ежедневные отчёты за текущий месяц (для таба «Отдел продаж»).
+// Привязаны к владельцу — в дисциплине/«Мой отчёт» не показываются, только в KPI.
+// Удаляются мутацией setup:clearSalesDemo по команде.
+export const seedSalesDemo = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const owner = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', 'tassymbekovsky@gmail.com'))
+      .first()
+    if (!owner) throw new Error('Владелец не найден')
+
+    for (const r of await ctx.db
+      .query('dailyReports')
+      .withIndex('by_employee', (q) => q.eq('employeeId', owner._id))
+      .collect()) {
+      if (r.sales) await ctx.db.delete(r._id)
+    }
+
+    const DATA = [
+      { date: '2026-07-01', leads: 45, meetings: 26, sales: 7, revenue: 2450000 },
+      { date: '2026-07-03', leads: 38, meetings: 22, sales: 6, revenue: 2100000 },
+      { date: '2026-07-05', leads: 50, meetings: 30, sales: 8, revenue: 2800000 },
+      { date: '2026-07-08', leads: 42, meetings: 24, sales: 7, revenue: 2450000 },
+      { date: '2026-07-10', leads: 40, meetings: 23, sales: 6, revenue: 2100000 },
+      { date: '2026-07-12', leads: 45, meetings: 25, sales: 8, revenue: 2800000 },
+    ]
+    for (const d of DATA) {
+      const at = Date.parse(`${d.date}T18:00:00+05:00`)
+      await ctx.db.insert('dailyReports', {
+        employeeId: owner._id,
+        position: 'sales',
+        date: d.date,
+        submittedAt: at,
+        onTime: true,
+        editCount: 0,
+        history: [{ at, byId: owner._id, action: 'submitted' as const }],
+        sales: { leads: d.leads, meetings: d.meetings, sales: d.sales, revenue: d.revenue, note: '' },
+      })
+    }
+    return { days: DATA.length }
+  },
+})
+
+// Снять демо-данные продаж (продажные отчёты владельца).
+export const clearSalesDemo = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const owner = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', 'tassymbekovsky@gmail.com'))
+      .first()
+    if (!owner) return { deleted: 0 }
+    let n = 0
+    for (const r of await ctx.db
+      .query('dailyReports')
+      .withIndex('by_employee', (q) => q.eq('employeeId', owner._id))
+      .collect()) {
+      if (r.sales) {
+        await ctx.db.delete(r._id)
+        n++
+      }
+    }
+    return { deleted: n }
+  },
+})
+
 // Сделать аккаунт скрытым владельцем (служебный/разработчик): полный доступ
 // по роли owner, но невидим во всех списках фронта. Вход и роль работают
 // (currentEmployee/isInvited матчат по email независимо от hidden).
