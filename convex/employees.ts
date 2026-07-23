@@ -17,6 +17,7 @@ export const create = mutation({
       v.literal('targetolog'),
       v.literal('sales'),
       v.literal('packer'),
+      v.literal('developer'),
     ),
     positionLabel: v.string(),
     department: v.string(),

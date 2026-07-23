@@ -125,6 +125,63 @@ export const recolorAvatars = mutation({
   },
 })
 
+// Сброс команды под реальный старт: стирает демо-данные (задачи, кампании,
+// SMM-метрики, ежедневные отчёты, входы) и старых сотрудников, создаёт
+// реальную стартовую команду (владелец + AI-разработчик). Auth-таблицы не трогаем.
+export const resetTeam = mutation({
+  args: {},
+  handler: async (ctx) => {
+    // 1. Зависимые демо-данные
+    for (const t of [
+      'taskComments',
+      'taskEvents',
+      'taskAttachments',
+      'tasks',
+      'dailyReports',
+      'smmMetrics',
+      'campaigns',
+      'loginEvents',
+    ] as const) {
+      for (const r of await ctx.db.query(t).collect()) await ctx.db.delete(r._id)
+    }
+
+    // 2. Все текущие сотрудники
+    for (const e of await ctx.db.query('employees').collect()) await ctx.db.delete(e._id)
+
+    // 3. Реальная стартовая команда (email в нижнем регистре — это логин)
+    const owner = await ctx.db.insert('employees', {
+      name: 'Ануар Тасымбеков',
+      role: 'owner',
+      position: 'sales',
+      positionLabel: 'Владелец / основатель',
+      department: 'Руководство',
+      salary: 0,
+      email: 'tassymbekovsky@gmail.com',
+      phone: '',
+      avatarColor: '#057269',
+      initials: 'АТ',
+      status: 'active',
+      hiredAt: '2017-01-10',
+    })
+    const dev = await ctx.db.insert('employees', {
+      name: 'Елнур Серикулы',
+      role: 'employee',
+      position: 'developer',
+      positionLabel: 'AI разработчик',
+      department: 'Разработка',
+      salary: 0,
+      email: 'elnur.serikson@gmail.com',
+      phone: '',
+      avatarColor: '#0a857a',
+      initials: 'ЕС',
+      status: 'active',
+      hiredAt: '2026-07-01',
+    })
+
+    return { owner, dev, team: 2 }
+  },
+})
+
 // Демо-отчёты для раздела «Отчёты» (§3). Наполняет сетку дисциплины
 // за последние 14 дней с разным статусом (в срок / с опозданием / пропуск).
 export const seedReports = mutation({

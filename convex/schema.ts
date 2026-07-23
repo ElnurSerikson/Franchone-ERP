@@ -17,6 +17,7 @@ export default defineSchema({
       v.literal('targetolog'),
       v.literal('sales'),
       v.literal('packer'),
+      v.literal('developer'),
     ),
     positionLabel: v.string(),
     department: v.string(),

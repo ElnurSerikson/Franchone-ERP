@@ -2,7 +2,7 @@
 
 export type Role = 'owner' | 'head' | 'employee'
 
-export type Position = 'smm' | 'targetolog' | 'sales' | 'packer'
+export type Position = 'smm' | 'targetolog' | 'sales' | 'packer' | 'developer'
 
 export interface Employee {
   id: string
