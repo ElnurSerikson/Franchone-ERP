@@ -163,7 +163,7 @@ function SmmKpi({ month, monthLabel }: { month: string; monthLabel: string }) {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[440px]">
             <thead>
-              <tr style={{ background: '#04332e' }}>
+              <tr className="bg-line-2">
                 <Th>Показатель</Th>
                 <Th right>План</Th>
                 <Th right>Выполнение</Th>
@@ -174,11 +174,8 @@ function SmmKpi({ month, monthLabel }: { month: string; monthLabel: string }) {
                 <tr key={r.id} className="border-t border-line hover:bg-chip/40 transition-colors">
                   <td className="px-5 py-3 text-sm text-ink-2">{r.label}</td>
                   <td className="px-5 py-3 text-sm text-ink-2 text-right tabular-nums">{r.plan}</td>
-                  <td
-                    className="px-5 py-3 text-sm font-bold text-right tabular-nums"
-                    style={{ color: r.done >= 1 ? '#057269' : '#1c1d22' }}
-                  >
-                    {pct(r.done, 1)}
+                  <td className="px-5 py-3 text-right">
+                    <PctChip value={r.done} />
                   </td>
                 </tr>
               ))}
@@ -232,7 +229,7 @@ function TargetologKpi({ month, monthLabel }: { month: string; monthLabel: strin
           <div className="overflow-x-auto">
             <table className="w-full min-w-[680px]">
               <thead>
-                <tr style={{ background: '#04332e' }}>
+                <tr className="bg-line-2">
                   <Th>Кампания</Th>
                   <Th>Источник</Th>
                   <Th right>Бюджет</Th>
@@ -260,7 +257,9 @@ function TargetologKpi({ month, monthLabel }: { month: string; monthLabel: strin
                     <td className="px-5 py-3 text-sm text-ink-2 text-right tabular-nums">{kzt(r.campaign.factBudget)}</td>
                     <td className="px-5 py-3 text-sm text-ink-2 text-right tabular-nums">{num(r.campaign.factLeads)}</td>
                     <td className="px-5 py-3 text-sm text-ink-2 text-right tabular-nums">{kzt(r.factCpl)}</td>
-                    <td className="px-5 py-3 text-sm font-bold text-ink text-right tabular-nums">{pct(r.kpi, 1)}</td>
+                    <td className="px-5 py-3 text-right">
+                      <PctChip value={r.kpi} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -363,12 +362,23 @@ function EmptyKpi({ icon: Icon, title, hint }: { icon: LucideIcon; title: string
 function Th({ children, right }: { children: ReactNode; right?: boolean }) {
   return (
     <th
-      className={`px-5 py-3 text-[11px] font-semibold text-white/85 uppercase tracking-wide ${
+      className={`px-5 py-3 text-[11px] font-semibold text-ink uppercase tracking-wide ${
         right ? 'text-right' : 'text-left'
       }`}
     >
       {children}
     </th>
+  )
+}
+
+// Процент выполнения плана — чипом в тех же цветах, что статусы в «Команде».
+function PctChip({ value }: { value: number }) {
+  return (
+    <span
+      className={`chip tabular-nums ${value >= 1 ? 'bg-[#e2f2ef] text-green-d' : 'bg-chip text-ink-2'}`}
+    >
+      {pct(value, 1)}
+    </span>
   )
 }
 
