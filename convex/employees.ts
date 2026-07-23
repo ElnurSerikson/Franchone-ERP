@@ -86,14 +86,19 @@ export const updateMember = mutation({
     lastName: v.string(),
     email: v.string(),
     phone: v.string(),
-    position: v.union(
-      v.literal('smm'),
-      v.literal('targetolog'),
-      v.literal('sales'),
-      v.literal('packer'),
+    // Должность необязательна: если её не прислали — не трогаем. Так не
+    // затирается кастомный титул (напр. «Руководитель отдела продаж»), когда
+    // правят только имя или телефон.
+    position: v.optional(
+      v.union(
+        v.literal('smm'),
+        v.literal('targetolog'),
+        v.literal('sales'),
+        v.literal('packer'),
+      ),
     ),
-    positionLabel: v.string(),
-    department: v.string(),
+    positionLabel: v.optional(v.string()),
+    department: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const me = await requireEmployee(ctx)
@@ -121,15 +126,26 @@ export const updateMember = mutation({
     }
 
     const name = `${firstName} ${lastName}`.trim()
-    await ctx.db.patch(args.id, {
+    const base = {
       name,
       initials: ((firstName[0] ?? '') + (lastName[0] ?? '')).toUpperCase() || '—',
       email,
       phone: args.phone.trim(),
-      position: args.position,
-      positionLabel: args.positionLabel,
-      department: args.department,
-    })
+    }
+
+    // У владельца должность не редактируется: в поле position у него лежит
+    // техническое значение (модель KPI), а настоящий титул — в positionLabel
+    // («Владелец / основатель»). Пикер должностей его затёр бы.
+    if (args.position && target.role !== 'owner') {
+      await ctx.db.patch(args.id, {
+        ...base,
+        position: args.position,
+        positionLabel: args.positionLabel ?? target.positionLabel,
+        department: args.department ?? target.department,
+      })
+    } else {
+      await ctx.db.patch(args.id, base)
+    }
   },
 })
 

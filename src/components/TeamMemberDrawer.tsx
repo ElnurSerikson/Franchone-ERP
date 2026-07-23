@@ -64,9 +64,13 @@ export default function TeamMemberDrawer({
   const [lastName, setLastName] = useState(parts.slice(1).join(' '))
   const [email, setEmail] = useState(employee?.email ?? '')
   const [phone, setPhone] = useState(employee?.phone ?? '')
-  const [position, setPosition] = useState<Position>(
-    employee && isPosition(employee.position) ? employee.position : 'smm',
-  )
+  // У владельца в position лежит техническое значение (модель KPI), а реальный
+  // титул — в positionLabel («Владелец / основатель»). Пикер бы его затёр,
+  // поэтому владельцу показываем должность как есть, без выбора.
+  const isOwnerEdit = isEdit && employee!.role === 'owner'
+  const initialPosition: Position =
+    employee && isPosition(employee.position) ? employee.position : 'smm'
+  const [position, setPosition] = useState<Position>(initialPosition)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -82,23 +86,36 @@ export default function TeamMemberDrawer({
     setError(null)
     setLoading(true)
     try {
-      const common = {
+      const person = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
         phone: phone.trim(),
-        position,
-        positionLabel: posMeta.label,
-        department: posMeta.dept,
       }
       if (isEdit) {
-        await updateMember({ id: employee!.id as Id<'employees'>, ...common })
+        await updateMember({
+          id: employee!.id as Id<'employees'>,
+          ...person,
+          // Должность шлём, только если её реально меняли — иначе затёрли бы
+          // существующий титул. Владельцу её менять нельзя вовсе.
+          ...(!isOwnerEdit && position !== initialPosition
+            ? { position, positionLabel: posMeta.label, department: posMeta.dept }
+            : {}),
+        })
         close()
       } else {
-        const name = `${firstName.trim()} ${lastName.trim()}`.trim()
+        const name = `${person.firstName} ${person.lastName}`.trim()
         // Скрытые поля — значения по умолчанию (редактируются позже).
-        await invite({ ...common, role: 'employee', salary: 0, hiredAt: today() })
-        setInvited({ name, email: email.trim().toLowerCase() })
+        await invite({
+          ...person,
+          position,
+          positionLabel: posMeta.label,
+          department: posMeta.dept,
+          role: 'employee',
+          salary: 0,
+          hiredAt: today(),
+        })
+        setInvited({ name, email: person.email.toLowerCase() })
       }
     } catch (err) {
       setError(
@@ -197,11 +214,22 @@ export default function TeamMemberDrawer({
                 />
               </Field>
               <Field label="Должность">
-                <Select
-                  value={position}
-                  onChange={(v) => setPosition(v as Position)}
-                  options={POSITIONS.map((p) => ({ value: p.value, label: p.label }))}
-                />
+                {isOwnerEdit ? (
+                  <>
+                    <div className="w-full rounded-lg border border-line-2 bg-chip px-3 py-2.5 text-sm text-ink-2 select-none">
+                      {employee!.positionLabel}
+                    </div>
+                    <p className="text-[11px] text-muted-2 mt-1.5">
+                      Должность владельца не меняется
+                    </p>
+                  </>
+                ) : (
+                  <Select
+                    value={position}
+                    onChange={(v) => setPosition(v as Position)}
+                    options={POSITIONS.map((p) => ({ value: p.value, label: p.label }))}
+                  />
+                )}
               </Field>
             </div>
 
