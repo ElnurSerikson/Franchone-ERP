@@ -284,16 +284,9 @@ function SalesKpi({ month, monthLabel }: { month: string; monthLabel: string }) 
   const s = useQuery(api.sales.summary, { month })
   if (s === undefined) return <Loading />
 
-  const { leads, meetings, deals, revenue, days } = s
-
-  if (days === 0)
-    return (
-      <EmptyKpi
-        icon={ShoppingCart}
-        title="Нет данных по продажам за этот месяц"
-        hint="Показатели соберутся из ежедневных отчётов отдела продаж (§3.3): заявки, звонки/встречи, сделки и выручка."
-      />
-    )
+  // Пустого состояния нет намеренно: месяц без отчётов — это тоже результат,
+  // и нули в карточках читаются понятнее, чем заглушка вместо показателей.
+  const { leads, meetings, deals, revenue } = s
 
   const conv = leads ? deals / leads : 0
   const avgCheck = deals ? revenue / deals : 0
