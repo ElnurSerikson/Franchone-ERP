@@ -51,11 +51,8 @@ export default function Login() {
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="flex flex-col items-center mb-7">
-          <div className="w-12 h-12 rounded-2xl bg-green flex items-center justify-center text-white text-xl font-extrabold mb-3">
-            F
-          </div>
-          <div className="text-lg font-extrabold tracking-tight text-ink">FRANCHONE</div>
-          <div className="text-xs text-muted">ERP · Панель управления</div>
+          <img src="/logo-wordmark.png" alt="FRANCHONE" className="w-56 h-auto mb-2.5" />
+          <div className="text-xs text-muted tracking-wide">ERP · Панель управления</div>
         </div>
 
         <div className="card p-6">

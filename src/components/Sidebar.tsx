@@ -94,16 +94,15 @@ export default function Sidebar() {
       }`}
     >
       {/* Brand + toggle */}
-      <div className={`flex mb-6 ${collapsed ? 'flex-col items-center gap-2' : 'items-center gap-2.5 px-1'}`}>
-        <div className="w-9 h-9 rounded-xl bg-green flex items-center justify-center text-white font-extrabold shrink-0">
-          F
-        </div>
-        {!collapsed && (
-          <div className="leading-tight flex-1 min-w-0">
-            <div className="font-extrabold tracking-tight text-ink">FRANCHONE</div>
-            <div className="text-[11px] text-muted -mt-0.5">ERP · Панель</div>
+      <div className={`flex mb-6 ${collapsed ? 'flex-col items-center gap-2' : 'items-center gap-2 px-1'}`}>
+        {collapsed ? (
+          <div className="w-9 h-9 rounded-xl bg-green flex items-center justify-center text-white font-extrabold shrink-0">
+            F
           </div>
+        ) : (
+          <img src="/logo-franchone.png" alt="FRANCHONE" className="h-[30px] w-auto shrink-0" />
         )}
+        {!collapsed && <div className="flex-1" />}
         <button
           onClick={toggle}
           aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'}
