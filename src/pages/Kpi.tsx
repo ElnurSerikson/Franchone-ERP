@@ -1,5 +1,6 @@
-import type { ReactNode } from 'react'
-import { TrendingUp, Wallet, Building2, User } from 'lucide-react'
+import { useState, type ReactNode } from 'react'
+import { TrendingUp, Wallet, Building2, User, Megaphone, Wrench, type LucideIcon } from 'lucide-react'
+import type { SmmMetric } from '@/types'
 import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
 import { useData } from '@/lib/useData'
@@ -9,10 +10,70 @@ import { kzt, pct } from '@/lib/format'
 // База выплаты за контент (KPI_SMM). Выплата = база × Итоговый KPI.
 const SMM_BASE = 600000
 
+type Dept = 'smm' | 'targetolog' | 'sales'
+const DEPTS: { id: Dept; label: string }[] = [
+  { id: 'smm', label: 'SMM' },
+  { id: 'targetolog', label: 'Таргетолог' },
+  { id: 'sales', label: 'Отдел продаж' },
+]
+
 const acctShort = (a: string) => (a === 'FRANCHONE' ? 'FR' : a === 'ANUAR' ? 'Anuar' : a)
 
 export default function Kpi() {
+  const [dept, setDept] = useState<Dept>('smm')
   const { smmMetrics, reportMonth } = useData()
+
+  const subtitle =
+    dept === 'smm'
+      ? `Контент · FRANCHONE + ANUAR · ${reportMonth}`
+      : dept === 'targetolog'
+        ? `Реклама · кампании · ${reportMonth}`
+        : `Отдел продаж · ${reportMonth}`
+
+  return (
+    <>
+      <PageHeader
+        title="KPI"
+        subtitle={subtitle}
+        actions={<button className="btn btn-green">{reportMonth}</button>}
+      />
+
+      {/* Переключатель отделов (по должности, без имён) */}
+      <div className="flex items-center gap-1 p-1 bg-chip rounded-xl w-full sm:w-fit mb-5">
+        {DEPTS.map((d) => (
+          <button
+            key={d.id}
+            onClick={() => setDept(d.id)}
+            className={`h-9 px-4 rounded-lg text-sm font-semibold transition-colors flex-1 sm:flex-none ${
+              dept === d.id ? 'bg-white text-ink shadow-card' : 'text-muted hover:text-ink'
+            }`}
+          >
+            {d.label}
+          </button>
+        ))}
+      </div>
+
+      {dept === 'smm' && <SmmKpi smmMetrics={smmMetrics} reportMonth={reportMonth} />}
+      {dept === 'targetolog' && (
+        <EmptyKpi
+          icon={Megaphone}
+          title="Нет активных кампаний"
+          hint="Данные по рекламным кампаниям появятся здесь — KPI, расход, заявки и стоимость заявки по каждой кампании."
+        />
+      )}
+      {dept === 'sales' && (
+        <EmptyKpi
+          icon={Wrench}
+          title="KPI-модель уточняется"
+          hint="Метрики отдела продаж будут определены дополнительно. Как только зададим формулу — здесь появятся показатели и выплаты."
+        />
+      )}
+    </>
+  )
+}
+
+// ——— SMM: контент-KPI (FRANCHONE + ANUAR) ———
+function SmmKpi({ smmMetrics, reportMonth }: { smmMetrics: SmmMetric[]; reportMonth: string }) {
   const smm = computeSmm(smmMetrics)
   const payoutVal = Math.round(SMM_BASE * smm.totalKpi)
 
@@ -26,13 +87,6 @@ export default function Kpi() {
 
   return (
     <>
-      <PageHeader
-        title="KPI"
-        subtitle={`Контент · FRANCHONE + ANUAR · ${reportMonth}`}
-        actions={<button className="btn btn-green">{reportMonth}</button>}
-      />
-
-      {/* ——— 4 большие метрики ——— */}
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
         <StatCard highlight label="Общий KPI" value={pct(smm.totalKpi, 1)} foot="FRANCHONE + ANUAR" icon={TrendingUp} />
         <StatCard label="К выплате" value={kzt(payoutVal)} foot="600 000 × KPI" icon={Wallet} />
@@ -40,7 +94,6 @@ export default function Kpi() {
         <StatCard label="KPI ANUAR" value={pct(smm.kpiAnuar, 1)} foot="Личный аккаунт" icon={User} />
       </div>
 
-      {/* ——— Таблица: план / выполнение ——— */}
       <div className="card overflow-hidden mb-5">
         <div className="px-5 py-3.5 border-b border-line">
           <h3 className="sec-title">План и выполнение · {reportMonth}</h3>
@@ -59,7 +112,10 @@ export default function Kpi() {
                 <tr key={r.id} className="border-t border-line hover:bg-chip/40 transition-colors">
                   <td className="px-5 py-3 text-sm text-ink-2">{r.label}</td>
                   <td className="px-5 py-3 text-sm text-ink-2 text-right tabular-nums">{r.plan}</td>
-                  <td className="px-5 py-3 text-sm font-bold text-right tabular-nums" style={{ color: r.done >= 1 ? '#057269' : '#1c1d22' }}>
+                  <td
+                    className="px-5 py-3 text-sm font-bold text-right tabular-nums"
+                    style={{ color: r.done >= 1 ? '#057269' : '#1c1d22' }}
+                  >
                     {pct(r.done, 1)}
                   </td>
                 </tr>
@@ -69,12 +125,23 @@ export default function Kpi() {
         </div>
       </div>
 
-      {/* ——— График: выполнение по форматам ——— */}
       <div className="card p-5">
         <h3 className="sec-title mb-4">Выполнение плана по форматам</h3>
         <BarChart rows={rows} />
       </div>
     </>
+  )
+}
+
+function EmptyKpi({ icon: Icon, title, hint }: { icon: LucideIcon; title: string; hint: string }) {
+  return (
+    <div className="card p-12 text-center">
+      <div className="w-14 h-14 rounded-2xl bg-chip grid place-items-center mx-auto mb-4 text-muted">
+        <Icon size={24} />
+      </div>
+      <div className="text-ink font-semibold text-lg mb-1">{title}</div>
+      <p className="text-sm text-muted max-w-sm mx-auto">{hint}</p>
+    </div>
   )
 }
 
