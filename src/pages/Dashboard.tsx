@@ -38,7 +38,7 @@ export default function Dashboard() {
       />
 
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
         <StatCard
           highlight
           label="Общий KPI команды"
@@ -62,7 +62,7 @@ export default function Dashboard() {
       </div>
 
       {/* KPI per employee + payouts */}
-      <div className="grid gap-5 lg:grid-cols-3 mb-5">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 mb-5">
         <div className="card p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <h3 className="sec-title">KPI по сотрудникам</h3>
@@ -135,23 +135,23 @@ export default function Dashboard() {
       </div>
 
       {/* Ads + tasks */}
-      <div className="grid gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="card p-5 lg:col-span-2">
           <div className="flex items-center justify-between mb-4">
             <h3 className="sec-title">Реклама: расход / заявки / CPL</h3>
             <span className="text-xs text-muted">источник денег</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 mb-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-5">
             {(['FRANCHONE', 'Партнёр'] as const).map((s) => (
-              <div key={s} className="rounded-2xl border border-line p-4">
+              <div key={s} className="rounded-2xl border border-line p-4 min-w-0">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-sm font-semibold text-ink">{s}</span>
                   <span
-                    className={`w-2.5 h-2.5 rounded-full ${s === 'FRANCHONE' ? 'bg-green' : 'bg-green-light'}`}
+                    className={`w-2.5 h-2.5 rounded-full shrink-0 ${s === 'FRANCHONE' ? 'bg-green' : 'bg-green-light'}`}
                   />
                 </div>
-                <div className="text-2xl font-bold text-ink">{kzt(src[s].spend)}</div>
+                <div className="text-2xl font-bold text-ink truncate">{kzt(src[s].spend)}</div>
                 <div className="text-xs text-muted mt-1">
                   Заявок {num(src[s].leads)} · CPL {kzt(src[s].cpl)}
                 </div>

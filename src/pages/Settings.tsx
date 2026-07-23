@@ -18,7 +18,7 @@ export default function Settings() {
     <>
       <PageHeader title="Настройки" subtitle="Веса KPI, оклады и справочники системы" />
 
-      <div className="grid gap-5 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         {/* Веса SMM */}
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-4">
@@ -98,12 +98,12 @@ export default function Settings() {
       </div>
 
       {/* Ежедневная отчётность */}
-      <div className="grid gap-5 lg:grid-cols-2 mt-5">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 mt-5">
         <ReportDeadlineCard />
       </div>
 
       {/* Справочники */}
-      <div className="grid gap-5 lg:grid-cols-2 mt-5">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 mt-5">
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-4">
             <Building2 size={18} className="text-green" />

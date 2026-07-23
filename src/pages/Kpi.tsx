@@ -169,7 +169,7 @@ export default function Kpi() {
             </div>
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
             <div className="card p-5 lg:col-span-2">
               <h3 className="sec-title mb-4">Факт по форматам</h3>
               <div className="overflow-x-auto">
@@ -232,7 +232,7 @@ export default function Kpi() {
       )}
 
       {tab === 'facts' && model === 'targetolog' && (
-        <div className="grid gap-5 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
           <div className="card p-5 lg:col-span-2">
             <h3 className="sec-title mb-4">Факт по кампаниям</h3>
             <div className="overflow-x-auto">

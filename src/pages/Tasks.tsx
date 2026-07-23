@@ -265,7 +265,7 @@ export default function Tasks() {
 function TaskStatsView({ tasks, employees }: { tasks: Task[]; employees: Employee[] }) {
   const stats = taskStatsByEmployee(tasks, employees)
   return (
-    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-5">
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 mb-5">
       {stats.map((s) => (
         <div key={s.employee.id} className="card p-5">
           <div className="flex items-center gap-3 mb-4">

@@ -40,7 +40,7 @@ export default function DisciplineGrid() {
 
   return (
     <>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
         <StatCard highlight label="На отчётности" value={String(rows.length)} foot="SMM · таргет · продажи" icon={Users} />
         <StatCard label="Заполнено сегодня" value={`${filledToday} / ${rows.length}`} foot={`дедлайн ${deadlineTime}`} icon={CalendarCheck} />
         <StatCard label="Пропусков" value={String(totalMissed)} foot={`за ${dates.length} дней`} icon={AlertTriangle} />
@@ -52,7 +52,7 @@ export default function DisciplineGrid() {
           <table className="w-full border-collapse">
             <thead>
               <tr className="bg-chip/60">
-                <th className={`${th} text-left sticky left-0 bg-[#f4f5f6] z-10 min-w-[200px]`}>Сотрудник</th>
+                <th className={`${th} text-left sticky left-0 bg-[#f4f5f6] z-10 min-w-[150px] sm:min-w-[200px] border-r border-line`}>Сотрудник</th>
                 {dates.map((d) => {
                   const c = cellDate(d)
                   const isToday = d === today
@@ -71,7 +71,7 @@ export default function DisciplineGrid() {
             <tbody>
               {rows.map((r) => (
                 <tr key={r.employeeId} className="hover:bg-chip/30 transition-colors">
-                  <td className="px-3 py-2.5 border-t border-line sticky left-0 bg-card z-10">
+                  <td className="px-3 py-2.5 border-t border-r border-line sticky left-0 bg-card z-10">
                     <div className="flex items-center gap-2.5">
                       <Avatar initials={r.initials} color={r.avatarColor} size={32} />
                       <div className="min-w-0">

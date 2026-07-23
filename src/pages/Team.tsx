@@ -44,7 +44,7 @@ export default function Team() {
           <table className="w-full min-w-[860px]">
             <thead>
               <tr className="bg-chip/60">
-                <th className={`${th} sticky left-0 z-20 bg-[#f4f5f6]`}>Сотрудник</th>
+                <th className={`${th} sticky left-0 z-20 bg-[#f4f5f6] border-r border-line`}>Сотрудник</th>
                 <th className={th}>Должность</th>
                 <th className={th}>Отдел</th>
                 <th className={th}>Роль</th>
@@ -59,17 +59,17 @@ export default function Team() {
                 const { kpi } = employeeKpi(e, smmMetrics, campaigns)
                 return (
                   <tr key={e.id} className="hover:bg-chip/40 transition-colors">
-                    <td className={`${td} sticky left-0 z-10 bg-card`}>
+                    <td className={`${td} sticky left-0 z-10 bg-card border-r border-line`}>
                       <div className="flex items-center gap-3">
                         <Avatar initials={e.initials} color={e.avatarColor} size={38} />
-                        <div>
-                          <div className="font-semibold text-ink">{e.name}</div>
-                          <div className="flex items-center gap-3 text-[11px] text-muted mt-0.5">
-                            <span className="inline-flex items-center gap-1">
-                              <Mail size={11} /> {e.email}
+                        <div className="min-w-0">
+                          <div className="font-semibold text-ink whitespace-nowrap">{e.name}</div>
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-3 text-[11px] text-muted mt-0.5">
+                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                              <Mail size={11} className="shrink-0" /> {e.email}
                             </span>
-                            <span className="inline-flex items-center gap-1">
-                              <Phone size={11} /> {e.phone}
+                            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+                              <Phone size={11} className="shrink-0" /> {e.phone}
                             </span>
                           </div>
                         </div>

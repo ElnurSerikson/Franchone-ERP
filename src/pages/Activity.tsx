@@ -47,7 +47,7 @@ export default function Activity() {
         subtitle="Входы сотрудников, соблюдение сроков и нарушения — за последние 30 дней"
       />
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
         <StatCard highlight label="Заходили сегодня" value={String(today)} foot={`из ${rows.length} сотрудников`} icon={CalendarCheck} />
         <StatCard label="Давно не заходили" value={String(stale)} foot="5+ дней без входа" icon={LogIn} />
         <StatCard label="Просроченных задач" value={String(overdue)} foot="активные, срок прошёл" icon={AlertTriangle} />
@@ -59,7 +59,7 @@ export default function Activity() {
           <table className="w-full min-w-[820px]">
             <thead>
               <tr className="bg-chip/60">
-                <th className={`${th} sticky left-0 z-20 bg-[#f4f5f6]`}>Сотрудник</th>
+                <th className={`${th} sticky left-0 z-20 bg-[#f4f5f6] border-r border-line`}>Сотрудник</th>
                 <th className={th}>Последний вход</th>
                 <th className={th}>Входов (7 / 30 дн)</th>
                 <th className={th}>Просрочено</th>
@@ -74,12 +74,12 @@ export default function Activity() {
                 const warn = !bad && ((stats?.late ?? 0) > 0 || (stats ? stats.onTimePct < 0.7 && stats.done > 0 : false))
                 return (
                   <tr key={e.id} className="hover:bg-chip/40 transition-colors">
-                    <td className={`${td} sticky left-0 z-10 bg-card`}>
+                    <td className={`${td} sticky left-0 z-10 bg-card border-r border-line`}>
                       <div className="flex items-center gap-3">
                         <Avatar initials={e.initials} color={e.avatarColor} size={36} />
-                        <div>
-                          <div className="font-semibold text-ink">{e.name}</div>
-                          <div className="text-[11px] text-muted">{e.positionLabel}</div>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-ink whitespace-nowrap">{e.name}</div>
+                          <div className="text-[11px] text-muted whitespace-nowrap">{e.positionLabel}</div>
                         </div>
                       </div>
                     </td>

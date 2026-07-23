@@ -51,7 +51,7 @@ export default function ReportForm() {
     )
 
   return (
-    <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_300px] items-start">
+    <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px] items-start">
       <div className="flex flex-col gap-5 min-w-0">
         <StatusBanner report={data.report} today={data.today} deadline={data.deadlineTime} />
         <div className="card p-5">
@@ -189,7 +189,7 @@ function SmmForm({ report }: { report: Report | null }) {
       saved={saved}
       onSave={save}
     >
-      <div className="grid grid-cols-[1fr_1fr_84px_36px] gap-2 px-1 mb-1.5">
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_84px_36px] gap-2 px-1 mb-1.5">
         <Lbl>Страница</Lbl>
         <Lbl>Формат</Lbl>
         <Lbl right>Кол-во</Lbl>
@@ -197,7 +197,7 @@ function SmmForm({ report }: { report: Report | null }) {
       </div>
       <div className="flex flex-col gap-2">
         {rows.map((r, i) => (
-          <div key={i} className="grid grid-cols-[1fr_1fr_84px_36px] gap-2 items-center">
+          <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_84px_36px] gap-2 items-center">
             <Select
               value={r.page}
               onChange={(v) => setRow(i, { page: v })}
