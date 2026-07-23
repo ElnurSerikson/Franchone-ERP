@@ -278,6 +278,77 @@ export const clearSalesDemo = mutation({
   },
 })
 
+// Демо-отчёты SMM за июль — чтобы было видно, как ежедневный отчёт становится
+// KPI и выплатой. Значения подобраны под планы из seedSmm: большинство форматов
+// идёт около 75% плана, а «FRANCHONE Карусели» перевыполнены (6 при плане 4) —
+// на них видно отсечку MIN(факт/план; 1). Снести: setup:clearSmmReports.
+const SMM_DEMO_DAYS = 24
+
+function smmDemoLines(day: number) {
+  return [
+    { page: 'FRANCHONE', type: 'Рилсы', count: day % 2 === 0 ? 1 : 0 },
+    { page: 'FRANCHONE', type: 'Сторис', count: 3 },
+    { page: 'FRANCHONE', type: 'Карусели', count: day % 4 === 0 ? 1 : 0 },
+    { page: 'ANUAR', type: 'Рилсы', count: 2 },
+    { page: 'ANUAR', type: 'Сторис', count: 4 },
+    { page: 'ANUAR', type: 'Карусели', count: day % 3 === 0 ? 1 : 0 },
+  ].filter((l) => l.count > 0)
+}
+
+export const seedSmmReports = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const emps = await ctx.db.query('employees').collect()
+    const smm = emps.find((e) => e.position === 'smm' && e.status === 'active' && !e.hidden)
+    if (!smm) throw new Error('SMM-специалист не найден')
+
+    // Идемпотентность: свои прошлые демо-отчёты сначала убираем.
+    for (const r of await ctx.db
+      .query('dailyReports')
+      .withIndex('by_employee', (q) => q.eq('employeeId', smm._id))
+      .collect()) {
+      if (r.smm) await ctx.db.delete(r._id)
+    }
+
+    for (let day = 1; day <= SMM_DEMO_DAYS; day++) {
+      const date = `2026-07-${String(day).padStart(2, '0')}`
+      const at = Date.parse(`${date}T18:00:00+05:00`)
+      await ctx.db.insert('dailyReports', {
+        employeeId: smm._id,
+        position: 'smm' as const,
+        date,
+        submittedAt: at,
+        onTime: true,
+        editCount: 0,
+        history: [{ at, byId: smm._id, action: 'submitted' as const }],
+        smm: smmDemoLines(day),
+      })
+    }
+    return { employee: smm.name, days: SMM_DEMO_DAYS }
+  },
+})
+
+export const clearSmmReports = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const emps = await ctx.db.query('employees').collect()
+    let n = 0
+    for (const e of emps) {
+      if (e.position !== 'smm') continue
+      for (const r of await ctx.db
+        .query('dailyReports')
+        .withIndex('by_employee', (q) => q.eq('employeeId', e._id))
+        .collect()) {
+        if (r.smm) {
+          await ctx.db.delete(r._id)
+          n++
+        }
+      }
+    }
+    return { deleted: n }
+  },
+})
+
 // Сделать аккаунт скрытым владельцем (служебный/разработчик): полный доступ
 // по роли owner, но невидим во всех списках фронта. Вход и роль работают
 // (currentEmployee/isInvited матчат по email независимо от hidden).
