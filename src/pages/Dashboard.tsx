@@ -10,8 +10,9 @@ import { employeeKpi, taskCounts, isOverdue } from '@/lib/selectors'
 import { kzt, num, pct, shortDate } from '@/lib/format'
 
 export default function Dashboard() {
-  const { employees, campaigns, tasks, smmMetrics, reportMonth } = useData()
-  const kpis = employees.map((e) => employeeKpi(e, smmMetrics, campaigns))
+  const { employees, activeEmployees, campaigns, tasks, smmMetrics, reportMonth } = useData()
+  // KPI и выплаты — только по действующим сотрудникам.
+  const kpis = activeEmployees.map((e) => employeeKpi(e, smmMetrics, campaigns))
   const withKpi = kpis.filter((k) => k.kpi !== null)
   const teamKpi = withKpi.reduce((s, k) => s + (k.kpi ?? 0), 0) / (withKpi.length || 1)
   const totalPayout = withKpi.reduce((s, k) => s + (k.payout ?? 0), 0)
@@ -198,11 +199,12 @@ export default function Dashboard() {
           </div>
           <div className="flex flex-col gap-2">
             {overdue.concat(tasks.filter((t) => !isOverdue(t) && t.status !== 'done')).slice(0, 4).map((t) => {
-              const a = employees.find((e) => e.id === t.assigneeId)!
+              // Исполнителя ищем среди всех: задача могла остаться на деактивированном.
+              const a = employees.find((e) => e.id === t.assigneeId)
               const over = isOverdue(t)
               return (
                 <div key={t.id} className="flex items-center gap-3 rounded-xl border border-line p-2.5">
-                  <Avatar initials={a.initials} color={a.avatarColor} size={30} />
+                  <Avatar initials={a?.initials ?? '—'} color={a?.avatarColor ?? '#9498a1'} size={30} />
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-medium text-ink truncate">{t.title}</div>
                     <div className={`text-[11px] ${over ? 'text-[#c53030] font-semibold' : 'text-muted'}`}>

@@ -35,6 +35,17 @@ export function useCurrentUser(): Employee {
   return doc ? mapEmployee(doc) : PLACEHOLDER
 }
 
+// Есть ли доступ у вошедшего. Запрос реактивный, поэтому деактивация владельцем
+// прилетает сюда сразу — человека выкидывает из кабинета в ту же секунду,
+// не дожидаясь истечения сессии (она живёт до 7 дней).
+export type AccessState = 'loading' | 'ok' | 'blocked'
+export function useAccessState(): AccessState {
+  const doc = useQuery(api.users.currentEmployee, {})
+  if (doc === undefined) return 'loading'
+  if (!doc || doc.status !== 'active') return 'blocked'
+  return 'ok'
+}
+
 export function AppProvider({ children }: { children: ReactNode }) {
   const user = useCurrentUser()
   const isOwner = user.role === 'owner'

@@ -1,10 +1,11 @@
 import { Authenticated, Unauthenticated, AuthLoading } from 'convex/react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
-import { AppProvider, useApp } from './store'
+import { AppProvider, useApp, useAccessState } from './store'
 import type { Role } from './types'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import AccessRevoked from './pages/AccessRevoked'
 import Dashboard from './pages/Dashboard'
 import Tasks from './pages/Tasks'
 import Reports from './pages/Reports'
@@ -18,7 +19,21 @@ function Guard({ allow, children }: { allow: Role[]; children: JSX.Element }) {
   return allow.includes(role) ? children : <Navigate to="/" replace />
 }
 
+function FullScreenLoader() {
+  return (
+    <div className="min-h-screen grid place-items-center text-muted">
+      <Loader2 className="animate-spin" size={22} />
+    </div>
+  )
+}
+
 function AuthedApp() {
+  // Деактивированного пользователя выкидываем из кабинета сразу, не дожидаясь
+  // истечения сессии. Мутации дополнительно закрыты на сервере (requireEmployee).
+  const access = useAccessState()
+  if (access === 'loading') return <FullScreenLoader />
+  if (access === 'blocked') return <AccessRevoked />
+
   return (
     <BrowserRouter>
       <AppProvider>

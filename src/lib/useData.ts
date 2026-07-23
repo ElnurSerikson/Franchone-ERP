@@ -19,9 +19,15 @@ export function useData() {
     campaignsRaw === undefined ||
     smmRaw === undefined
 
+  const employees = (employeesRaw ?? []).map(mapEmployee)
+
   return {
     loading,
-    employees: (employeesRaw ?? []).map(mapEmployee),
+    // employees — все (включая деактивированных): нужны для «Команды» и для
+    // подстановки имён в старых задачах/статистике.
+    employees,
+    // activeEmployees — для рабочих мест: дашборд, выплаты, выбор исполнителя.
+    activeEmployees: employees.filter((e) => e.status === 'active'),
     tasks: (tasksRaw ?? []).map(mapTask),
     campaigns: (campaignsRaw ?? []).map(mapCampaign),
     smmMetrics: (smmRaw ?? []).map(mapSmm),

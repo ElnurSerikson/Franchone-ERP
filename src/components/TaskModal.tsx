@@ -56,6 +56,12 @@ export default function TaskModal({
   const reporter = employees.find((e) => e.id === task.reporterId)
   const overdue = isOverdue(task)
 
+  // Переназначить можно только на действующего. Текущего исполнителя оставляем
+  // в списке, даже если он деактивирован, иначе поле показало бы пустоту.
+  const assignable = employees.filter(
+    (e) => e.status === 'active' || e.id === task.assigneeId,
+  )
+
   const onUpload = async (file: File) => {
     const url = await generateUploadUrl()
     const res = await fetch(url, {
@@ -143,7 +149,7 @@ export default function TaskModal({
               <Select
                 value={task.assigneeId}
                 onChange={(v) => update({ id: tid, patch: { assigneeId: v as Id<'employees'> } })}
-                options={employees.map((e) => ({ value: e.id, label: e.name, dot: e.avatarColor }))}
+                options={assignable.map((e) => ({ value: e.id, label: e.name, dot: e.avatarColor }))}
               />
             </Field>
             <Field label="Приоритет">

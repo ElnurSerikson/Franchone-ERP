@@ -1,4 +1,5 @@
 import { getAuthUserId } from '@convex-dev/auth/server'
+import { ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc } from './_generated/dataModel'
 
@@ -18,9 +19,15 @@ export async function currentEmployee(
 }
 
 // То же, но кидает ошибку если не авторизован (для мутаций).
+// Деактивированный сотрудник (status !== 'active') сюда не проходит: сессия
+// живёт до 7 дней и сама не рвётся, поэтому доступ режем на каждой мутации —
+// иначе выключение было бы только на уровне UI и обходилось бы из консоли.
 export async function requireEmployee(ctx: MutationCtx): Promise<Doc<'employees'>> {
   const me = await currentEmployee(ctx)
-  if (!me) throw new Error('Не авторизован')
+  if (!me) throw new ConvexError('Не авторизован')
+  if (me.status !== 'active') {
+    throw new ConvexError('Доступ отключён. Обратитесь к руководителю.')
+  }
   return me
 }
 

@@ -25,9 +25,11 @@ export default function TaskCreateModal({
   onClose: () => void
 }) {
   const create = useMutation(api.tasks.create)
+  // Назначать можно только действующих сотрудников.
+  const assignable = employees.filter((e) => e.status === 'active')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [assigneeId, setAssigneeId] = useState(employees[0]?.id ?? '')
+  const [assigneeId, setAssigneeId] = useState(assignable[0]?.id ?? '')
   const [priority, setPriority] = useState<Priority>('medium')
   const [deadline, setDeadline] = useState('')
   const [tags, setTags] = useState('')
@@ -84,7 +86,7 @@ export default function TaskCreateModal({
               <Select
                 value={assigneeId}
                 onChange={setAssigneeId}
-                options={employees.map((e) => ({ value: e.id, label: e.name, dot: e.avatarColor }))}
+                options={assignable.map((e) => ({ value: e.id, label: e.name, dot: e.avatarColor }))}
               />
             </div>
             <div>

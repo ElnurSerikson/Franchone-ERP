@@ -22,13 +22,16 @@ function ago(ms: number | null): { text: string; stale: boolean; today: boolean 
 }
 
 export default function Activity() {
-  const { tasks, employees } = useData()
+  // Контроль активности — только по действующим сотрудникам.
+  const { tasks, activeEmployees } = useData()
   const activity = useQuery(api.activity.overview, {}) ?? []
 
-  const statsMap = new Map(taskStatsByEmployee(tasks, employees).map((s) => [s.employee.id, s]))
+  const statsMap = new Map(
+    taskStatsByEmployee(tasks, activeEmployees).map((s) => [s.employee.id, s]),
+  )
   const actMap = new Map(activity.map((a) => [a.employeeId as string, a]))
 
-  const rows = employees.map((e) => {
+  const rows = activeEmployees.map((e) => {
     const act = actMap.get(e.id)
     const stats = statsMap.get(e.id)
     const a = ago(act?.lastLoginAt ?? null)
