@@ -37,12 +37,12 @@ export default function Kpi() {
       />
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-chip rounded-xl w-fit mb-5">
+      <div className="flex items-center gap-1 p-1 bg-chip rounded-xl w-full sm:w-fit mb-5">
         {tabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`h-9 px-4 rounded-lg text-sm font-semibold transition-colors ${
+            className={`h-9 px-4 rounded-lg text-sm font-semibold transition-colors flex-1 sm:flex-none ${
               tab === t.id ? 'bg-white text-ink shadow-card' : 'text-muted hover:text-ink'
             }`}
           >
@@ -53,7 +53,7 @@ export default function Kpi() {
 
       {/* Model switch (для Планов и Факта) */}
       {tab !== 'pay' && (
-        <div className="flex items-center gap-2 mb-4">
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
           {(['smm', 'targetolog'] as Model[]).map((m) => (
             <button
               key={m}

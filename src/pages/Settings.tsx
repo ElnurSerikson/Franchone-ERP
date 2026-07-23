@@ -173,7 +173,7 @@ function ReportDeadlineCard() {
         <Timer size={18} className="text-green" />
         <h3 className="sec-title">Ежедневная отчётность</h3>
       </div>
-      <div className="flex items-end gap-3">
+      <div className="flex items-end gap-3 flex-wrap gap-y-2">
         <div>
           <div className="text-sm text-muted mb-1.5">Дедлайн отправки (Алматы)</div>
           <Select

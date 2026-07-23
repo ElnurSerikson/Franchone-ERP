@@ -56,29 +56,31 @@ export default function ReportView({ report }: { report: Report }) {
       )}
 
       {report.targetolog && (
-        <table className="w-full">
-          <thead>
-            <tr className="bg-chip/60">
-              <th className={th}>Проект · Кампания</th>
-              <th className={th}>Бюджет</th>
-              <th className={th}>Заявки</th>
-              <th className={th}>CPL</th>
-            </tr>
-          </thead>
-          <tbody>
-            {report.targetolog.map((r, i) => (
-              <tr key={i}>
-                <td className={td}>
-                  <div className="font-medium text-ink">{r.campaign}</div>
-                  <div className="text-[11px] text-muted">{r.project}</div>
-                </td>
-                <td className={td}>{kzt(r.budget)}</td>
-                <td className={`${td} font-semibold text-ink`}>{r.leads}</td>
-                <td className={td}>{kzt(cpl(r.budget, r.leads))}</td>
+        <div className="overflow-x-auto -mx-1 px-1">
+          <table className="w-full min-w-[420px]">
+            <thead>
+              <tr className="bg-chip/60">
+                <th className={th}>Проект · Кампания</th>
+                <th className={th}>Бюджет</th>
+                <th className={th}>Заявки</th>
+                <th className={th}>CPL</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {report.targetolog.map((r, i) => (
+                <tr key={i}>
+                  <td className={td}>
+                    <div className="font-medium text-ink">{r.campaign}</div>
+                    <div className="text-[11px] text-muted">{r.project}</div>
+                  </td>
+                  <td className={td}>{kzt(r.budget)}</td>
+                  <td className={`${td} font-semibold text-ink`}>{r.leads}</td>
+                  <td className={td}>{kzt(cpl(r.budget, r.leads))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {report.sales && (

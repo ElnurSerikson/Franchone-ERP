@@ -25,6 +25,22 @@
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
 
+  /* На телефоне поля ввода < 16px вызывают авто-зум в iOS Safari при фокусе.
+     Держим 16px на узких экранах для всех полей и триггеров-«селектов». */
+  @media (max-width: 639px) {
+    input,
+    textarea,
+    select {
+      font-size: 16px;
+    }
+  }
+
+  /* Гасим «резиновый» вертикальный скролл страницы под мобильными оболочками. */
+  html,
+  body {
+    overscroll-behavior-y: none;
+  }
+
   /* Thin, subtle scrollbars to match the clean template look */
   * {
     scrollbar-width: thin;
@@ -93,5 +109,24 @@
   }
   .nav-item-active {
     @apply bg-dark text-white hover:bg-dark;
+  }
+
+  /* Скролл-ряды (мобильный канбан, ряды чипов) — без видимой полосы прокрутки. */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Bottom-sheet: общий контейнер листа для мобильных поповеров/модалок. */
+  .sheet-panel {
+    @apply fixed inset-x-0 bottom-0 z-[71] bg-white rounded-t-2xl border-t border-line
+      max-h-[80vh] overflow-y-auto shadow-soft;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .sheet-backdrop {
+    @apply fixed inset-0 z-[70] bg-black/30;
   }
 }

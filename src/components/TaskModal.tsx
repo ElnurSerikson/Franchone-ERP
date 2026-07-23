@@ -74,13 +74,13 @@ export default function TaskModal({
         onClick={(e) => e.stopPropagation()}
       >
         {/* header */}
-        <div className="sticky top-0 z-10 bg-white border-b border-line px-6 py-4 flex items-center gap-3">
-          <div className="flex-1 flex items-center gap-2">
+        <div className="sticky top-0 z-10 bg-white border-b border-line px-4 sm:px-6 py-3 sm:py-4 flex items-center gap-2 sm:gap-3">
+          <div className="flex-1 flex items-center gap-2 overflow-x-auto no-scrollbar">
             {statuses.map((s) => (
               <button
                 key={s}
                 onClick={() => setStatus({ id: tid, status: s })}
-                className={`chip border ${
+                className={`chip border shrink-0 whitespace-nowrap ${
                   task.status === s
                     ? 'bg-dark text-white border-dark'
                     : 'bg-white text-muted border-line-2 hover:bg-chip'
@@ -107,7 +107,7 @@ export default function TaskModal({
           </button>
         </div>
 
-        <div className="p-6 flex flex-col gap-6">
+        <div className="p-4 sm:p-6 flex flex-col gap-6">
           {/* title + status banner */}
           <div>
             <input
@@ -138,7 +138,7 @@ export default function TaskModal({
           </div>
 
           {/* meta grid */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Исполнитель">
               <Select
                 value={task.assigneeId}

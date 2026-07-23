@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { ChevronDown, Check } from 'lucide-react'
+import { useIsSmDown } from '@/lib/useMediaQuery'
 
 export interface SelectOption {
   value: string
@@ -27,15 +29,17 @@ export default function Select({
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const selected = options.find((o) => o.value === value)
+  const isSheet = useIsSmDown() // на телефоне открываем bottom-sheet
 
+  // Клик вне — закрыть (только для абсолютного поповера; у листа есть свой backdrop).
   useEffect(() => {
-    if (!open) return
+    if (!open || isSheet) return
     const onDoc = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
+  }, [open, isSheet])
 
   const trigger =
     variant === 'ghost'
@@ -45,6 +49,24 @@ export default function Select({
       : `w-full h-[38px] flex items-center gap-2 rounded-lg border px-2.5 text-sm bg-white transition-colors ${
           open ? 'border-green-light' : 'border-line-2 hover:border-muted-2'
         } ${selected ? 'text-ink' : 'text-muted'}`
+
+  const optionBtn = (o: SelectOption, big = false) => (
+    <button
+      key={o.value}
+      type="button"
+      onClick={() => {
+        onChange(o.value)
+        setOpen(false)
+      }}
+      className={`w-full flex items-center gap-2 px-2.5 rounded-lg text-sm text-left transition-colors ${
+        big ? 'h-12' : 'h-9'
+      } ${o.value === value ? 'bg-green/10 text-green-d font-semibold' : 'text-ink-2 hover:bg-chip'}`}
+    >
+      {o.dot && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: o.dot }} />}
+      <span className="flex-1 truncate">{o.label}</span>
+      {o.value === value && <Check size={15} className="text-green shrink-0" />}
+    </button>
+  )
 
   return (
     <div ref={ref} className={`relative ${variant === 'ghost' ? 'inline-block' : ''} ${className}`}>
@@ -61,31 +83,30 @@ export default function Select({
         />
       </button>
 
-      {open && (
-        <div
-          className={`absolute z-[60] mt-1.5 bg-white rounded-xl border border-line shadow-soft p-1.5 max-h-64 overflow-y-auto ${
-            align === 'right' ? 'right-0' : 'left-0'
-          } ${variant === 'ghost' ? 'min-w-[170px]' : 'w-full min-w-max'}`}
-        >
-          {options.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              onClick={() => {
-                onChange(o.value)
-                setOpen(false)
-              }}
-              className={`w-full flex items-center gap-2 px-2.5 h-9 rounded-lg text-sm text-left transition-colors ${
-                o.value === value ? 'bg-green/10 text-green-d font-semibold' : 'text-ink-2 hover:bg-chip'
-              }`}
-            >
-              {o.dot && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: o.dot }} />}
-              <span className="flex-1 truncate">{o.label}</span>
-              {o.value === value && <Check size={15} className="text-green shrink-0" />}
-            </button>
-          ))}
-        </div>
-      )}
+      {open &&
+        (isSheet ? (
+          // Портал в body: bottom-sheet не должен зависеть от transform-предков (drawer).
+          createPortal(
+            <>
+              <div className="sheet-backdrop" onClick={() => setOpen(false)} />
+              <div className="sheet-panel p-2">
+                <div className="px-2.5 py-1.5 text-[11px] font-semibold text-muted-2 uppercase tracking-wide">
+                  {placeholder}
+                </div>
+                {options.map((o) => optionBtn(o, true))}
+              </div>
+            </>,
+            document.body,
+          )
+        ) : (
+          <div
+            className={`absolute z-[60] mt-1.5 bg-white rounded-xl border border-line shadow-soft p-1.5 max-h-64 overflow-y-auto max-w-[calc(100vw-1.5rem)] ${
+              align === 'right' ? 'right-0' : 'left-0'
+            } ${variant === 'ghost' ? 'min-w-[170px]' : 'w-full min-w-max'}`}
+          >
+            {options.map((o) => optionBtn(o))}
+          </div>
+        ))}
     </div>
   )
 }

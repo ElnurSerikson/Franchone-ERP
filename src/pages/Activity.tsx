@@ -59,7 +59,7 @@ export default function Activity() {
           <table className="w-full min-w-[820px]">
             <thead>
               <tr className="bg-chip/60">
-                <th className={th}>Сотрудник</th>
+                <th className={`${th} sticky left-0 z-20 bg-[#f4f5f6]`}>Сотрудник</th>
                 <th className={th}>Последний вход</th>
                 <th className={th}>Входов (7 / 30 дн)</th>
                 <th className={th}>Просрочено</th>
@@ -74,7 +74,7 @@ export default function Activity() {
                 const warn = !bad && ((stats?.late ?? 0) > 0 || (stats ? stats.onTimePct < 0.7 && stats.done > 0 : false))
                 return (
                   <tr key={e.id} className="hover:bg-chip/40 transition-colors">
-                    <td className={td}>
+                    <td className={`${td} sticky left-0 z-10 bg-card`}>
                       <div className="flex items-center gap-3">
                         <Avatar initials={e.initials} color={e.avatarColor} size={36} />
                         <div>

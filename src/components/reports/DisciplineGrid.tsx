@@ -157,12 +157,15 @@ function CellModal({ sel, onClose }: { sel: Sel; onClose: () => void }) {
   })
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-0 sm:p-4"
+      onClick={onClose}
+    >
       <div
-        className="w-full max-w-lg bg-white rounded-card shadow-soft max-h-[85vh] overflow-y-auto"
+        className="w-full sm:max-w-lg bg-white rounded-t-card sm:rounded-card shadow-soft max-h-[92vh] sm:max-h-[85vh] overflow-y-auto [padding-bottom:env(safe-area-inset-bottom)] sm:pb-0"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-line">
+        <div className="sticky top-0 bg-white flex items-center justify-between px-5 sm:px-6 py-4 border-b border-line">
           <div>
             <h2 className="text-lg font-bold text-ink">{sel.name}</h2>
             <div className="text-sm text-muted capitalize">

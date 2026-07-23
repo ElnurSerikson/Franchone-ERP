@@ -27,7 +27,7 @@ export default function Team() {
 
       {/* toolbar */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
-        <div className="relative w-64">
+        <div className="relative w-full sm:w-64">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
           <input
             className="w-full h-10 pl-9 pr-3 rounded-xl bg-card border border-line-2 text-sm placeholder:text-muted focus:outline-none focus:border-green-light"
@@ -44,7 +44,7 @@ export default function Team() {
           <table className="w-full min-w-[860px]">
             <thead>
               <tr className="bg-chip/60">
-                <th className={th}>Сотрудник</th>
+                <th className={`${th} sticky left-0 z-20 bg-[#f4f5f6]`}>Сотрудник</th>
                 <th className={th}>Должность</th>
                 <th className={th}>Отдел</th>
                 <th className={th}>Роль</th>
@@ -59,7 +59,7 @@ export default function Team() {
                 const { kpi } = employeeKpi(e, smmMetrics, campaigns)
                 return (
                   <tr key={e.id} className="hover:bg-chip/40 transition-colors">
-                    <td className={td}>
+                    <td className={`${td} sticky left-0 z-10 bg-card`}>
                       <div className="flex items-center gap-3">
                         <Avatar initials={e.initials} color={e.avatarColor} size={38} />
                         <div>
@@ -96,13 +96,13 @@ export default function Team() {
                     </td>
                     <td className={td}>
                       <div className="flex items-center justify-end gap-1">
-                        <button className="ico-btn w-8 h-8" title="Редактировать">
+                        <button className="ico-btn w-9 h-9" title="Редактировать">
                           <Pencil size={14} />
                         </button>
-                        <button className="ico-btn w-8 h-8" title="В архив">
+                        <button className="ico-btn w-9 h-9" title="В архив">
                           <Archive size={14} />
                         </button>
-                        <button className="ico-btn w-8 h-8" title="Ещё">
+                        <button className="ico-btn w-9 h-9" title="Ещё">
                           <MoreHorizontal size={14} />
                         </button>
                       </div>

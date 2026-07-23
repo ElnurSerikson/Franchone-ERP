@@ -2,11 +2,12 @@ import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import { api } from '../../../convex/_generated/api'
 import type { Doc } from '../../../convex/_generated/dataModel'
-import { Plus, Trash2, Loader2, Save, Check, Clock, PencilLine, History } from 'lucide-react'
+import { Plus, Trash2, Loader2, Save, Check, Clock, PencilLine, History, ChevronDown } from 'lucide-react'
 import type { SmmRow, TargetologRow, SalesPayload } from '@/types'
 import { REPORTING_POSITIONS, REPORT_PAGES, CONTENT_TYPES } from '@/lib/constants'
 import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
 import { kzt, num } from '@/lib/format'
+import { useMediaQuery } from '@/lib/useMediaQuery'
 import Select from '../ui/Select'
 
 type Report = Doc<'dailyReports'>
@@ -390,18 +391,32 @@ function SalesForm({ report }: { report: Report | null }) {
   )
 }
 
-// ——— История (правая колонка) ———
+// ——— История (правая колонка; на телефоне/планшете — сворачивается) ———
 function HistoryPanel({ history }: { history: Report[] }) {
+  const collapsible = useMediaQuery('(max-width: 1023px)') // < lg: колонка стекается вниз
+  const [open, setOpen] = useState(false)
+  const show = !collapsible || open
   return (
     <div className="card p-5">
-      <div className="flex items-center gap-2 mb-3">
+      <button
+        type="button"
+        onClick={() => collapsible && setOpen((o) => !o)}
+        className={`flex items-center gap-2 w-full mb-3 ${collapsible ? '' : 'cursor-default'}`}
+      >
         <History size={16} className="text-green" />
-        <h3 className="sec-title">История отчётов</h3>
-      </div>
-      {history.length === 0 ? (
-        <p className="text-sm text-muted-2">Пока нет отправленных отчётов.</p>
-      ) : (
-        <div className="flex flex-col">
+        <h3 className="sec-title flex-1 text-left">История отчётов</h3>
+        {collapsible && (
+          <ChevronDown
+            size={16}
+            className={`text-muted transition-transform ${open ? 'rotate-180' : ''}`}
+          />
+        )}
+      </button>
+      {show &&
+        (history.length === 0 ? (
+          <p className="text-sm text-muted-2">Пока нет отправленных отчётов.</p>
+        ) : (
+          <div className="flex flex-col">
           {history.map((h) => {
             const st = REPORT_STATUS[h.onTime ? 'onTime' : 'late']
             return (
@@ -426,8 +441,8 @@ function HistoryPanel({ history }: { history: Report[] }) {
               </div>
             )
           })}
-        </div>
-      )}
+          </div>
+        ))}
     </div>
   )
 }

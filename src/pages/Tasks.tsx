@@ -1,6 +1,20 @@
-import { useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { Plus, MessageSquare, Paperclip, CheckSquare, LayoutGrid, BarChart3 } from 'lucide-react'
 import { useMutation } from 'convex/react'
+import {
+  DndContext,
+  DragOverlay,
+  MouseSensor,
+  TouchSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  useDraggable,
+  useDroppable,
+  closestCorners,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
 import PageHeader from '@/components/PageHeader'
@@ -16,34 +30,13 @@ import type { Employee, Task, TaskStatus } from '@/types'
 
 const columns: TaskStatus[] = ['assigned', 'in_progress', 'done']
 
-function TaskCard({
-  task,
-  assignee,
-  onOpen,
-  onDragStart,
-  onDragEnd,
-  dragging,
-}: {
-  task: Task
-  assignee?: Employee
-  onOpen: () => void
-  onDragStart: () => void
-  onDragEnd: () => void
-  dragging: boolean
-}) {
+// Презентационная карточка (без drag-обвязки — её даёт DraggableCard).
+function TaskCard({ task, assignee }: { task: Task; assignee?: Employee }) {
   const doneItems = task.checklist.filter((c) => c.done).length
   const over = isOverdue(task)
 
   return (
-    <div
-      draggable
-      onDragStart={onDragStart}
-      onDragEnd={onDragEnd}
-      onClick={onOpen}
-      className={`bg-card border border-line rounded-2xl p-3.5 shadow-card hover:shadow-soft transition-all cursor-pointer ${
-        dragging ? 'opacity-40' : ''
-      }`}
-    >
+    <div className="bg-card border border-line rounded-2xl p-3.5 shadow-card hover:shadow-soft transition-all cursor-pointer select-none">
       <div className="flex items-center justify-between mb-2">
         <PriorityChip priority={task.priority} />
         {task.status === 'done' && task.completedOnTime === false ? (
@@ -94,23 +87,103 @@ function TaskCard({
   )
 }
 
+// Перетаскиваемая обёртка. Короткий тап открывает задачу, удержание — тащит.
+function DraggableCard({
+  task,
+  assignee,
+  onOpen,
+}: {
+  task: Task
+  assignee?: Employee
+  onOpen: () => void
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id })
+  return (
+    <div
+      ref={setNodeRef}
+      {...attributes}
+      {...listeners}
+      onClick={onOpen}
+      className={isDragging ? 'opacity-40' : ''}
+    >
+      <TaskCard task={task} assignee={assignee} />
+    </div>
+  )
+}
+
+// Колонка-приёмник.
+function Column({
+  col,
+  count,
+  onAdd,
+  children,
+}: {
+  col: TaskStatus
+  count: number
+  onAdd: () => void
+  children: ReactNode
+}) {
+  const meta = statusMeta[col]
+  const { setNodeRef, isOver } = useDroppable({ id: col })
+  return (
+    <div className="flex flex-col shrink-0 w-[82vw] max-w-[320px] snap-start md:w-auto md:max-w-none md:shrink">
+      <div className="flex items-center justify-between mb-3 px-1">
+        <div className="flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full" style={{ background: meta.dot }} />
+          <span className="text-sm font-semibold text-ink">{meta.label}</span>
+          <span className="text-xs text-muted bg-chip px-1.5 py-0.5 rounded-md">{count}</span>
+        </div>
+        <button className="text-muted hover:text-ink p-1 -m-1" title="Добавить" onClick={onAdd}>
+          <Plus size={16} />
+        </button>
+      </div>
+      <div
+        ref={setNodeRef}
+        className={`flex flex-col gap-3 rounded-2xl p-2 min-h-[140px] flex-1 transition-colors ${
+          isOver ? 'bg-green-light/15 ring-2 ring-green-light/40' : 'bg-black/[0.015]'
+        }`}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
 export default function Tasks() {
   const { tasks, employees } = useData()
   const setStatus = useMutation(api.tasks.setStatus)
-  const [dragId, setDragId] = useState<string | null>(null)
-  const [overCol, setOverCol] = useState<TaskStatus | null>(null)
+  const [activeId, setActiveId] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [view, setView] = useState<'board' | 'stats'>('board')
+  const suppressClick = useRef(false)
+
+  const sensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+    useSensor(KeyboardSensor),
+  )
 
   const assigneeOf = (id: string) => employees.find((e) => e.id === id)
   const openTask = tasks.find((t) => t.id === openId) ?? null
+  const activeTask = tasks.find((t) => t.id === activeId) ?? null
 
-  const handleDrop = (col: TaskStatus) => {
-    const t = tasks.find((x) => x.id === dragId)
-    if (t && t.status !== col) setStatus({ id: t.id as Id<'tasks'>, status: col })
-    setDragId(null)
-    setOverCol(null)
+  const openGuarded = (id: string) => {
+    // Гасим «хвостовой» клик, который браузер шлёт после перетаскивания.
+    if (suppressClick.current) return
+    setOpenId(id)
+  }
+
+  const onDragStart = (e: DragStartEvent) => setActiveId(e.active.id as string)
+
+  const onDragEnd = (e: DragEndEvent) => {
+    setActiveId(null)
+    suppressClick.current = true
+    setTimeout(() => (suppressClick.current = false), 200)
+    const overId = e.over?.id as TaskStatus | undefined
+    if (!overId || !columns.includes(overId)) return
+    const t = tasks.find((x) => x.id === e.active.id)
+    if (t && t.status !== overId) setStatus({ id: t.id as Id<'tasks'>, status: overId })
   }
 
   return (
@@ -145,51 +218,42 @@ export default function Tasks() {
 
       {view === 'stats' && <TaskStatsView tasks={tasks} employees={employees} />}
 
-      <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 ${view === 'stats' ? 'hidden' : ''}`}>
-        {columns.map((col) => {
-          const meta = statusMeta[col]
-          const list = tasks.filter((t) => t.status === col)
-          return (
-            <div key={col} className="flex flex-col">
-              <div className="flex items-center justify-between mb-3 px-1">
-                <div className="flex items-center gap-2">
-                  <span className="w-2 h-2 rounded-full" style={{ background: meta.dot }} />
-                  <span className="text-sm font-semibold text-ink">{meta.label}</span>
-                  <span className="text-xs text-muted bg-chip px-1.5 py-0.5 rounded-md">{list.length}</span>
-                </div>
-                <button className="text-muted hover:text-ink" title="Добавить" onClick={() => setCreating(true)}>
-                  <Plus size={16} />
-                </button>
+      <div className={view === 'stats' ? 'hidden' : ''}>
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCorners}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+        >
+          <div className="flex md:grid md:grid-cols-3 gap-3 md:gap-4 overflow-x-auto md:overflow-visible snap-x snap-mandatory md:snap-none no-scrollbar -mx-4 px-4 md:mx-0 md:px-0 pb-2 md:pb-0">
+            {columns.map((col) => {
+              const list = tasks.filter((t) => t.status === col)
+              return (
+                <Column key={col} col={col} count={list.length} onAdd={() => setCreating(true)}>
+                  {list.map((t) => (
+                    <DraggableCard
+                      key={t.id}
+                      task={t}
+                      assignee={assigneeOf(t.assigneeId)}
+                      onOpen={() => openGuarded(t.id)}
+                    />
+                  ))}
+                  {list.length === 0 && (
+                    <div className="text-xs text-muted-2 text-center py-6">Перетащите сюда</div>
+                  )}
+                </Column>
+              )
+            })}
+          </div>
+
+          <DragOverlay>
+            {activeTask ? (
+              <div className="rotate-2 w-[300px] max-w-[82vw]">
+                <TaskCard task={activeTask} assignee={assigneeOf(activeTask.assigneeId)} />
               </div>
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault()
-                  if (overCol !== col) setOverCol(col)
-                }}
-                onDrop={() => handleDrop(col)}
-                className={`flex flex-col gap-3 rounded-2xl p-2 min-h-[140px] flex-1 transition-colors ${
-                  overCol === col ? 'bg-green-light/15 ring-2 ring-green-light/40' : 'bg-black/[0.015]'
-                }`}
-              >
-                {list.map((t) => (
-                  <TaskCard
-                    key={t.id}
-                    task={t}
-                    assignee={assigneeOf(t.assigneeId)}
-                    dragging={dragId === t.id}
-                    onOpen={() => setOpenId(t.id)}
-                    onDragStart={() => setDragId(t.id)}
-                    onDragEnd={() => {
-                      setDragId(null)
-                      setOverCol(null)
-                    }}
-                  />
-                ))}
-                {list.length === 0 && <div className="text-xs text-muted-2 text-center py-6">Перетащите сюда</div>}
-              </div>
-            </div>
-          )
-        })}
+            ) : null}
+          </DragOverlay>
+        </DndContext>
       </div>
 
       {openTask && <TaskModal task={openTask} employees={employees} onClose={() => setOpenId(null)} />}

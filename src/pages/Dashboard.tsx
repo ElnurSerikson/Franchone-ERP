@@ -69,31 +69,42 @@ export default function Dashboard() {
             <span className="text-xs text-muted">план / факт за месяц</span>
           </div>
           <div className="flex flex-col divide-y divide-line">
-            {kpis.map(({ employee: e, kpi }) => (
-              <div key={e.id} className="flex items-center gap-4 py-3 first:pt-0 last:pb-0">
-                <Avatar initials={e.initials} color={e.avatarColor} size={38} />
-                <div className="min-w-0 w-44">
-                  <div className="text-sm font-semibold text-ink truncate">{e.name}</div>
-                  <div className="text-xs text-muted truncate">{e.positionLabel}</div>
-                </div>
-                <div className="flex-1 min-w-0">
-                  {kpi === null ? (
-                    <div className="text-xs text-muted-2">
-                      {e.role === 'owner' ? 'Руководитель' : 'KPI-модель в разработке'}
+            {kpis.map(({ employee: e, kpi }) => {
+              const barColor = kpi != null ? (kpi >= 0.9 ? '#057269' : kpi >= 0.7 ? '#d69e2e' : '#c53030') : ''
+              const emptyLabel = e.role === 'owner' ? 'Руководитель' : 'KPI-модель в разработке'
+              return (
+                <div key={e.id} className="py-3 first:pt-0 last:pb-0">
+                  <div className="flex items-center gap-3 sm:gap-4">
+                    <Avatar initials={e.initials} color={e.avatarColor} size={38} />
+                    <div className="min-w-0 flex-1 sm:w-44 sm:flex-none">
+                      <div className="text-sm font-semibold text-ink truncate">{e.name}</div>
+                      <div className="text-xs text-muted truncate">{e.positionLabel}</div>
                     </div>
-                  ) : (
-                    <ProgressBar
-                      value={kpi}
-                      color={kpi >= 0.9 ? '#057269' : kpi >= 0.7 ? '#d69e2e' : '#c53030'}
-                    />
-                  )}
+                    {/* прогресс-бар — в строке на sm+, отдельной строкой на телефоне */}
+                    <div className="hidden sm:block flex-1 min-w-0">
+                      {kpi === null ? (
+                        <div className="text-xs text-muted-2">{emptyLabel}</div>
+                      ) : (
+                        <ProgressBar value={kpi} color={barColor} />
+                      )}
+                    </div>
+                    <div className="w-12 sm:w-14 text-right text-sm font-bold text-ink">
+                      {kpi === null ? '—' : pct(kpi)}
+                    </div>
+                    <div className="hidden sm:flex w-28 justify-end">
+                      {kpi === null ? null : <KpiChip value={kpi} />}
+                    </div>
+                  </div>
+                  <div className="sm:hidden mt-2">
+                    {kpi === null ? (
+                      <div className="text-xs text-muted-2">{emptyLabel}</div>
+                    ) : (
+                      <ProgressBar value={kpi} color={barColor} />
+                    )}
+                  </div>
                 </div>
-                <div className="w-14 text-right text-sm font-bold text-ink">
-                  {kpi === null ? '—' : pct(kpi)}
-                </div>
-                <div className="w-28 flex justify-end">{kpi === null ? null : <KpiChip value={kpi} />}</div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
 
@@ -151,15 +162,17 @@ export default function Dashboard() {
           <div className="text-xs font-semibold text-muted-2 tracking-wide mb-2">РАСХОД ПО КАМПАНИЯМ</div>
           <div className="flex flex-col gap-2.5">
             {campaigns.map((c) => (
-              <div key={c.id} className="flex items-center gap-3">
-                <div className="w-40 text-xs text-ink-2 truncate">{c.brand}</div>
-                <div className="flex-1">
+              <div key={c.id} className="flex items-center gap-2.5 sm:gap-3">
+                <div className="w-24 sm:w-40 text-xs text-ink-2 truncate shrink-0">{c.brand}</div>
+                <div className="flex-1 min-w-0">
                   <ProgressBar
                     value={c.factBudget / maxSpend}
                     color={c.moneySource === 'FRANCHONE' ? '#057269' : '#4db3a6'}
                   />
                 </div>
-                <div className="w-24 text-right text-xs font-semibold text-ink">{kzt(c.factBudget)}</div>
+                <div className="w-20 sm:w-24 text-right text-[11px] sm:text-xs font-semibold text-ink shrink-0">
+                  {kzt(c.factBudget)}
+                </div>
               </div>
             ))}
           </div>

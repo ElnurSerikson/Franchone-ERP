@@ -53,11 +53,14 @@ export default function TaskCreateModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-0 sm:p-4"
+      onClick={onClose}
+    >
       <form
         onSubmit={submit}
         onClick={(e) => e.stopPropagation()}
-        className="w-full max-w-md bg-white rounded-card shadow-soft"
+        className="w-full sm:max-w-md bg-white rounded-t-card sm:rounded-card max-h-[92vh] sm:max-h-none overflow-y-auto shadow-soft [padding-bottom:env(safe-area-inset-bottom)] sm:pb-0"
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-line">
           <h2 className="text-lg font-bold text-ink">Новая задача</h2>
@@ -75,7 +78,7 @@ export default function TaskCreateModal({
             <label className="block text-sm font-medium text-ink-2 mb-1.5">Описание</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className={`${inputCls} resize-y`} placeholder="Детали задачи…" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-ink-2 mb-1.5">Исполнитель</label>
               <Select

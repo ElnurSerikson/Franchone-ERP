@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from 'lucide-react'
+import { useIsSmDown } from '@/lib/useMediaQuery'
 
 const MONTHS = [
   'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
@@ -35,15 +37,16 @@ export default function DatePicker({
   const [open, setOpen] = useState(false)
   const [view, setView] = useState<Date>(() => selected ?? new Date())
   const ref = useRef<HTMLDivElement>(null)
+  const isSheet = useIsSmDown() // на телефоне — bottom-sheet
 
   useEffect(() => {
-    if (!open) return
+    if (!open || isSheet) return
     const onDoc = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     document.addEventListener('mousedown', onDoc)
     return () => document.removeEventListener('mousedown', onDoc)
-  }, [open])
+  }, [open, isSheet])
 
   const today = new Date()
   const y = view.getFullYear()
@@ -57,6 +60,77 @@ export default function DatePicker({
   const display = selected
     ? `${selected.getDate()} ${MONTHS_SHORT[selected.getMonth()]} ${selected.getFullYear()}`
     : ''
+
+  const calendar = (
+    <>
+      <div className="flex items-center justify-between mb-2">
+        <button
+          type="button"
+          onClick={() => setView(new Date(y, m - 1, 1))}
+          className="w-9 h-9 rounded-lg hover:bg-chip flex items-center justify-center text-muted hover:text-ink"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <div className="text-sm font-semibold text-ink">
+          {MONTHS[m]} {y}
+        </div>
+        <button
+          type="button"
+          onClick={() => setView(new Date(y, m + 1, 1))}
+          className="w-9 h-9 rounded-lg hover:bg-chip flex items-center justify-center text-muted hover:text-ink"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-0.5 mb-1">
+        {WEEKDAYS.map((w) => (
+          <div key={w} className="text-[11px] text-muted-2 text-center py-1">
+            {w}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-0.5">
+        {cells.map((d, i) =>
+          d === null ? (
+            <div key={i} />
+          ) : (
+            <button
+              key={i}
+              type="button"
+              onClick={() => {
+                onChange(toValue(d))
+                setOpen(false)
+              }}
+              className={`h-10 sm:h-8 rounded-lg text-sm flex items-center justify-center transition-colors ${
+                selected && sameDay(d, selected)
+                  ? 'bg-green text-white font-semibold'
+                  : sameDay(d, today)
+                    ? 'text-green-d font-semibold hover:bg-chip'
+                    : 'text-ink-2 hover:bg-chip'
+              }`}
+            >
+              {d.getDate()}
+            </button>
+          ),
+        )}
+      </div>
+
+      <div className="mt-2 pt-2 border-t border-line">
+        <button
+          type="button"
+          onClick={() => {
+            onChange(toValue(today))
+            setOpen(false)
+          }}
+          className="text-xs text-green-d font-semibold hover:underline"
+        >
+          Сегодня
+        </button>
+      </div>
+    </>
+  )
 
   return (
     <div ref={ref} className="relative">
@@ -74,76 +148,20 @@ export default function DatePicker({
         <span className="flex-1 text-left">{display || placeholder}</span>
       </button>
 
-      {open && (
-        <div className="absolute z-[60] mt-1.5 w-64 bg-white rounded-xl border border-line shadow-soft p-3">
-          <div className="flex items-center justify-between mb-2">
-            <button
-              type="button"
-              onClick={() => setView(new Date(y, m - 1, 1))}
-              className="w-7 h-7 rounded-lg hover:bg-chip flex items-center justify-center text-muted hover:text-ink"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <div className="text-sm font-semibold text-ink">
-              {MONTHS[m]} {y}
-            </div>
-            <button
-              type="button"
-              onClick={() => setView(new Date(y, m + 1, 1))}
-              className="w-7 h-7 rounded-lg hover:bg-chip flex items-center justify-center text-muted hover:text-ink"
-            >
-              <ChevronRight size={16} />
-            </button>
+      {open &&
+        (isSheet ? (
+          createPortal(
+            <>
+              <div className="sheet-backdrop" onClick={() => setOpen(false)} />
+              <div className="sheet-panel p-4">{calendar}</div>
+            </>,
+            document.body,
+          )
+        ) : (
+          <div className="absolute z-[60] mt-1.5 w-64 max-w-[calc(100vw-1.5rem)] bg-white rounded-xl border border-line shadow-soft p-3">
+            {calendar}
           </div>
-
-          <div className="grid grid-cols-7 gap-0.5 mb-1">
-            {WEEKDAYS.map((w) => (
-              <div key={w} className="text-[11px] text-muted-2 text-center py-1">
-                {w}
-              </div>
-            ))}
-          </div>
-
-          <div className="grid grid-cols-7 gap-0.5">
-            {cells.map((d, i) =>
-              d === null ? (
-                <div key={i} />
-              ) : (
-                <button
-                  key={i}
-                  type="button"
-                  onClick={() => {
-                    onChange(toValue(d))
-                    setOpen(false)
-                  }}
-                  className={`h-8 rounded-lg text-sm flex items-center justify-center transition-colors ${
-                    selected && sameDay(d, selected)
-                      ? 'bg-green text-white font-semibold'
-                      : sameDay(d, today)
-                        ? 'text-green-d font-semibold hover:bg-chip'
-                        : 'text-ink-2 hover:bg-chip'
-                  }`}
-                >
-                  {d.getDate()}
-                </button>
-              ),
-            )}
-          </div>
-
-          <div className="mt-2 pt-2 border-t border-line">
-            <button
-              type="button"
-              onClick={() => {
-                onChange(toValue(today))
-                setOpen(false)
-              }}
-              className="text-xs text-green-d font-semibold hover:underline"
-            >
-              Сегодня
-            </button>
-          </div>
-        </div>
-      )}
+        ))}
     </div>
   )
 }

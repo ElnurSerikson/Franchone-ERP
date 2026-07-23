@@ -47,15 +47,15 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-bg flex items-center justify-center px-4">
+    <div className="min-h-screen bg-bg flex items-center justify-center px-4 py-8 [padding-bottom:max(2rem,env(safe-area-inset-bottom))]">
       <div className="w-full max-w-sm">
         {/* Brand */}
         <div className="flex flex-col items-center mb-7">
-          <img src="/logo-wordmark.png" alt="FRANCHONE" className="w-56 h-auto mb-2.5" />
+          <img src="/logo-wordmark.png" alt="FRANCHONE" className="w-48 sm:w-56 h-auto mb-2.5" />
           <div className="text-xs text-muted tracking-wide">ERP · Панель управления</div>
         </div>
 
-        <div className="card p-6">
+        <div className="card p-5 sm:p-6">
           {step === 'email' ? (
             <form onSubmit={sendCode}>
               <h1 className="text-xl font-bold text-ink mb-1">Вход</h1>
