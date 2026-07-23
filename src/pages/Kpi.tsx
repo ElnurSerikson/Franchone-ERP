@@ -88,6 +88,12 @@ function SmmKpi({ smmMetrics, reportMonth }: { smmMetrics: SmmMetric[]; reportMo
         <StatCard label="KPI ANUAR" value={pct(smm.kpiAnuar, 1)} foot="Личный аккаунт" icon={User} />
       </div>
 
+      <div className="card grid grid-cols-3 divide-x divide-line mb-5">
+        <MiniMetric label="План на месяц" value={num(smm.totalPlan)} />
+        <MiniMetric label="Опубликовано" value={num(smm.totalFact)} accent />
+        <MiniMetric label="Осталось" value={num(Math.max(smm.totalPlan - smm.totalFact, 0))} />
+      </div>
+
       <div className="card overflow-hidden mb-5">
         <div className="px-5 py-3.5 border-b border-line">
           <h3 className="sec-title">План и выполнение · {reportMonth}</h3>
