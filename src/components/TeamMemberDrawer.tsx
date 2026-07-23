@@ -145,9 +145,7 @@ export default function TeamMemberDrawer({
               {isEdit ? 'Редактировать сотрудника' : 'Пригласить сотрудника'}
             </h2>
             <p className="text-[13px] text-muted mt-0.5">
-              {isEdit
-                ? 'Изменения применятся сразу'
-                : 'Новый участник получит письмо со ссылкой на вход'}
+              {isEdit ? 'Изменения применятся сразу' : 'Отправим письмо со ссылкой на вход'}
             </p>
           </div>
           <button onClick={close} className="ico-btn w-9 h-9 shrink-0" title="Закрыть">
