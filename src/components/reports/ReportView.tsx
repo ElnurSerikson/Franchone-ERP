@@ -5,7 +5,7 @@ import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
 
 type Report = Doc<'dailyReports'>
 
-const th = 'text-left text-[11px] font-semibold text-muted uppercase tracking-wide px-3 py-2'
+const th = 'text-left text-[11px] font-semibold text-green-d uppercase tracking-wide px-3 py-2'
 const td = 'px-3 py-2 text-sm text-ink-2 border-t border-line'
 
 // Read-only отображение отчёта: статус, содержимое по должности, история правок.
@@ -29,7 +29,7 @@ export default function ReportView({ report }: { report: Report }) {
       {report.smm && (
         <table className="w-full">
           <thead>
-            <tr className="bg-chip/60">
+            <tr className="bg-[#e2f2ef]">
               <th className={th}>Страница</th>
               <th className={th}>Формат</th>
               <th className={th}>Кол-во</th>
@@ -59,7 +59,7 @@ export default function ReportView({ report }: { report: Report }) {
         <div className="overflow-x-auto -mx-1 px-1">
           <table className="w-full min-w-[420px]">
             <thead>
-              <tr className="bg-chip/60">
+              <tr className="bg-[#e2f2ef]">
                 <th className={th}>Проект · Кампания</th>
                 <th className={th}>Бюджет</th>
                 <th className={th}>Заявки</th>

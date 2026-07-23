@@ -10,7 +10,7 @@ import { pct } from '@/lib/format'
 import { REPORT_STATUS, cellDate, reportTime, type ReportStatus } from '@/lib/reports'
 import ReportView from './ReportView'
 
-const th = 'text-[11px] font-semibold text-muted uppercase tracking-wide px-3 py-2'
+const th = 'text-[11px] font-semibold text-green-d uppercase tracking-wide px-3 py-2'
 
 interface Sel {
   employeeId: Id<'employees'>
@@ -51,14 +51,19 @@ export default function DisciplineGrid() {
         <div className="overflow-x-auto">
           <table className="w-full border-collapse">
             <thead>
-              <tr className="bg-chip/60">
-                <th className={`${th} text-left sticky left-0 bg-[#f4f5f6] z-10 min-w-[150px] sm:min-w-[200px] border-r border-line`}>Сотрудник</th>
+              <tr className="bg-[#e2f2ef]">
+                <th className={`${th} text-left sticky left-0 bg-[#e2f2ef] z-10 min-w-[150px] sm:min-w-[200px] border-r border-line`}>Сотрудник</th>
                 {dates.map((d) => {
                   const c = cellDate(d)
                   const isToday = d === today
                   return (
-                    <th key={d} className={`${th} text-center whitespace-nowrap ${c.weekend ? 'text-muted-2' : ''}`}>
-                      <div className={`leading-tight ${isToday ? 'text-green-d font-bold' : ''}`}>
+                    <th
+                      key={d}
+                      className={`${th} text-center whitespace-nowrap ${
+                        c.weekend ? 'text-green-d/50' : ''
+                      } ${isToday ? 'bg-[#cfe9e4]' : ''}`}
+                    >
+                      <div className={`leading-tight ${isToday ? 'font-bold' : ''}`}>
                         <div className="text-[10px] uppercase">{c.wd}</div>
                         <div>{c.dm}</div>
                       </div>

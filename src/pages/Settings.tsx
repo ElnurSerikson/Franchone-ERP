@@ -9,7 +9,7 @@ import { LEAD_WEIGHT, CPL_WEIGHT } from '@/lib/kpi'
 import { REPORT_MONTH_FALLBACK } from '@/lib/constants'
 import { kzt, pct } from '@/lib/format'
 
-const th = 'text-left text-[11px] font-semibold text-muted uppercase tracking-wide px-3 py-2'
+const th = 'text-left text-[11px] font-semibold text-green-d uppercase tracking-wide px-3 py-2'
 const td = 'px-3 py-2.5 text-sm text-ink-2 border-t border-line'
 
 export default function Settings() {
@@ -27,7 +27,7 @@ export default function Settings() {
           </div>
           <table className="w-full">
             <thead>
-              <tr>
+              <tr className="bg-[#e2f2ef]">
                 <th className={th}>Аккаунт · Формат</th>
                 <th className={th}>Вес</th>
               </tr>
