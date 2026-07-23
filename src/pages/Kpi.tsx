@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
+import { TrendingUp, Wallet, Building2, User } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
+import StatCard from '@/components/ui/StatCard'
 import { useData } from '@/lib/useData'
 import { computeSmm } from '@/lib/kpi'
 import { kzt, pct } from '@/lib/format'
@@ -31,11 +33,11 @@ export default function Kpi() {
       />
 
       {/* ——— 4 большие метрики ——— */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
-        <MetricCard label="Общий KPI" value={pct(smm.totalKpi, 1)} header="#057269" headText="#ffffff" tint="#e2f2ef" />
-        <MetricCard label="Выплата" value={kzt(payoutVal)} header="#fe9c07" headText="#19181d" tint="#fff6e6" />
-        <MetricCard label="KPI FRANCHONE" value={pct(smm.kpiFranchone, 1)} header="#04332e" headText="#ffffff" tint="#eef3f1" />
-        <MetricCard label="KPI ANUAR" value={pct(smm.kpiAnuar, 1)} header="#19181d" headText="#ffffff" tint="#f2f2f3" />
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
+        <StatCard highlight label="Общий KPI" value={pct(smm.totalKpi, 1)} foot="FRANCHONE + ANUAR" icon={TrendingUp} />
+        <StatCard label="К выплате" value={kzt(payoutVal)} foot="600 000 × KPI" icon={Wallet} />
+        <StatCard label="KPI FRANCHONE" value={pct(smm.kpiFranchone, 1)} foot="Аккаунт компании" icon={Building2} />
+        <StatCard label="KPI ANUAR" value={pct(smm.kpiAnuar, 1)} foot="Личный аккаунт" icon={User} />
       </div>
 
       {/* ——— Таблица: план / выполнение ——— */}
@@ -73,36 +75,6 @@ export default function Kpi() {
         <BarChart rows={rows} />
       </div>
     </>
-  )
-}
-
-function MetricCard({
-  label,
-  value,
-  header,
-  headText,
-  tint,
-}: {
-  label: string
-  value: string
-  header: string
-  headText: string
-  tint: string
-}) {
-  return (
-    <div className="card overflow-hidden">
-      <div
-        className="px-3 py-2.5 text-center text-[13px] font-bold uppercase tracking-wide truncate"
-        style={{ background: header, color: headText }}
-      >
-        {label}
-      </div>
-      <div className="px-3 py-6 text-center" style={{ background: tint }}>
-        <div className="text-[30px] sm:text-[34px] leading-none font-extrabold text-ink whitespace-nowrap">
-          {value}
-        </div>
-      </div>
-    </div>
   )
 }
 
