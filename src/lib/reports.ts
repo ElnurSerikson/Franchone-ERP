@@ -5,7 +5,7 @@ export const REPORT_STATUS: Record<
   ReportStatus,
   { label: string; chip: string; dot: string; cell: string }
 > = {
-  onTime: { label: 'В срок', chip: 'bg-[#e3f6ee] text-green-d', dot: '#1c7d4d', cell: '#cdebdd' },
+  onTime: { label: 'В срок', chip: 'bg-[#e2f2ef] text-green-d', dot: '#057269', cell: '#cfe9e4' },
   late: { label: 'С опозданием', chip: 'bg-[#fff6e6] text-[#b7791f]', dot: '#d69e2e', cell: '#fbe6ba' },
   missed: { label: 'Пропущен', chip: 'bg-[#fdeaea] text-[#c53030]', dot: '#c53030', cell: '#f6cbcb' },
   pending: { label: 'Ожидается', chip: 'bg-chip text-muted', dot: '#c9ccd1', cell: '#eaecef' },

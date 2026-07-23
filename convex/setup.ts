@@ -102,6 +102,29 @@ export const reseedTasks = mutation({
   },
 })
 
+// Перекраска аватаров под новую фирменную бирюзовую палитру (#057269).
+// Одноразовая миграция данных в БД (старые зелёные оттенки → новые).
+export const recolorAvatars = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const map: Record<string, string> = {
+      '#1c7d4d': '#057269',
+      '#20915a': '#0a857a',
+      '#0f5c34': '#044f48',
+      '#57c78a': '#4db3a6',
+    }
+    let n = 0
+    for (const e of await ctx.db.query('employees').collect()) {
+      const nc = map[e.avatarColor.toLowerCase()]
+      if (nc && nc !== e.avatarColor) {
+        await ctx.db.patch(e._id, { avatarColor: nc })
+        n++
+      }
+    }
+    return { recolored: n }
+  },
+})
+
 // Демо-отчёты для раздела «Отчёты» (§3). Наполняет сетку дисциплины
 // за последние 14 дней с разным статусом (в срок / с опозданием / пропуск).
 export const seedReports = mutation({

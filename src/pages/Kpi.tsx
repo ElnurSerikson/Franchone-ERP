@@ -134,7 +134,7 @@ export default function Kpi() {
                       <span
                         className={`chip ${
                           r.campaign.moneySource === 'FRANCHONE'
-                            ? 'bg-[#e3f6ee] text-green-d'
+                            ? 'bg-[#e2f2ef] text-green-d'
                             : 'bg-chip text-ink-2'
                         }`}
                       >
@@ -312,7 +312,7 @@ function Payouts() {
 
   return (
     <div className="flex flex-col gap-5">
-      <div className="card p-5 bg-[#e3f6ee] border-[#cdeed9]">
+      <div className="card p-5 bg-[#e2f2ef] border-[#d1ebe6]">
         <div className="flex gap-3">
           <Info size={18} className="text-green-d shrink-0 mt-0.5" />
           <div className="text-sm text-ink-2">

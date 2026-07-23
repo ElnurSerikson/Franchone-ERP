@@ -92,7 +92,7 @@ export default function Team() {
                       )}
                     </td>
                     <td className={td}>
-                      <span className="chip bg-[#e3f6ee] text-green-d">Активен</span>
+                      <span className="chip bg-[#e2f2ef] text-green-d">Активен</span>
                     </td>
                     <td className={td}>
                       <div className="flex items-center justify-end gap-1">

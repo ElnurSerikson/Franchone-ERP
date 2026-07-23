@@ -114,7 +114,7 @@ export default function DisciplineGrid() {
                       <div className="w-24">
                         <ProgressBar
                           value={r.fillRate}
-                          color={r.fillRate >= 0.9 ? '#1c7d4d' : r.fillRate >= 0.7 ? '#d69e2e' : '#c53030'}
+                          color={r.fillRate >= 0.9 ? '#057269' : r.fillRate >= 0.7 ? '#d69e2e' : '#c53030'}
                         />
                       </div>
                       <span className="text-xs font-semibold text-ink w-9 text-right">{pct(r.fillRate)}</span>

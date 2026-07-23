@@ -51,7 +51,7 @@ function TaskCard({
             с опозданием
           </span>
         ) : task.kpiRef ? (
-          <span className="text-[10px] font-semibold text-green-d bg-[#e3f6ee] px-2 py-0.5 rounded-full">KPI</span>
+          <span className="text-[10px] font-semibold text-green-d bg-[#e2f2ef] px-2 py-0.5 rounded-full">KPI</span>
         ) : null}
       </div>
 
@@ -238,7 +238,7 @@ function Metric({ label, value, tone }: { label: string; value: number; tone?: '
 }
 
 function StatBar({ label, value }: { label: string; value: number }) {
-  const color = value >= 0.9 ? '#1c7d4d' : value >= 0.7 ? '#d69e2e' : '#c53030'
+  const color = value >= 0.9 ? '#057269' : value >= 0.7 ? '#d69e2e' : '#c53030'
   return (
     <div className="mb-3 last:mb-0">
       <div className="flex items-center justify-between mb-1">

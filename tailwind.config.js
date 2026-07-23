@@ -6,10 +6,10 @@ export default {
       colors: {
         // Palette copied from docs/demo_design.html ("Donezo")
         green: {
-          DEFAULT: '#1c7d4d',
-          2: '#20915a',
-          d: '#0f5c34',
-          light: '#57c78a',
+          DEFAULT: '#057269',
+          2: '#0a857a',
+          d: '#044f48',
+          light: '#4db3a6',
         },
         dark: '#0c1f16',
         ink: {

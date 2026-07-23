@@ -3,7 +3,7 @@ import type { Priority, TaskStatus } from '@/types'
 const statusStyle: Record<TaskStatus, { label: string; cls: string; dot: string }> = {
   assigned: { label: 'Назначено', cls: 'bg-chip text-ink-2', dot: '#9498a1' },
   in_progress: { label: 'В работе', cls: 'bg-[#eef4ff] text-[#2563eb]', dot: '#2563eb' },
-  done: { label: 'Готово', cls: 'bg-[#e3f6ee] text-green-d', dot: '#1c7d4d' },
+  done: { label: 'Готово', cls: 'bg-[#e2f2ef] text-green-d', dot: '#057269' },
 }
 
 export function StatusChip({ status }: { status: TaskStatus }) {
@@ -35,7 +35,7 @@ export function KpiChip({ value }: { value: number }) {
   const p = value * 100
   const { cls, label } =
     p >= 90
-      ? { cls: 'bg-[#e3f6ee] text-green-d', label: 'Отлично' }
+      ? { cls: 'bg-[#e2f2ef] text-green-d', label: 'Отлично' }
       : p >= 70
         ? { cls: 'bg-[#fff6e6] text-[#b7791f]', label: 'В норме' }
         : { cls: 'bg-[#fdeaea] text-[#c53030]', label: 'Ниже плана' }

@@ -14,7 +14,7 @@ export function ProgressRing({
   value,
   size = 160,
   stroke = 16,
-  color = '#1c7d4d',
+  color = '#057269',
   track = '#eef0f1',
   label,
   caption,
@@ -48,7 +48,7 @@ export function ProgressRing({
 
 export function ProgressBar({
   value,
-  color = '#1c7d4d',
+  color = '#057269',
   height = 8,
 }: {
   value: number

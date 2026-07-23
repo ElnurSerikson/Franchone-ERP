@@ -4,10 +4,10 @@
 
 @layer base {
   :root {
-    --green: #1c7d4d;
-    --green-2: #20915a;
-    --green-d: #0f5c34;
-    --green-light: #57c78a;
+    --green: #057269;
+    --green-2: #0a857a;
+    --green-d: #044f48;
+    --green-light: #4db3a6;
     --ink: #1c1d22;
     --muted: #9498a1;
     --line: #eef0f1;

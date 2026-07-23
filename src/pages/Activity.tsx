@@ -101,7 +101,7 @@ export default function Activity() {
                     <td className={td}>
                       {stats && stats.done > 0 ? (
                         <div className="flex items-center gap-2 w-36">
-                          <ProgressBar value={stats.onTimePct} color={stats.onTimePct >= 0.9 ? '#1c7d4d' : stats.onTimePct >= 0.7 ? '#d69e2e' : '#c53030'} />
+                          <ProgressBar value={stats.onTimePct} color={stats.onTimePct >= 0.9 ? '#057269' : stats.onTimePct >= 0.7 ? '#d69e2e' : '#c53030'} />
                           <span className="text-xs font-semibold text-ink w-10 text-right">{pct(stats.onTimePct)}</span>
                         </div>
                       ) : (
@@ -114,7 +114,7 @@ export default function Activity() {
                       ) : warn ? (
                         <span className="chip bg-[#fff6e6] text-[#b7791f]">Замечания</span>
                       ) : (
-                        <span className="chip bg-[#e3f6ee] text-green-d">В норме</span>
+                        <span className="chip bg-[#e2f2ef] text-green-d">В норме</span>
                       )}
                     </td>
                   </tr>

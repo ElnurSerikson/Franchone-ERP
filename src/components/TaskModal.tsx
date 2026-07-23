@@ -122,7 +122,7 @@ export default function TaskModal({
               <span
                 className={`chip mt-2 ${
                   task.completedOnTime
-                    ? 'bg-[#e3f6ee] text-green-d'
+                    ? 'bg-[#e2f2ef] text-green-d'
                     : 'bg-[#fdeaea] text-[#c53030]'
                 }`}
               >

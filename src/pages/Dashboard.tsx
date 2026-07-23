@@ -84,7 +84,7 @@ export default function Dashboard() {
                   ) : (
                     <ProgressBar
                       value={kpi}
-                      color={kpi >= 0.9 ? '#1c7d4d' : kpi >= 0.7 ? '#d69e2e' : '#c53030'}
+                      color={kpi >= 0.9 ? '#057269' : kpi >= 0.7 ? '#d69e2e' : '#c53030'}
                     />
                   )}
                 </div>
@@ -156,7 +156,7 @@ export default function Dashboard() {
                 <div className="flex-1">
                   <ProgressBar
                     value={c.factBudget / maxSpend}
-                    color={c.moneySource === 'FRANCHONE' ? '#1c7d4d' : '#57c78a'}
+                    color={c.moneySource === 'FRANCHONE' ? '#057269' : '#4db3a6'}
                   />
                 </div>
                 <div className="w-24 text-right text-xs font-semibold text-ink">{kzt(c.factBudget)}</div>

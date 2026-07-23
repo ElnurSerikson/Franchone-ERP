@@ -28,9 +28,9 @@ const EMPLOYEES: Array<{
   initials: string
   hiredAt: string
 }> = [
-  { key: 'u1', name: 'Ануар Тасымбеков', role: 'owner', position: 'sales', positionLabel: 'Владелец / основатель', department: 'Руководство', salary: 0, email: 'anuar@franchone.kz', phone: '+7 707 101 00 02', avatarColor: '#1c7d4d', initials: 'АТ', hiredAt: '2017-01-10' },
-  { key: 'u2', name: 'Нурай Сагатова', role: 'employee', position: 'smm', positionLabel: 'SMM-специалист', department: 'Маркетинг', salary: 600000, email: 'nuray@franchone.kz', phone: '+7 707 220 14 08', avatarColor: '#20915a', initials: 'НС', hiredAt: '2024-02-01' },
-  { key: 'u3', name: 'Дамир Ахметов', role: 'employee', position: 'targetolog', positionLabel: 'Таргетолог', department: 'Маркетинг', salary: 200000, email: 'damir@franchone.kz', phone: '+7 707 512 77 31', avatarColor: '#0f5c34', initials: 'ДА', hiredAt: '2024-05-12' },
+  { key: 'u1', name: 'Ануар Тасымбеков', role: 'owner', position: 'sales', positionLabel: 'Владелец / основатель', department: 'Руководство', salary: 0, email: 'anuar@franchone.kz', phone: '+7 707 101 00 02', avatarColor: '#057269', initials: 'АТ', hiredAt: '2017-01-10' },
+  { key: 'u2', name: 'Нурай Сагатова', role: 'employee', position: 'smm', positionLabel: 'SMM-специалист', department: 'Маркетинг', salary: 600000, email: 'nuray@franchone.kz', phone: '+7 707 220 14 08', avatarColor: '#0a857a', initials: 'НС', hiredAt: '2024-02-01' },
+  { key: 'u3', name: 'Дамир Ахметов', role: 'employee', position: 'targetolog', positionLabel: 'Таргетолог', department: 'Маркетинг', salary: 200000, email: 'damir@franchone.kz', phone: '+7 707 512 77 31', avatarColor: '#044f48', initials: 'ДА', hiredAt: '2024-05-12' },
   { key: 'u4', name: 'Аружан Калиева', role: 'head', position: 'sales', positionLabel: 'Руководитель отдела продаж', department: 'Продажи', salary: 350000, email: 'aruzhan@franchone.kz', phone: '+7 707 333 90 12', avatarColor: '#3a2e28', initials: 'АК', hiredAt: '2023-08-03' },
   { key: 'u5', name: 'Ерлан Оспанов', role: 'employee', position: 'packer', positionLabel: 'Упаковщик / проект-менеджер', department: 'Производство', salary: 300000, email: 'erlan@franchone.kz', phone: '+7 707 480 22 55', avatarColor: '#5f646c', initials: 'ЕО', hiredAt: '2023-11-20' },
 ]
