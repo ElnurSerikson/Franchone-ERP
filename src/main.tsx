@@ -22,7 +22,7 @@ if (!convex) {
         minHeight: '100vh',
         display: 'grid',
         placeItems: 'center',
-        fontFamily: 'Inter, sans-serif',
+        fontFamily: 'Fira Sans, sans-serif',
         color: '#3a3d44',
         padding: 24,
         textAlign: 'center',

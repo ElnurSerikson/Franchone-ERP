@@ -29,7 +29,7 @@ export default {
         chip: '#f4f5f6',
       },
       fontFamily: {
-        sans: ['Inter', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
+        sans: ['Fira Sans', '-apple-system', 'Segoe UI', 'Roboto', 'sans-serif'],
       },
       borderRadius: {
         card: '20px',

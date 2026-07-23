@@ -22,7 +22,6 @@
 
   body {
     @apply bg-bg text-ink font-sans antialiased;
-    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
   }
 
   /* На телефоне поля ввода < 16px вызывают авто-зум в iOS Safari при фокусе.
