@@ -161,6 +161,8 @@ export default defineSchema({
         action: v.union(v.literal('submitted'), v.literal('edited')),
       }),
     ),
+    // Свободный комментарий к отчёту: ссылка на опубликованное, пояснение.
+    note: v.optional(v.string()),
     // ——— payload по должности ———
     // SMM: строки «страница × тип контента × количество»
     smm: v.optional(

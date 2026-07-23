@@ -2,13 +2,12 @@ import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import { api } from '../../../convex/_generated/api'
 import type { Doc } from '../../../convex/_generated/dataModel'
-import { Plus, Trash2, Loader2, Save, Check, Clock, PencilLine, History, ChevronDown } from 'lucide-react'
+import { Loader2, Save, Check, Clock, PencilLine, History, ChevronDown } from 'lucide-react'
 import type { SmmRow, TargetologRow, SalesPayload } from '@/types'
 import { REPORTING_POSITIONS, REPORT_PAGES, CONTENT_TYPES } from '@/lib/constants'
 import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
 import { kzt, num } from '@/lib/format'
 import { useMediaQuery } from '@/lib/useMediaQuery'
-import Select from '../ui/Select'
 
 type Report = Doc<'dailyReports'>
 
@@ -157,23 +156,39 @@ function FormShell({
 }
 
 // ——— §3.1 SMM ———
+// Шесть фиксированных полей «аккаунт × формат» — ровно колонки листа
+// «Отчет SMM» в KPI_SMM.xlsx. Строки не добавляются: набор форматов задан
+// моделью KPI, у произвольной пары не было бы ни веса, ни плана, и её факт
+// не дошёл бы до KPI. Не публиковали — оставляем 0, как в файле.
+const SMM_CELLS = REPORT_PAGES.flatMap((page) => CONTENT_TYPES.map((type) => ({ page, type })))
+const cellKey = (page: string, type: string) => `${page}|${type}`
+
 function SmmForm({ report }: { report: Report | null }) {
   const submit = useMutation(api.reports.submit)
-  const [rows, setRows] = useState<SmmRow[]>(() =>
-    report?.smm?.length ? report.smm : [{ page: 'FRANCHONE', type: 'Reels', count: 1 }],
-  )
+  const [counts, setCounts] = useState<Record<string, number>>(() => {
+    const from: Record<string, number> = {}
+    for (const r of report?.smm ?? []) from[cellKey(r.page, r.type)] = r.count
+    return from
+  })
+  const [note, setNote] = useState(report?.note ?? '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  const setRow = (i: number, patch: Partial<SmmRow>) =>
-    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const get = (page: string, type: string) => counts[cellKey(page, type)] ?? 0
+  const setCount = (page: string, type: string, n: number) =>
+    setCounts((c) => ({ ...c, [cellKey(page, type)]: n }))
 
-  const total = rows.reduce((s, r) => s + (Number(r.count) || 0), 0)
+  const total = SMM_CELLS.reduce((s, c) => s + get(c.page, c.type), 0)
 
   const save = async () => {
     setSaving(true)
     try {
-      await submit({ smm: rows.map((r) => ({ page: r.page, type: r.type, count: Number(r.count) || 0 })) })
+      const rows: SmmRow[] = SMM_CELLS.map((c) => ({
+        page: c.page,
+        type: c.type,
+        count: get(c.page, c.type),
+      }))
+      await submit({ smm: rows, note: note.trim() || undefined })
       setSaved(true)
     } finally {
       setSaving(false)
@@ -183,45 +198,48 @@ function SmmForm({ report }: { report: Report | null }) {
   return (
     <FormShell
       title="Отчёт SMM-специалиста"
-      hint="Опубликованный контент по страницам за сегодня"
+      hint="Опубликованный контент за сегодня. Не публиковали — оставьте 0"
       edited={!!report}
       saving={saving}
       saved={saved}
       onSave={save}
     >
-      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_84px_36px] gap-2 px-1 mb-1.5">
-        <Lbl>Страница</Lbl>
-        <Lbl>Формат</Lbl>
-        <Lbl right>Кол-во</Lbl>
-        <span />
-      </div>
-      <div className="flex flex-col gap-2">
-        {rows.map((r, i) => (
-          <div key={i} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_84px_36px] gap-2 items-center">
-            <Select
-              value={r.page}
-              onChange={(v) => setRow(i, { page: v })}
-              options={REPORT_PAGES.map((p) => ({ value: p, label: p }))}
-            />
-            <Select
-              value={r.type}
-              onChange={(v) => setRow(i, { type: v })}
-              options={CONTENT_TYPES.map((t) => ({ value: t, label: t }))}
-            />
-            <input
-              type="number"
-              min={0}
-              className={numCls}
-              value={r.count}
-              onChange={(e) => setRow(i, { count: e.target.value === '' ? 0 : Number(e.target.value) })}
-            />
-            <RemoveBtn disabled={rows.length === 1} onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} />
+      <div className="grid gap-4 sm:grid-cols-2">
+        {REPORT_PAGES.map((page) => (
+          <div key={page} className="rounded-2xl border border-line p-4">
+            <div className="text-[11px] font-semibold text-green-d uppercase tracking-wide mb-3">
+              {page}
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {CONTENT_TYPES.map((type) => (
+                <div key={type} className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-ink-2">{type}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    className={`${numCls} w-24`}
+                    value={get(page, type)}
+                    onChange={(e) =>
+                      setCount(page, type, e.target.value === '' ? 0 : Number(e.target.value))
+                    }
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
-      <AddBtn onClick={() => setRows((rs) => [...rs, { page: 'FRANCHONE', type: 'Reels', count: 1 }])}>
-        Добавить строку
-      </AddBtn>
+
+      <div className="mt-4">
+        <Lbl>Комментарий / ссылка</Lbl>
+        <input
+          className={`${txtCls} mt-1.5`}
+          placeholder="Ссылка на опубликованное или короткое пояснение"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+        />
+      </div>
+
       <div className="flex items-center justify-between mt-4 pt-3 border-t border-line text-sm">
         <span className="text-muted">Итого публикаций</span>
         <span className="text-lg font-bold text-green-d">{total}</span>
@@ -468,30 +486,6 @@ function Lbl({ children, right }: { children: ReactNode; right?: boolean }) {
     >
       {children}
     </span>
-  )
-}
-
-function RemoveBtn({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="w-9 h-9 grid place-items-center rounded-lg text-muted hover:text-[#c53030] hover:bg-chip disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
-      title="Удалить строку"
-    >
-      <Trash2 size={15} />
-    </button>
-  )
-}
-
-function AddBtn({ onClick, children }: { onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      className="mt-2.5 inline-flex items-center gap-1.5 text-sm font-medium text-green-d hover:text-green transition-colors"
-    >
-      <Plus size={15} /> {children}
-    </button>
   )
 }
 

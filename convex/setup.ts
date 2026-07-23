@@ -303,7 +303,15 @@ export const seedSmmReports = mutation({
   handler: async (ctx) => {
     const emps = await ctx.db.query('employees').collect()
     const smm = emps.find((e) => e.position === 'smm' && e.status === 'active' && !e.hidden)
-    if (!smm) throw new Error('SMM-специалист не найден')
+    if (!smm) {
+      const who = emps
+        .filter((e) => e.status === 'active' && !e.hidden)
+        .map((e) => `${e.name} — ${e.position}`)
+        .join('; ')
+      throw new Error(
+        `Нет активного сотрудника с должностью smm. Сейчас в команде: ${who || 'никого'}`,
+      )
+    }
 
     // Идемпотентность: свои прошлые демо-отчёты сначала убираем.
     for (const r of await ctx.db

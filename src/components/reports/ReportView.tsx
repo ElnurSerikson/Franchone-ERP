@@ -107,6 +107,15 @@ export default function ReportView({ report }: { report: Report }) {
           ) : null}
         </div>
       )}
+
+      {report.note ? (
+        <div className="rounded-xl border border-line p-3">
+          <div className="text-[11px] text-muted uppercase tracking-wide mb-1">
+            Комментарий / ссылка
+          </div>
+          <div className="text-sm text-ink-2 break-words">{report.note}</div>
+        </div>
+      ) : null}
     </div>
   )
 }

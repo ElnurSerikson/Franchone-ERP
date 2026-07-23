@@ -81,6 +81,7 @@ export const mine = query({
 export const submit = mutation({
   args: {
     date: v.optional(v.string()),
+    note: v.optional(v.string()),
     smm: v.optional(smmRows),
     targetolog: v.optional(targetologRows),
     sales: v.optional(salesPayload),
@@ -93,7 +94,12 @@ export const submit = mutation({
     const position = me.position as 'smm' | 'targetolog' | 'sales'
     const date = args.date ?? businessToday()
     const now = Date.now()
-    const payload = { smm: args.smm, targetolog: args.targetolog, sales: args.sales }
+    const payload = {
+      smm: args.smm,
+      targetolog: args.targetolog,
+      sales: args.sales,
+      note: args.note,
+    }
 
     const existing = await ctx.db
       .query('dailyReports')
