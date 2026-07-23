@@ -5,6 +5,7 @@ import {
   ShoppingCart, Percent, Receipt, Loader2, ChevronLeft, ChevronRight, type LucideIcon,
 } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
+import { useApp, useCurrentUser } from '@/store'
 import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
 import { computeSmm, computeTargetolog, spendBySource } from '@/lib/kpi'
@@ -40,17 +41,27 @@ const DEPTS: { id: Dept; label: string }[] = [
 const acctShort = (a: string) => (a === 'FRANCHONE' ? 'FR' : a === 'ANUAR' ? 'Anuar' : a)
 
 export default function Kpi() {
+  const { role } = useApp()
+  const me = useCurrentUser()
   const [dept, setDept] = useState<Dept>('smm')
   const [month, setMonth] = useState(CURRENT_MONTH)
   const monthLabel = formatMonth(month)
   const atCurrent = month >= CURRENT_MONTH
 
+  // Переключатель отделов — только у руководства. Сотрудник видит KPI своей
+  // должности и ничей больше: в карточках есть суммы выплат.
+  const canSeeAll = role === 'owner' || role === 'head'
+  const ownDept = DEPTS.find((d) => d.id === (me.position as Dept))?.id ?? null
+  const active: Dept | null = canSeeAll ? dept : ownDept
+
   const subtitle =
-    dept === 'smm'
+    active === 'smm'
       ? `Контент · FRANCHONE + ANUAR · ${monthLabel}`
-      : dept === 'targetolog'
+      : active === 'targetolog'
         ? `Реклама · кампании · ${monthLabel}`
-        : `Отдел продаж · ${monthLabel}`
+        : active === 'sales'
+          ? `Отдел продаж · ${monthLabel}`
+          : monthLabel
 
   return (
     <>
@@ -84,6 +95,7 @@ export default function Kpi() {
       />
 
       {/* Переключатель отделов (по должности, без имён) */}
+      {canSeeAll && (
       <div className="flex items-center gap-1 p-1 bg-chip rounded-xl w-full sm:w-fit mb-5">
         {DEPTS.map((d) => (
           <button
@@ -100,10 +112,18 @@ export default function Kpi() {
           </button>
         ))}
       </div>
+      )}
 
-      {dept === 'smm' && <SmmKpi month={month} />}
-      {dept === 'targetolog' && <TargetologKpi month={month} />}
-      {dept === 'sales' && <SalesKpi month={month} monthLabel={monthLabel} />}
+      {active === 'smm' && <SmmKpi month={month} />}
+      {active === 'targetolog' && <TargetologKpi month={month} />}
+      {active === 'sales' && <SalesKpi month={month} monthLabel={monthLabel} />}
+      {active === null && (
+        <EmptyKpi
+          icon={Target}
+          title="KPI для вашей должности не настроен"
+          hint="Показатели считаются для SMM, таргетолога и отдела продаж. Если это ошибка — обратитесь к руководителю."
+        />
+      )}
     </>
   )
 }

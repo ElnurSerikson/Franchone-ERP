@@ -12,5 +12,7 @@ export function reportsDaily(role: string, position: string): boolean {
   return role !== 'owner' && (REPORTING_POSITIONS as readonly string[]).includes(position)
 }
 // Страницы/проекты и типы контента для отчёта SMM (§3.1).
+// Названия совпадают с осями KPI_SMM.xlsx — иначе дневной отчёт не сматчится
+// со строкой плана «аккаунт × формат» и факт не дойдёт до KPI.
 export const REPORT_PAGES = ['FRANCHONE', 'ANUAR'] as const
-export const CONTENT_TYPES = ['Reels', 'Stories', 'Посты', 'Карусели'] as const
+export const CONTENT_TYPES = ['Рилсы', 'Сторис', 'Карусели'] as const
