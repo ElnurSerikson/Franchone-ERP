@@ -138,7 +138,6 @@ function SmmKpi({ month }: { month: string }) {
     label: `${acctShort(r.metric.account)} — ${r.metric.format}`,
     plan: r.plan,
     done: r.plan ? r.fact / r.plan : 0,
-    ratio: r.ratio,
   }))
 
   return (
@@ -179,11 +178,6 @@ function SmmKpi({ month }: { month: string }) {
             </tbody>
           </table>
         </div>
-      </div>
-
-      <div className="card p-5">
-        <h3 className="sec-title mb-4">Выполнение плана по форматам</h3>
-        <BarChart rows={rows} />
       </div>
     </>
   )
@@ -376,48 +370,3 @@ function PctChip({ value }: { value: number }) {
   )
 }
 
-// Лёгкий SVG-столбчатый график (без внешних библиотек). Высоты — по r.ratio
-// (ограничено 100%, как в KPI); подпись оси Y 0…100%.
-function BarChart({ rows }: { rows: { id: string; label: string; ratio: number }[] }) {
-  const W = 760
-  const H = 300
-  const padL = 42
-  const padR = 14
-  const padT = 16
-  const padB = 52
-  const plotW = W - padL - padR
-  const plotH = H - padT - padB
-  const yOf = (v: number) => padT + plotH * (1 - v)
-  const bw = (plotW / rows.length) * 0.5
-  const grid = [0, 0.25, 0.5, 0.75, 1]
-
-  return (
-    <div className="overflow-x-auto">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[520px]" role="img" aria-label="Выполнение плана по форматам">
-        {grid.map((g) => (
-          <g key={g}>
-            <line x1={padL} y1={yOf(g)} x2={W - padR} y2={yOf(g)} stroke="#eef0f1" strokeWidth={1} />
-            <text x={padL - 8} y={yOf(g) + 4} textAnchor="end" fontSize={11} fill="#9498a1">
-              {Math.round(g * 100)}%
-            </text>
-          </g>
-        ))}
-
-        {rows.map((r, i) => {
-          const cx = padL + (plotW * (i + 0.5)) / rows.length
-          const h = plotH * r.ratio
-          return (
-            <g key={r.id}>
-              <rect x={cx - bw / 2} y={yOf(r.ratio)} width={bw} height={h} rx={3} fill="#057269" />
-              <text x={cx} y={H - padB + 20} textAnchor="middle" fontSize={10.5} fill="#3a3d44">
-                {r.label}
-              </text>
-            </g>
-          )
-        })}
-
-        <line x1={padL} y1={yOf(0)} x2={W - padR} y2={yOf(0)} stroke="#d7dade" strokeWidth={1} />
-      </svg>
-    </div>
-  )
-}
