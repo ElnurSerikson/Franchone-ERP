@@ -9,6 +9,7 @@ import Dashboard from './pages/Dashboard'
 import Tasks from './pages/Tasks'
 import Kpi from './pages/Kpi'
 import Team from './pages/Team'
+import Activity from './pages/Activity'
 import Settings from './pages/Settings'
 
 function Guard({ allow, children }: { allow: Role[]; children: JSX.Element }) {
@@ -30,6 +31,14 @@ function AuthedApp() {
               element={
                 <Guard allow={['owner', 'head']}>
                   <Team />
+                </Guard>
+              }
+            />
+            <Route
+              path="activity"
+              element={
+                <Guard allow={['owner', 'head']}>
+                  <Activity />
                 </Guard>
               }
             />

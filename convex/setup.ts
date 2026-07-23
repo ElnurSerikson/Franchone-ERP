@@ -101,3 +101,40 @@ export const reseedTasks = mutation({
     return { tasks: TASKS.length }
   },
 })
+
+// Демо-входы для раздела «Активность». Ерлан — «давно не заходил».
+export const seedActivity = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db.query('loginEvents').collect()
+    for (const r of existing) await ctx.db.delete(r._id)
+
+    const emps = await ctx.db.query('employees').collect()
+    const owner = emps.find((e) => e.role === 'owner')!
+    const smm = emps.find((e) => e.position === 'smm')!
+    const targ = emps.find((e) => e.position === 'targetolog')!
+    const head = emps.find((e) => e.role === 'head')!
+    const packer = emps.find((e) => e.position === 'packer')!
+    const now = Date.now()
+    const D = 24 * 60 * 60 * 1000
+
+    const plan: Array<{ e: Doc<'employees'>; days: number[] }> = [
+      { e: owner, days: [0, 0, 0, 1, 1, 2, 3, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13] },
+      { e: smm, days: [0, 1, 2, 3, 4, 6, 7, 9, 11, 13] },
+      { e: targ, days: [1, 1, 3, 5, 8, 12] },
+      { e: head, days: [0, 1, 2, 4, 5, 8, 10] },
+      { e: packer, days: [6, 9, 13] },
+    ]
+
+    for (const { e, days } of plan) {
+      let lastAt = 0
+      for (const d of days) {
+        const at = now - d * D - d * 3600000
+        await ctx.db.insert('loginEvents', { employeeId: e._id, at })
+        if (at > lastAt) lastAt = at
+      }
+      await ctx.db.patch(e._id, { lastLoginAt: lastAt })
+    }
+    return { seeded: plan.length }
+  },
+})

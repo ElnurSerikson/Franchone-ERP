@@ -36,3 +36,38 @@ export function taskCounts(list: Task[]) {
     overdue: list.filter(isOverdue).length,
   }
 }
+
+// Статистика задач по сотруднику (§1 ТЗ).
+export interface TaskStats {
+  employee: Employee
+  total: number // поставлено (назначено сотруднику)
+  active: number // не завершено
+  done: number // выполнено
+  onTime: number // в срок
+  late: number // с опозданием
+  overdue: number // просрочено и не выполнено
+  completionPct: number // выполнено / поставлено
+  onTimePct: number // в срок / выполнено
+}
+
+export function taskStatsByEmployee(tasks: Task[], employees: Employee[]): TaskStats[] {
+  return employees
+    .map((e) => {
+      const mine = tasks.filter((t) => t.assigneeId === e.id)
+      const done = mine.filter((t) => t.status === 'done')
+      const onTime = done.filter((t) => t.completedOnTime).length
+      const late = done.filter((t) => t.completedOnTime === false).length
+      return {
+        employee: e,
+        total: mine.length,
+        active: mine.filter((t) => t.status !== 'done').length,
+        done: done.length,
+        onTime,
+        late,
+        overdue: mine.filter(isOverdue).length,
+        completionPct: mine.length ? done.length / mine.length : 0,
+        onTimePct: done.length ? onTime / done.length : 0,
+      }
+    })
+    .filter((s) => s.total > 0)
+}

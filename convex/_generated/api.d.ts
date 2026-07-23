@@ -9,6 +9,7 @@
  */
 
 import type * as ResendOTP from "../ResendOTP.js";
+import type * as activity from "../activity.js";
 import type * as auth from "../auth.js";
 import type * as campaigns from "../campaigns.js";
 import type * as emails from "../emails.js";
@@ -30,6 +31,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   ResendOTP: typeof ResendOTP;
+  activity: typeof activity;
   auth: typeof auth;
   campaigns: typeof campaigns;
   emails: typeof emails;

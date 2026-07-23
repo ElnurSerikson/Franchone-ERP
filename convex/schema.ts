@@ -115,6 +115,12 @@ export default defineSchema({
     byId: v.id('employees'),
   }).index('by_task', ['taskId']),
 
+  // Входы сотрудников (для контроля активности/дисциплины)
+  loginEvents: defineTable({
+    employeeId: v.id('employees'),
+    at: v.number(), // время входа (ms)
+  }).index('by_employee', ['employeeId']),
+
   // Настройки (одна запись-синглтон с key = "global")
   settings: defineTable({
     key: v.string(),

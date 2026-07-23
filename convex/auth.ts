@@ -40,7 +40,9 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
         )
       }
 
-      await ctx.db.patch(employee._id, { lastLoginAt: Date.now() })
+      const now = Date.now()
+      await ctx.db.patch(employee._id, { lastLoginAt: now })
+      await ctx.db.insert('loginEvents', { employeeId: employee._id, at: now })
 
       if (existingUserId) {
         await ctx.db.patch(existingUserId, { email, name: employee.name })

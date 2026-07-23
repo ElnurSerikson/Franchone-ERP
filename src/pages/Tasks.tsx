@@ -1,16 +1,17 @@
 import { useState } from 'react'
-import { Plus, MessageSquare, Paperclip, CheckSquare, ListFilter, LayoutGrid } from 'lucide-react'
+import { Plus, MessageSquare, Paperclip, CheckSquare, LayoutGrid, BarChart3 } from 'lucide-react'
 import { useMutation } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
 import PageHeader from '@/components/PageHeader'
 import Avatar from '@/components/ui/Avatar'
+import { ProgressBar } from '@/components/ui/Progress'
 import { PriorityChip, statusMeta } from '@/components/ui/StatusChip'
 import TaskModal from '@/components/TaskModal'
 import TaskCreateModal from '@/components/TaskCreateModal'
 import { useData } from '@/lib/useData'
-import { isOverdue } from '@/lib/selectors'
-import { shortDate } from '@/lib/format'
+import { isOverdue, taskStatsByEmployee } from '@/lib/selectors'
+import { shortDate, pct } from '@/lib/format'
 import type { Employee, Task, TaskStatus } from '@/types'
 
 const columns: TaskStatus[] = ['assigned', 'in_progress', 'done']
@@ -100,6 +101,7 @@ export default function Tasks() {
   const [overCol, setOverCol] = useState<TaskStatus | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
+  const [view, setView] = useState<'board' | 'stats'>('board')
 
   const assigneeOf = (id: string) => employees.find((e) => e.id === id)
   const openTask = tasks.find((t) => t.id === openId) ?? null
@@ -118,14 +120,32 @@ export default function Tasks() {
         subtitle="Kanban-доска команды. Перетаскивайте карточки — статус сохраняется в базу."
         actions={
           <>
-            <button className="btn btn-ghost"><ListFilter size={16} /> Фильтры</button>
-            <button className="btn btn-ghost"><LayoutGrid size={16} /> Доска</button>
+            <div className="flex items-center gap-1 p-1 bg-chip rounded-xl">
+              <button
+                onClick={() => setView('board')}
+                className={`h-8 px-3 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5 transition-colors ${
+                  view === 'board' ? 'bg-white text-ink shadow-card' : 'text-muted hover:text-ink'
+                }`}
+              >
+                <LayoutGrid size={15} /> Доска
+              </button>
+              <button
+                onClick={() => setView('stats')}
+                className={`h-8 px-3 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5 transition-colors ${
+                  view === 'stats' ? 'bg-white text-ink shadow-card' : 'text-muted hover:text-ink'
+                }`}
+              >
+                <BarChart3 size={15} /> Статистика
+              </button>
+            </div>
             <button className="btn btn-green" onClick={() => setCreating(true)}><Plus size={16} /> Добавить задачу</button>
           </>
         }
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {view === 'stats' && <TaskStatsView tasks={tasks} employees={employees} />}
+
+      <div className={`grid grid-cols-1 md:grid-cols-3 gap-4 ${view === 'stats' ? 'hidden' : ''}`}>
         {columns.map((col) => {
           const meta = statusMeta[col]
           const list = tasks.filter((t) => t.status === col)
@@ -175,5 +195,57 @@ export default function Tasks() {
       {openTask && <TaskModal task={openTask} employees={employees} onClose={() => setOpenId(null)} />}
       {creating && <TaskCreateModal employees={employees} onClose={() => setCreating(false)} />}
     </>
+  )
+}
+
+function TaskStatsView({ tasks, employees }: { tasks: Task[]; employees: Employee[] }) {
+  const stats = taskStatsByEmployee(tasks, employees)
+  return (
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-5">
+      {stats.map((s) => (
+        <div key={s.employee.id} className="card p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <Avatar initials={s.employee.initials} color={s.employee.avatarColor} size={40} />
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold text-ink truncate">{s.employee.name}</div>
+              <div className="text-xs text-muted truncate">{s.employee.positionLabel}</div>
+            </div>
+            {s.overdue > 0 && <span className="chip bg-[#fdeaea] text-[#c53030]">{s.overdue} просроч.</span>}
+          </div>
+          <div className="grid grid-cols-4 gap-2 mb-4">
+            <Metric label="Постав." value={s.total} />
+            <Metric label="Выполн." value={s.done} />
+            <Metric label="В срок" value={s.onTime} tone="green" />
+            <Metric label="Опозд." value={s.late} tone="red" />
+          </div>
+          <StatBar label="Выполнение задач" value={s.completionPct} />
+          <StatBar label="Соблюдение сроков" value={s.onTimePct} />
+        </div>
+      ))}
+      {stats.length === 0 && <div className="text-sm text-muted">Нет данных по задачам.</div>}
+    </div>
+  )
+}
+
+function Metric({ label, value, tone }: { label: string; value: number; tone?: 'green' | 'red' }) {
+  const color = tone === 'green' ? 'text-green-d' : tone === 'red' ? 'text-[#c53030]' : 'text-ink'
+  return (
+    <div className="rounded-xl bg-chip p-2.5 text-center">
+      <div className={`text-lg font-bold ${color}`}>{value}</div>
+      <div className="text-[10px] text-muted mt-0.5">{label}</div>
+    </div>
+  )
+}
+
+function StatBar({ label, value }: { label: string; value: number }) {
+  const color = value >= 0.9 ? '#1c7d4d' : value >= 0.7 ? '#d69e2e' : '#c53030'
+  return (
+    <div className="mb-3 last:mb-0">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-xs text-muted">{label}</span>
+        <span className="text-xs font-semibold text-ink">{pct(value)}</span>
+      </div>
+      <ProgressBar value={value} color={color} />
+    </div>
   )
 }

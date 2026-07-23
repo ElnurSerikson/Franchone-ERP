@@ -5,6 +5,7 @@ import {
   CheckSquare,
   Target,
   Users,
+  Activity,
   Settings,
   LogOut,
   PanelLeftClose,
@@ -33,6 +34,7 @@ const menu: NavItem[] = [
 
 const manage: NavItem[] = [
   { to: '/team', label: 'Команда', icon: Users, roles: ['owner', 'head'] },
+  { to: '/activity', label: 'Активность', icon: Activity, roles: ['owner', 'head'] },
   { to: '/settings', label: 'Настройки', icon: Settings, roles: ['owner'] },
 ]
 

@@ -1,3 +1,3 @@
-// «Сегодня» для расчёта просрочек и запасное имя отчётного месяца.
-export const TODAY = '2026-07-19'
+// «Сегодня» (реальная дата) для расчёта просрочек и дисциплины.
+export const TODAY = new Date().toISOString().slice(0, 10)
 export const REPORT_MONTH_FALLBACK = 'Июль 2026'
