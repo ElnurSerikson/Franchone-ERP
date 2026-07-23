@@ -16,6 +16,7 @@ export const update = mutation({
     leadWeight: v.number(),
     cplWeight: v.number(),
     reportMonth: v.string(),
+    reportDeadlineTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db

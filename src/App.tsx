@@ -7,6 +7,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Tasks from './pages/Tasks'
+import Reports from './pages/Reports'
 import Kpi from './pages/Kpi'
 import Team from './pages/Team'
 import Activity from './pages/Activity'
@@ -25,6 +26,7 @@ function AuthedApp() {
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
             <Route path="tasks" element={<Tasks />} />
+            <Route path="reports" element={<Reports />} />
             <Route path="kpi" element={<Kpi />} />
             <Route
               path="team"

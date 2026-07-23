@@ -75,3 +75,27 @@ export interface Task {
   comments: number
   kpiRef?: string
 }
+
+// ——— Ежедневная отчётность (§3) ———
+export type ReportPosition = 'smm' | 'targetolog' | 'sales'
+
+export interface SmmRow {
+  page: string
+  type: string
+  count: number
+}
+
+export interface TargetologRow {
+  project: string
+  campaign: string
+  budget: number
+  leads: number
+}
+
+export interface SalesPayload {
+  leads: number // обработано заявок
+  meetings: number // звонки / встречи
+  sales: number // продаж, шт
+  revenue: number // сумма продаж, ₸
+  note?: string
+}

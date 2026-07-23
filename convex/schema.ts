@@ -121,11 +121,68 @@ export default defineSchema({
     at: v.number(), // время входа (ms)
   }).index('by_employee', ['employeeId']),
 
+  // Ежедневные отчёты сотрудников (§3). Одна запись = сотрудник × дата.
+  // Состав payload зависит от должности; заполнен только соответствующий блок.
+  dailyReports: defineTable({
+    employeeId: v.id('employees'),
+    position: v.union(
+      v.literal('smm'),
+      v.literal('targetolog'),
+      v.literal('sales'),
+    ),
+    date: v.string(), // календарная дата отчёта (YYYY-MM-DD)
+    submittedAt: v.number(), // время первой отправки (ms)
+    onTime: v.boolean(), // отправлен ли вовремя (до дедлайна дня)
+    editedAt: v.optional(v.number()), // время последней правки после отправки
+    editedById: v.optional(v.id('employees')),
+    editCount: v.number(),
+    // Кто и когда: отправка + все правки
+    history: v.array(
+      v.object({
+        at: v.number(),
+        byId: v.id('employees'),
+        action: v.union(v.literal('submitted'), v.literal('edited')),
+      }),
+    ),
+    // ——— payload по должности ———
+    // SMM: строки «страница × тип контента × количество»
+    smm: v.optional(
+      v.array(
+        v.object({ page: v.string(), type: v.string(), count: v.number() }),
+      ),
+    ),
+    // Таргетолог: строки по активным кампаниям
+    targetolog: v.optional(
+      v.array(
+        v.object({
+          project: v.string(),
+          campaign: v.string(),
+          budget: v.number(),
+          leads: v.number(),
+        }),
+      ),
+    ),
+    // Отдел продаж: базовый набор метрик (уточняется заказчиком)
+    sales: v.optional(
+      v.object({
+        leads: v.number(), // обработано заявок
+        meetings: v.number(), // звонки / встречи
+        sales: v.number(), // продаж, шт
+        revenue: v.number(), // сумма продаж, ₸
+        note: v.optional(v.string()),
+      }),
+    ),
+  })
+    .index('by_employee', ['employeeId'])
+    .index('by_employee_date', ['employeeId', 'date'])
+    .index('by_date', ['date']),
+
   // Настройки (одна запись-синглтон с key = "global")
   settings: defineTable({
     key: v.string(),
     leadWeight: v.number(), // вес заявок (0.7)
     cplWeight: v.number(), // вес CPL (0.3)
     reportMonth: v.string(),
+    reportDeadlineTime: v.optional(v.string()), // дедлайн дневного отчёта, «HH:MM» (Алматы)
   }).index('by_key', ['key']),
 })

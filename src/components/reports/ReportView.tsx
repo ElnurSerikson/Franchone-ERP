@@ -1,0 +1,108 @@
+import type { Doc } from '../../../convex/_generated/dataModel'
+import { Clock, PencilLine } from 'lucide-react'
+import { kzt, num } from '@/lib/format'
+import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
+
+type Report = Doc<'dailyReports'>
+
+const th = 'text-left text-[11px] font-semibold text-muted uppercase tracking-wide px-3 py-2'
+const td = 'px-3 py-2 text-sm text-ink-2 border-t border-line'
+
+// Read-only отображение отчёта: статус, содержимое по должности, история правок.
+export default function ReportView({ report }: { report: Report }) {
+  const st = REPORT_STATUS[report.onTime ? 'onTime' : 'late']
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`chip ${st.chip}`}>
+          <Clock size={12} /> {st.label}
+        </span>
+        <span className="text-sm text-muted">Отправлен: {reportTime(report.submittedAt)}</span>
+        {report.editCount > 0 && report.editedAt && (
+          <span className="chip bg-chip text-muted-2">
+            <PencilLine size={12} /> Изменён {report.editCount}× · {reportTime(report.editedAt)}
+          </span>
+        )}
+      </div>
+
+      {report.smm && (
+        <table className="w-full">
+          <thead>
+            <tr className="bg-chip/60">
+              <th className={th}>Страница</th>
+              <th className={th}>Формат</th>
+              <th className={th}>Кол-во</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.smm.map((r, i) => (
+              <tr key={i}>
+                <td className={td}>{r.page}</td>
+                <td className={td}>{r.type}</td>
+                <td className={`${td} font-semibold text-ink`}>{r.count}</td>
+              </tr>
+            ))}
+            <tr>
+              <td className={`${td} font-semibold text-ink`} colSpan={2}>
+                Итого публикаций
+              </td>
+              <td className={`${td} font-bold text-green-d`}>
+                {report.smm.reduce((s, r) => s + r.count, 0)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      )}
+
+      {report.targetolog && (
+        <table className="w-full">
+          <thead>
+            <tr className="bg-chip/60">
+              <th className={th}>Проект · Кампания</th>
+              <th className={th}>Бюджет</th>
+              <th className={th}>Заявки</th>
+              <th className={th}>CPL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.targetolog.map((r, i) => (
+              <tr key={i}>
+                <td className={td}>
+                  <div className="font-medium text-ink">{r.campaign}</div>
+                  <div className="text-[11px] text-muted">{r.project}</div>
+                </td>
+                <td className={td}>{kzt(r.budget)}</td>
+                <td className={`${td} font-semibold text-ink`}>{r.leads}</td>
+                <td className={td}>{kzt(cpl(r.budget, r.leads))}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {report.sales && (
+        <div className="grid grid-cols-2 gap-3">
+          <Metric label="Обработано заявок" value={num(report.sales.leads)} />
+          <Metric label="Звонки / встречи" value={num(report.sales.meetings)} />
+          <Metric label="Продаж, шт" value={num(report.sales.sales)} />
+          <Metric label="Сумма продаж" value={kzt(report.sales.revenue)} />
+          {report.sales.note ? (
+            <div className="col-span-2 rounded-xl border border-line p-3 text-sm text-ink-2">
+              {report.sales.note}
+            </div>
+          ) : null}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-line p-3">
+      <div className="text-xs text-muted mb-1">{label}</div>
+      <div className="text-lg font-bold text-ink">{value}</div>
+    </div>
+  )
+}

@@ -102,6 +102,125 @@ export const reseedTasks = mutation({
   },
 })
 
+// Демо-отчёты для раздела «Отчёты» (§3). Наполняет сетку дисциплины
+// за последние 14 дней с разным статусом (в срок / с опозданием / пропуск).
+export const seedReports = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db.query('dailyReports').collect()
+    for (const r of existing) await ctx.db.delete(r._id)
+
+    // Дедлайн отчёта по умолчанию — 20:00 (Алматы).
+    const settings = await ctx.db
+      .query('settings')
+      .withIndex('by_key', (q) => q.eq('key', 'global'))
+      .first()
+    if (settings && !settings.reportDeadlineTime) {
+      await ctx.db.patch(settings._id, { reportDeadlineTime: '20:00' })
+    }
+
+    const emps = await ctx.db.query('employees').collect()
+    const byPos = (p: string, role?: string) =>
+      emps.find((e) => e.position === p && (role ? e.role === role : true))!
+    const smm = byPos('smm')
+    const targ = byPos('targetolog')
+    const salesOwner = byPos('sales', 'owner')
+    const salesHead = byPos('sales', 'head')
+
+    const today = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
+    const addDays = (d: string, delta: number) =>
+      new Date(Date.parse(`${d}T00:00:00Z`) + delta * 86400000).toISOString().slice(0, 10)
+    const submitMs = (date: string, ok: boolean) =>
+      Date.parse(`${date}T${ok ? '18:20' : '21:40'}:00+05:00`)
+
+    // 'o' = в срок, 'l' = с опозданием, '-' = не сдан. Индекс = дней назад (0 = сегодня).
+    const insert = async (
+      e: Doc<'employees'>,
+      pattern: string,
+      make: (date: string) => Record<string, unknown>,
+    ) => {
+      for (let off = 0; off < pattern.length; off++) {
+        const code = pattern[off]
+        if (code === '-') continue
+        const date = addDays(today, -off)
+        const ok = code === 'o'
+        const at = submitMs(date, ok)
+        await ctx.db.insert('dailyReports', {
+          employeeId: e._id,
+          position: e.position as 'smm' | 'targetolog' | 'sales',
+          date,
+          submittedAt: at,
+          onTime: ok,
+          editCount: 0,
+          history: [{ at, byId: e._id, action: 'submitted' as const }],
+          ...make(date),
+        })
+      }
+    }
+
+    // Нурай (SMM) — дисциплинирован, одно опоздание, один пропуск.
+    await insert(smm, '-ooooloooo-ooo', (date) => {
+      const seed = Number(date.slice(-2))
+      return {
+        smm: [
+          { page: 'FRANCHONE', type: 'Reels', count: 1 + (seed % 3) },
+          { page: 'FRANCHONE', type: 'Stories', count: 3 + (seed % 4) },
+          { page: 'ANUAR', type: 'Reels', count: seed % 2 },
+          { page: 'ANUAR', type: 'Посты', count: 1 },
+        ],
+      }
+    })
+
+    // Дамир (таргетолог) — нерегулярно, много пропусков.
+    await insert(targ, '-oo-l-oo--l--o', (date) => {
+      const seed = Number(date.slice(-2))
+      const budget = 12000 + (seed % 5) * 1500
+      const leads = 6 + (seed % 7)
+      return {
+        targetolog: [
+          { project: 'Упаковка франшиз', campaign: 'FR-001 · Лиды', budget, leads },
+          {
+            project: 'GREEK FOOD',
+            campaign: 'FR-002 · Охваты',
+            budget: 8000 + (seed % 4) * 1200,
+            leads: 3 + (seed % 4),
+          },
+        ],
+      }
+    })
+
+    // Ануар (владелец, продажи) — заполняет стабильно, включая сегодня.
+    await insert(salesOwner, 'oooooolooooooo', (date) => {
+      const seed = Number(date.slice(-2))
+      return {
+        sales: {
+          leads: 14 + (seed % 8),
+          meetings: 4 + (seed % 3),
+          sales: 1 + (seed % 3),
+          revenue: (1 + (seed % 3)) * 350000,
+          note: '',
+        },
+      }
+    })
+
+    // Аружан (руководитель, продажи) — стабильно, пара опозданий и пропуск.
+    await insert(salesHead, '-oloooooolo--o', (date) => {
+      const seed = Number(date.slice(-2))
+      return {
+        sales: {
+          leads: 18 + (seed % 10),
+          meetings: 6 + (seed % 4),
+          sales: 2 + (seed % 3),
+          revenue: (2 + (seed % 3)) * 420000,
+          note: '',
+        },
+      }
+    })
+
+    return { seeded: existing.length === 0 ? 'fresh' : 'reseeded' }
+  },
+})
+
 // Демо-входы для раздела «Активность». Ерлан — «давно не заходил».
 export const seedActivity = mutation({
   args: {},

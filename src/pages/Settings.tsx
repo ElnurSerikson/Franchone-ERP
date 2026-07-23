@@ -1,7 +1,12 @@
-import { Sliders, Users2, Building2, Wallet } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { useMutation, useQuery } from 'convex/react'
+import { Sliders, Users2, Building2, Wallet, Timer, Check } from 'lucide-react'
+import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
+import Select from '@/components/ui/Select'
 import { useData } from '@/lib/useData'
 import { LEAD_WEIGHT, CPL_WEIGHT } from '@/lib/kpi'
+import { REPORT_MONTH_FALLBACK } from '@/lib/constants'
 import { kzt, pct } from '@/lib/format'
 
 const th = 'text-left text-[11px] font-semibold text-muted uppercase tracking-wide px-3 py-2'
@@ -92,6 +97,11 @@ export default function Settings() {
         </div>
       </div>
 
+      {/* Ежедневная отчётность */}
+      <div className="grid gap-5 lg:grid-cols-2 mt-5">
+        <ReportDeadlineCard />
+      </div>
+
       {/* Справочники */}
       <div className="grid gap-5 lg:grid-cols-2 mt-5">
         <div className="card p-5">
@@ -121,6 +131,75 @@ export default function Settings() {
         </div>
       </div>
     </>
+  )
+}
+
+function ReportDeadlineCard() {
+  const settings = useQuery(api.settings.get, {})
+  const update = useMutation(api.settings.update)
+  const [picked, setPicked] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const current = picked ?? settings?.reportDeadlineTime ?? '20:00'
+  const options = useMemo(() => {
+    const o: { value: string; label: string }[] = []
+    for (let h = 12; h <= 23; h++)
+      for (const m of ['00', '30']) {
+        const t = `${String(h).padStart(2, '0')}:${m}`
+        o.push({ value: t, label: t })
+      }
+    return o
+  }, [])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await update({
+        leadWeight: settings?.leadWeight ?? LEAD_WEIGHT,
+        cplWeight: settings?.cplWeight ?? CPL_WEIGHT,
+        reportMonth: settings?.reportMonth ?? REPORT_MONTH_FALLBACK,
+        reportDeadlineTime: current,
+      })
+      setSaved(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Timer size={18} className="text-green" />
+        <h3 className="sec-title">Ежедневная отчётность</h3>
+      </div>
+      <div className="flex items-end gap-3">
+        <div>
+          <div className="text-sm text-muted mb-1.5">Дедлайн отправки (Алматы)</div>
+          <Select
+            value={current}
+            onChange={(v) => {
+              setPicked(v)
+              setSaved(false)
+            }}
+            options={options}
+            className="w-32"
+          />
+        </div>
+        <button onClick={save} disabled={saving} className="btn btn-green disabled:opacity-60">
+          Сохранить
+        </button>
+        {saved && (
+          <span className="text-xs text-green-d flex items-center gap-1 pb-2.5">
+            <Check size={13} /> Сохранено
+          </span>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-2 mt-3">
+        Отчёт, отправленный после этого времени, помечается «с опозданием». Незаполненный за
+        календарный день — «пропущен».
+      </p>
+    </div>
   )
 }
 

@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard,
   CheckSquare,
+  ClipboardList,
   Target,
   Users,
   Activity,
@@ -29,6 +30,7 @@ interface NavItem {
 const menu: NavItem[] = [
   { to: '/', label: 'Дашборд', icon: LayoutDashboard, roles: ['owner', 'head', 'employee'] },
   { to: '/tasks', label: 'Задачи', icon: CheckSquare, roles: ['owner', 'head', 'employee'] },
+  { to: '/reports', label: 'Отчёты', icon: ClipboardList, roles: ['owner', 'head', 'employee'] },
   { to: '/kpi', label: 'KPI', icon: Target, roles: ['owner', 'head', 'employee'] },
 ]
 
