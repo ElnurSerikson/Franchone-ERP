@@ -28,6 +28,8 @@ export const mapTask = (d: Doc<'tasks'>): Task => ({
   assigneeId: d.assigneeId,
   reporterId: d.reporterId,
   deadline: d.deadline,
+  completedAt: d.completedAt,
+  completedOnTime: d.completedOnTime,
   tags: d.tags,
   checklist: d.checklist.map((c, i) => ({ id: String(i), text: c.text, done: c.done })),
   attachments: d.attachments,

@@ -49,7 +49,7 @@ export interface Campaign {
 }
 
 // ——— Задачи (Kanban) ———
-export type TaskStatus = 'backlog' | 'progress' | 'review' | 'done'
+export type TaskStatus = 'assigned' | 'in_progress' | 'done'
 export type Priority = 'low' | 'medium' | 'high' | 'urgent'
 
 export interface ChecklistItem {
@@ -67,6 +67,8 @@ export interface Task {
   assigneeId: string
   reporterId: string
   deadline: string
+  completedAt?: number
+  completedOnTime?: boolean
   tags: string[]
   checklist: ChecklistItem[]
   attachments: number

@@ -14,6 +14,7 @@ import type * as campaigns from "../campaigns.js";
 import type * as emails from "../emails.js";
 import type * as employees from "../employees.js";
 import type * as http from "../http.js";
+import type * as lib from "../lib.js";
 import type * as seed from "../seed.js";
 import type * as settings from "../settings.js";
 import type * as setup from "../setup.js";
@@ -34,6 +35,7 @@ declare const fullApi: ApiFromModules<{
   emails: typeof emails;
   employees: typeof employees;
   http: typeof http;
+  lib: typeof lib;
   seed: typeof seed;
   settings: typeof settings;
   setup: typeof setup;

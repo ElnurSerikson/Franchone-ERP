@@ -59,14 +59,13 @@ export default defineSchema({
     factLeads: v.number(),
   }).index('by_code', ['code']),
 
-  // Задачи (Kanban)
+  // Задачи (Kanban). Статусы по ТЗ: assigned / in_progress / done.
   tasks: defineTable({
     title: v.string(),
     description: v.optional(v.string()),
     status: v.union(
-      v.literal('backlog'),
-      v.literal('progress'),
-      v.literal('review'),
+      v.literal('assigned'),
+      v.literal('in_progress'),
       v.literal('done'),
     ),
     priority: v.union(
@@ -77,15 +76,44 @@ export default defineSchema({
     ),
     assigneeId: v.id('employees'),
     reporterId: v.id('employees'),
-    deadline: v.string(),
+    deadline: v.string(), // срок (YYYY-MM-DD)
+    completedAt: v.optional(v.number()), // фактическая дата завершения
+    completedOnTime: v.optional(v.boolean()), // в срок / с опозданием
     tags: v.array(v.string()),
     checklist: v.array(v.object({ text: v.string(), done: v.boolean() })),
-    attachments: v.number(),
-    comments: v.number(),
+    attachments: v.number(), // денормализованный счётчик
+    comments: v.number(), // денормализованный счётчик
     kpiRef: v.optional(v.string()),
   })
     .index('by_status', ['status'])
     .index('by_assignee', ['assigneeId']),
+
+  // Комментарии к задаче
+  taskComments: defineTable({
+    taskId: v.id('tasks'),
+    authorId: v.id('employees'),
+    text: v.string(),
+  }).index('by_task', ['taskId']),
+
+  // История изменений задачи (создание, смена статуса, смена исполнителя)
+  taskEvents: defineTable({
+    taskId: v.id('tasks'),
+    type: v.union(v.literal('created'), v.literal('status'), v.literal('assignee')),
+    fromStatus: v.optional(v.string()),
+    toStatus: v.optional(v.string()),
+    note: v.optional(v.string()),
+    byId: v.id('employees'),
+  }).index('by_task', ['taskId']),
+
+  // Вложения к задаче: ссылки и файлы (Convex storage)
+  taskAttachments: defineTable({
+    taskId: v.id('tasks'),
+    kind: v.union(v.literal('file'), v.literal('link')),
+    name: v.string(),
+    url: v.optional(v.string()),
+    storageId: v.optional(v.id('_storage')),
+    byId: v.id('employees'),
+  }).index('by_task', ['taskId']),
 
   // Настройки (одна запись-синглтон с key = "global")
   settings: defineTable({

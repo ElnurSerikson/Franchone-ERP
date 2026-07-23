@@ -1,9 +1,8 @@
 import type { Priority, TaskStatus } from '@/types'
 
 const statusStyle: Record<TaskStatus, { label: string; cls: string; dot: string }> = {
-  backlog: { label: 'Бэклог', cls: 'bg-chip text-ink-2', dot: '#9498a1' },
-  progress: { label: 'В работе', cls: 'bg-[#eef4ff] text-[#2563eb]', dot: '#2563eb' },
-  review: { label: 'На проверке', cls: 'bg-[#fff6e6] text-[#b7791f]', dot: '#d69e2e' },
+  assigned: { label: 'Назначено', cls: 'bg-chip text-ink-2', dot: '#9498a1' },
+  in_progress: { label: 'В работе', cls: 'bg-[#eef4ff] text-[#2563eb]', dot: '#2563eb' },
   done: { label: 'Готово', cls: 'bg-[#e3f6ee] text-green-d', dot: '#1c7d4d' },
 }
 
