@@ -1,14 +1,15 @@
 import { useState, type ReactNode } from 'react'
-import { TrendingUp, Wallet, Building2, User, Megaphone, Wrench, type LucideIcon } from 'lucide-react'
-import type { SmmMetric } from '@/types'
+import { TrendingUp, Wallet, Building2, User, Users, Target, Wrench, type LucideIcon } from 'lucide-react'
+import type { Campaign, SmmMetric } from '@/types'
 import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
 import { useData } from '@/lib/useData'
-import { computeSmm } from '@/lib/kpi'
-import { kzt, pct } from '@/lib/format'
+import { computeSmm, computeTargetolog, spendBySource } from '@/lib/kpi'
+import { kzt, num, pct } from '@/lib/format'
 
-// База выплаты за контент (KPI_SMM). Выплата = база × Итоговый KPI.
+// Базы выплат (KPI_SMM / KPI_TARGETOLOG). Выплата = база × Итоговый KPI.
 const SMM_BASE = 600000
+const TARGETOLOG_BASE = 200000
 
 type Dept = 'smm' | 'targetolog' | 'sales'
 const DEPTS: { id: Dept; label: string }[] = [
@@ -21,7 +22,7 @@ const acctShort = (a: string) => (a === 'FRANCHONE' ? 'FR' : a === 'ANUAR' ? 'An
 
 export default function Kpi() {
   const [dept, setDept] = useState<Dept>('smm')
-  const { smmMetrics, reportMonth } = useData()
+  const { smmMetrics, campaigns, reportMonth } = useData()
 
   const subtitle =
     dept === 'smm'
@@ -54,13 +55,7 @@ export default function Kpi() {
       </div>
 
       {dept === 'smm' && <SmmKpi smmMetrics={smmMetrics} reportMonth={reportMonth} />}
-      {dept === 'targetolog' && (
-        <EmptyKpi
-          icon={Megaphone}
-          title="Нет активных кампаний"
-          hint="Данные по рекламным кампаниям появятся здесь — KPI, расход, заявки и стоимость заявки по каждой кампании."
-        />
-      )}
+      {dept === 'targetolog' && <TargetologKpi campaigns={campaigns} reportMonth={reportMonth} />}
       {dept === 'sales' && (
         <EmptyKpi
           icon={Wrench}
@@ -130,6 +125,91 @@ function SmmKpi({ smmMetrics, reportMonth }: { smmMetrics: SmmMetric[]; reportMo
         <BarChart rows={rows} />
       </div>
     </>
+  )
+}
+
+// ——— Таргетолог: KPI по рекламным кампаниям ———
+function TargetologKpi({ campaigns, reportMonth }: { campaigns: Campaign[]; reportMonth: string }) {
+  const tg = computeTargetolog(campaigns)
+  const src = spendBySource(campaigns)
+  const payoutVal = Math.round(TARGETOLOG_BASE * tg.totalKpi)
+
+  return (
+    <>
+      {/* Главные метрики */}
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
+        <StatCard highlight label="Общий расход" value={kzt(tg.totalSpend)} foot="реклама за месяц" icon={Wallet} />
+        <StatCard label="Деньги FRANCHONE" value={kzt(src.FRANCHONE.spend)} foot="свои услуги" icon={Building2} />
+        <StatCard label="Деньги партнёров" value={kzt(src.Партнёр.spend)} foot="партнёрские проекты" icon={Users} />
+        <StatCard label="Заявки" value={num(tg.totalLeads)} foot="всего за месяц" icon={Target} />
+      </div>
+
+      {/* Доп. метрики — компактной полосой */}
+      <div className="card grid grid-cols-3 divide-x divide-line mb-5">
+        <MiniMetric label="Средний CPL" value={kzt(tg.avgCpl)} />
+        <MiniMetric label="Общий KPI" value={pct(tg.totalKpi, 1)} accent />
+        <MiniMetric label="Выплата" value={kzt(payoutVal)} />
+      </div>
+
+      {/* Кампании */}
+      <div className="card overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-line">
+          <h3 className="sec-title">Кампании · {reportMonth}</h3>
+        </div>
+        {campaigns.length === 0 ? (
+          <div className="p-10 text-center text-sm text-muted">
+            Нет активных кампаний. Добавьте кампании, чтобы наполнить показатели.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px]">
+              <thead>
+                <tr style={{ background: '#04332e' }}>
+                  <Th>Кампания</Th>
+                  <Th>Источник</Th>
+                  <Th right>Бюджет</Th>
+                  <Th right>Заявки</Th>
+                  <Th right>CPL</Th>
+                  <Th right>KPI</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {tg.rows.map((r) => (
+                  <tr key={r.campaign.id} className="border-t border-line hover:bg-chip/40 transition-colors">
+                    <td className="px-5 py-3 text-sm text-ink-2">
+                      <span className="font-medium text-ink">{r.campaign.brand}</span>
+                      <span className="text-xs text-muted ml-1.5">{r.campaign.id}</span>
+                    </td>
+                    <td className="px-5 py-3 text-sm">
+                      <span
+                        className={`chip ${
+                          r.campaign.moneySource === 'FRANCHONE' ? 'bg-[#e2f2ef] text-green-d' : 'bg-chip text-ink-2'
+                        }`}
+                      >
+                        {r.campaign.moneySource}
+                      </span>
+                    </td>
+                    <td className="px-5 py-3 text-sm text-ink-2 text-right tabular-nums">{kzt(r.campaign.factBudget)}</td>
+                    <td className="px-5 py-3 text-sm text-ink-2 text-right tabular-nums">{num(r.campaign.factLeads)}</td>
+                    <td className="px-5 py-3 text-sm text-ink-2 text-right tabular-nums">{kzt(r.factCpl)}</td>
+                    <td className="px-5 py-3 text-sm font-bold text-ink text-right tabular-nums">{pct(r.kpi, 1)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+function MiniMetric({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+  return (
+    <div className="px-4 py-5 text-center">
+      <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">{label}</div>
+      <div className={`text-2xl font-bold ${accent ? 'text-green-d' : 'text-ink'}`}>{value}</div>
+    </div>
   )
 }
 
