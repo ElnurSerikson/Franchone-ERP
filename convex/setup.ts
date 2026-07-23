@@ -125,6 +125,42 @@ export const recolorAvatars = mutation({
   },
 })
 
+// Контент-KPI (SMM) за текущий месяц — аккаунты FRANCHONE + ANUAR × форматы.
+// Данные соответствуют KPI_SMM (Excel заказчика). employeeId — Ануар (владелец);
+// в расчёте KPI не используется (computeSmm суммирует все строки глобально).
+export const seedSmm = mutation({
+  args: {},
+  handler: async (ctx) => {
+    for (const r of await ctx.db.query('smmMetrics').collect()) await ctx.db.delete(r._id)
+    const owner = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', 'tassymbekovsky@gmail.com'))
+      .first()
+    if (!owner) throw new Error('Владелец не найден')
+
+    const SMM = [
+      { account: 'FRANCHONE', format: 'Рилсы', weight: 0.2, weekPlans: [4, 4, 4, 4, 0], weekFacts: [5, 0, 0, 0, 0] },
+      { account: 'FRANCHONE', format: 'Сторис', weight: 0.1, weekPlans: [24, 24, 24, 24, 0], weekFacts: [8, 0, 0, 0, 0] },
+      { account: 'FRANCHONE', format: 'Карусели', weight: 0.1, weekPlans: [1, 1, 1, 1, 0], weekFacts: [6, 0, 0, 0, 0] },
+      { account: 'ANUAR', format: 'Рилсы', weight: 0.3, weekPlans: [15, 15, 15, 15, 0], weekFacts: [10, 0, 0, 0, 0] },
+      { account: 'ANUAR', format: 'Сторис', weight: 0.2, weekPlans: [35, 35, 35, 35, 0], weekFacts: [14, 0, 0, 0, 0] },
+      { account: 'ANUAR', format: 'Карусели', weight: 0.1, weekPlans: [2, 2, 2, 2, 0], weekFacts: [4, 0, 0, 0, 0] },
+    ] as const
+
+    for (const m of SMM) {
+      await ctx.db.insert('smmMetrics', {
+        employeeId: owner._id,
+        account: m.account,
+        format: m.format,
+        weight: m.weight,
+        weekPlans: [...m.weekPlans],
+        weekFacts: [...m.weekFacts],
+      })
+    }
+    return { rows: SMM.length }
+  },
+})
+
 // Сделать аккаунт скрытым владельцем (служебный/разработчик): полный доступ
 // по роли owner, но невидим во всех списках фронта. Вход и роль работают
 // (currentEmployee/isInvited матчат по email независимо от hidden).
