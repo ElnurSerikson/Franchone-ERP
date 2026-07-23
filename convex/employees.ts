@@ -77,6 +77,81 @@ export const archive = mutation({
   },
 })
 
+// Редактирование участника команды — тот же набор полей, что и в приглашении.
+// Роль, оклад, дату найма и цвет аватара здесь намеренно не трогаем.
+export const updateMember = mutation({
+  args: {
+    id: v.id('employees'),
+    firstName: v.string(),
+    lastName: v.string(),
+    email: v.string(),
+    phone: v.string(),
+    position: v.union(
+      v.literal('smm'),
+      v.literal('targetolog'),
+      v.literal('sales'),
+      v.literal('packer'),
+    ),
+    positionLabel: v.string(),
+    department: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const me = await requireEmployee(ctx)
+    if (me.role !== 'owner' && me.role !== 'head') {
+      throw new ConvexError('Недостаточно прав для редактирования сотрудников')
+    }
+    const target = await ctx.db.get(args.id)
+    if (!target) throw new ConvexError('Сотрудник не найден')
+
+    const firstName = args.firstName.trim()
+    const lastName = args.lastName.trim()
+    const email = args.email.trim().toLowerCase()
+    if (!firstName) throw new ConvexError('Укажите имя')
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new ConvexError('Некорректный email')
+    }
+
+    // email — это логин, он обязан остаться уникальным
+    const clash = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', email))
+      .first()
+    if (clash && clash._id !== args.id) {
+      throw new ConvexError('Сотрудник с таким email уже есть')
+    }
+
+    const name = `${firstName} ${lastName}`.trim()
+    await ctx.db.patch(args.id, {
+      name,
+      initials: ((firstName[0] ?? '') + (lastName[0] ?? '')).toUpperCase() || '—',
+      email,
+      phone: args.phone.trim(),
+      position: args.position,
+      positionLabel: args.positionLabel,
+      department: args.department,
+    })
+  },
+})
+
+// Деактивация / возврат в строй. Мягкая: данные сохраняются, но вход закрыт
+// (авторизация пускает только сотрудников со статусом active).
+export const setActive = mutation({
+  args: { id: v.id('employees'), active: v.boolean() },
+  handler: async (ctx, { id, active }) => {
+    const me = await requireEmployee(ctx)
+    if (me.role !== 'owner' && me.role !== 'head') {
+      throw new ConvexError('Недостаточно прав')
+    }
+    if (me._id === id) throw new ConvexError('Нельзя деактивировать самого себя')
+    const target = await ctx.db.get(id)
+    if (!target) throw new ConvexError('Сотрудник не найден')
+    if (!active && target.role === 'owner') {
+      throw new ConvexError('Нельзя деактивировать владельца')
+    }
+    await ctx.db.patch(id, { status: active ? 'active' : 'archived' })
+  },
+})
+
 // ——— Приглашение сотрудника ———
 // Создаёт сотрудника (это и есть инвайт: вход инвайт-онли по совпадению email)
 // и планирует отправку письма-приглашения через Resend. Вход по коду, без пароля.

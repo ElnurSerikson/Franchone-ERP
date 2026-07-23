@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { useMutation } from 'convex/react'
 import { api } from '../../convex/_generated/api'
-import { UserPlus, X, Loader2, CheckCircle2, Mail } from 'lucide-react'
+import type { Id } from '../../convex/_generated/dataModel'
+import { UserPlus, Pencil, X, Loader2, CheckCircle2, Mail, Save } from 'lucide-react'
+import type { Employee } from '@/types'
+import { errMessage } from '@/lib/errors'
 import Select from './ui/Select'
 
 const inputCls =
@@ -19,16 +22,20 @@ const POSITIONS: { value: Position; label: string; dept: string }[] = [
 
 const today = () => new Date().toISOString().slice(0, 10)
 
-function errMessage(err: unknown, fallback: string): string {
-  if (err && typeof err === 'object' && 'data' in err) {
-    const data = (err as { data?: unknown }).data
-    if (typeof data === 'string' && data.length > 0) return data
-  }
-  return fallback
-}
+const isPosition = (p: string): p is Position =>
+  p === 'smm' || p === 'targetolog' || p === 'sales' || p === 'packer'
 
-export default function TeamInviteDrawer({ onClose }: { onClose: () => void }) {
+// Drawer участника команды: без `employee` — приглашение, с ним — редактирование.
+export default function TeamMemberDrawer({
+  employee,
+  onClose,
+}: {
+  employee?: Employee
+  onClose: () => void
+}) {
   const invite = useMutation(api.employees.invite)
+  const updateMember = useMutation(api.employees.updateMember)
+  const isEdit = !!employee
 
   const [shown, setShown] = useState(false)
   const firstRef = useRef<HTMLInputElement>(null)
@@ -51,12 +58,15 @@ export default function TeamInviteDrawer({ onClose }: { onClose: () => void }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // ——— форма ———
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
-  const [position, setPosition] = useState<Position>('smm')
+  // ——— форма (в режиме правки — предзаполнена) ———
+  const parts = (employee?.name ?? '').trim().split(/\s+/).filter(Boolean)
+  const [firstName, setFirstName] = useState(parts[0] ?? '')
+  const [lastName, setLastName] = useState(parts.slice(1).join(' '))
+  const [email, setEmail] = useState(employee?.email ?? '')
+  const [phone, setPhone] = useState(employee?.phone ?? '')
+  const [position, setPosition] = useState<Position>(
+    employee && isPosition(employee.position) ? employee.position : 'smm',
+  )
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -72,23 +82,31 @@ export default function TeamInviteDrawer({ onClose }: { onClose: () => void }) {
     setError(null)
     setLoading(true)
     try {
-      const name = `${firstName.trim()} ${lastName.trim()}`.trim()
-      await invite({
+      const common = {
         firstName: firstName.trim(),
         lastName: lastName.trim(),
         email: email.trim(),
         phone: phone.trim(),
         position,
         positionLabel: posMeta.label,
-        // Скрытые поля — значения по умолчанию (редактируются позже в карточке).
         department: posMeta.dept,
-        role: 'employee',
-        salary: 0,
-        hiredAt: today(),
-      })
-      setInvited({ name, email: email.trim().toLowerCase() })
+      }
+      if (isEdit) {
+        await updateMember({ id: employee!.id as Id<'employees'>, ...common })
+        close()
+      } else {
+        const name = `${firstName.trim()} ${lastName.trim()}`.trim()
+        // Скрытые поля — значения по умолчанию (редактируются позже).
+        await invite({ ...common, role: 'employee', salary: 0, hiredAt: today() })
+        setInvited({ name, email: email.trim().toLowerCase() })
+      }
     } catch (err) {
-      setError(errMessage(err, 'Не удалось пригласить сотрудника. Попробуйте ещё раз.'))
+      setError(
+        errMessage(
+          err,
+          isEdit ? 'Не удалось сохранить изменения.' : 'Не удалось пригласить сотрудника.',
+        ),
+      )
     } finally {
       setLoading(false)
     }
@@ -120,12 +138,16 @@ export default function TeamInviteDrawer({ onClose }: { onClose: () => void }) {
         {/* header */}
         <div className="shrink-0 bg-white border-b border-line px-5 sm:px-6 py-4 flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-[#e2f2ef] text-green-d grid place-items-center shrink-0">
-            <UserPlus size={19} />
+            {isEdit ? <Pencil size={18} /> : <UserPlus size={19} />}
           </div>
           <div className="min-w-0 flex-1">
-            <h2 className="text-lg font-bold text-ink leading-tight">Пригласить сотрудника</h2>
+            <h2 className="text-lg font-bold text-ink leading-tight">
+              {isEdit ? 'Редактировать сотрудника' : 'Пригласить сотрудника'}
+            </h2>
             <p className="text-[13px] text-muted mt-0.5">
-              Новый участник получит письмо со ссылкой на вход
+              {isEdit
+                ? 'Изменения применятся сразу'
+                : 'Новый участник получит письмо со ссылкой на вход'}
             </p>
           </div>
           <button onClick={close} className="ico-btn w-9 h-9 shrink-0" title="Закрыть">
@@ -193,8 +215,14 @@ export default function TeamInviteDrawer({ onClose }: { onClose: () => void }) {
                   Отмена
                 </button>
                 <button type="submit" disabled={!canSubmit} className="btn btn-green flex-1 disabled:opacity-60">
-                  {loading ? <Loader2 size={16} className="animate-spin" /> : <UserPlus size={16} />}
-                  Пригласить
+                  {loading ? (
+                    <Loader2 size={16} className="animate-spin" />
+                  ) : isEdit ? (
+                    <Save size={16} />
+                  ) : (
+                    <UserPlus size={16} />
+                  )}
+                  {isEdit ? 'Сохранить' : 'Пригласить'}
                 </button>
               </div>
             </div>
