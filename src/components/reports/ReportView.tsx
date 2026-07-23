@@ -1,4 +1,6 @@
+import { useQuery } from 'convex/react'
 import type { Doc } from '../../../convex/_generated/dataModel'
+import { api } from '../../../convex/_generated/api'
 import { Clock, PencilLine } from 'lucide-react'
 import { kzt, num } from '@/lib/format'
 import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
@@ -11,6 +13,10 @@ const td = 'px-3 py-2 text-sm text-ink-2 border-t border-line'
 // Read-only отображение отчёта: статус, содержимое по должности, история правок.
 export default function ReportView({ report }: { report: Report }) {
   const st = REPORT_STATUS[report.onTime ? 'onTime' : 'late']
+  // В отчёте лежит только ID кампании — название достаём из реестра.
+  // Реестр берём целиком: кампанию могли поставить на паузу после сдачи отчёта.
+  const registry = useQuery(api.campaigns.registry, report.targetolog ? {} : 'skip')
+  const byCode = new Map((registry ?? []).map((c) => [c.code, c]))
 
   return (
     <div className="flex flex-col gap-4">
@@ -60,7 +66,7 @@ export default function ReportView({ report }: { report: Report }) {
           <table className="w-full min-w-[420px]">
             <thead>
               <tr className="bg-[#e2f2ef]">
-                <th className={th}>Проект · Кампания</th>
+                <th className={th}>Кампания</th>
                 <th className={th}>Бюджет</th>
                 <th className={th}>Заявки</th>
                 <th className={th}>CPL</th>
@@ -70,8 +76,13 @@ export default function ReportView({ report }: { report: Report }) {
               {report.targetolog.map((r, i) => (
                 <tr key={i}>
                   <td className={td}>
-                    <div className="font-medium text-ink">{r.campaign}</div>
-                    <div className="text-[11px] text-muted">{r.project}</div>
+                    <div className="font-medium text-ink">
+                      {byCode.get(r.code)?.campaign ?? r.code}
+                    </div>
+                    <div className="text-[11px] text-muted">
+                      {r.code}
+                      {byCode.get(r.code) ? ` · ${byCode.get(r.code)!.brand}` : ''}
+                    </div>
                   </td>
                   <td className={td}>{kzt(r.budget)}</td>
                   <td className={`${td} font-semibold text-ink`}>{r.leads}</td>

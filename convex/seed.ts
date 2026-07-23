@@ -9,8 +9,6 @@ type Role = 'owner' | 'head' | 'employee'
 type Position = 'smm' | 'targetolog' | 'sales' | 'packer'
 type Account = 'FRANCHONE' | 'ANUAR'
 type Format = 'Рилсы' | 'Сторис' | 'Карусели'
-type Money = 'FRANCHONE' | 'Партнёр'
-type CampStatus = 'Активна' | 'Пауза' | 'Завершена'
 type TaskStatus = 'assigned' | 'in_progress' | 'done'
 type Priority = 'low' | 'medium' | 'high' | 'urgent'
 
@@ -44,16 +42,6 @@ const SMM: Array<{ emp: string; account: Account; format: Format; weight: number
   { emp: 'u2', account: 'ANUAR', format: 'Карусели', weight: 0.1, weekPlans: [2, 2, 2, 2, 0], weekFacts: [4, 0, 0, 0, 0] },
 ]
 
-const CAMPAIGNS: Array<{ code: string; emp: string; account: string; category: string; brand: string; campaign: string; moneySource: Money; status: CampStatus; weight: number; planBudget: number; planLeads: number; factBudget: number; factLeads: number }> = [
-  { code: 'FR-001', emp: 'u3', account: 'FRANCHONE', category: 'Свои услуги', brand: 'Подбор франшизы', campaign: 'Подбор франшизы', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 400000, planLeads: 80, factBudget: 385000, factLeads: 96 },
-  { code: 'FR-002', emp: 'u3', account: 'FRANCHONE', category: 'Свои услуги', brand: 'Брокеридж', campaign: 'Брокеридж', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 300000, planLeads: 40, factBudget: 320000, factLeads: 33 },
-  { code: 'FR-003', emp: 'u3', account: 'FRANCHONE', category: 'Свои услуги', brand: 'Invite', campaign: 'Invite', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 250000, planLeads: 50, factBudget: 240000, factLeads: 44 },
-  { code: 'AN-001', emp: 'u3', account: 'ANUAR', category: 'Свои услуги', brand: 'Упаковка франшизы', campaign: 'Упаковка франшизы', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 500000, planLeads: 25, factBudget: 520000, factLeads: 22 },
-  { code: 'AN-002', emp: 'u3', account: 'ANUAR', category: 'Свои услуги', brand: 'Настройка продаж', campaign: 'Настройка продаж', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 200000, planLeads: 30, factBudget: 180000, factLeads: 20 },
-  { code: 'AN-003', emp: 'u3', account: 'ANUAR', category: 'Свои услуги', brand: 'Консультации', campaign: 'Консультации', moneySource: 'FRANCHONE', status: 'Активна', weight: 0.125, planBudget: 150000, planLeads: 40, factBudget: 160000, factLeads: 51 },
-  { code: 'PT-001', emp: 'u3', account: 'GREEK FOOD', category: 'Партнёр', brand: 'Greek Food', campaign: 'Лидген франшизы', moneySource: 'Партнёр', status: 'Активна', weight: 0.125, planBudget: 300000, planLeads: 60, factBudget: 310000, factLeads: 72 },
-  { code: 'PT-002', emp: 'u3', account: 'ROMANTIC', category: 'Партнёр', brand: 'Romantic Flowers', campaign: 'Лидген франшизы', moneySource: 'Партнёр', status: 'Пауза', weight: 0.125, planBudget: 200000, planLeads: 50, factBudget: 195000, factLeads: 45 },
-]
 
 const TASKS: Array<{ title: string; description?: string; status: TaskStatus; priority: Priority; assignee: string; reporter: string; deadline: string; tags: string[]; checklist: Array<{ text: string; done: boolean }>; attachments: number; comments: number; kpiRef?: string }> = [
   { title: 'Снять 4 Reels для аккаунта ANUAR', description: 'Съёмка и монтаж 4 роликов по контент-плану на неделю.', status: 'in_progress', priority: 'high', assignee: 'u2', reporter: 'u1', deadline: '2026-07-22', tags: ['SMM', 'Контент'], checklist: [{ text: 'Написать сценарии', done: true }, { text: 'Съёмка', done: true }, { text: 'Монтаж', done: false }, { text: 'Публикация', done: false }], attachments: 2, comments: 3, kpiRef: 'ANUAR · Рилсы' },
@@ -82,11 +70,6 @@ export const run = mutation({
     for (const m of SMM) {
       const { emp, ...rest } = m
       await ctx.db.insert('smmMetrics', { employeeId: idByKey[emp], ...rest })
-    }
-
-    for (const c of CAMPAIGNS) {
-      const { emp, ...rest } = c
-      await ctx.db.insert('campaigns', { employeeId: idByKey[emp], ...rest })
     }
 
     for (const t of TASKS) {

@@ -181,7 +181,7 @@ export const seedCampaigns = mutation({
     ] as const
 
     for (const c of CAMPAIGNS) {
-      await ctx.db.insert('campaigns', {
+      const campaignId = await ctx.db.insert('campaigns', {
         code: c.code,
         account: c.account,
         category: c.category,
@@ -189,12 +189,15 @@ export const seedCampaigns = mutation({
         campaign: c.campaign,
         moneySource: c.moneySource,
         status: c.status,
-        weight: c.weight,
+      })
+      // План на месяц — отдельной записью, как лист «Планы по месяцам».
+      // Факт не пишем: он собирается из ежедневных отчётов.
+      await ctx.db.insert('campaignPlans', {
+        campaignId,
+        month: '2026-07',
         planBudget: c.planBudget,
         planLeads: c.planLeads,
-        factBudget: c.factBudget,
-        factLeads: c.factLeads,
-        month: '2026-07',
+        weight: c.weight,
       })
     }
     return { campaigns: CAMPAIGNS.length }

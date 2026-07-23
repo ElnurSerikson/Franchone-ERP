@@ -85,9 +85,9 @@ export interface SmmRow {
   count: number
 }
 
+// Строка отчёта таргетолога: кампания опознаётся по ID из реестра.
 export interface TargetologRow {
-  project: string
-  campaign: string
+  code: string
   budget: number
   leads: number
 }

@@ -48,22 +48,33 @@ export default defineSchema({
   }).index('by_employee', ['employeeId']),
 
   // KPI Таргетолог — рекламные кампании
+  // Реестр рекламных кампаний (лист «Реестр кампаний»): карточка заводится
+  // один раз и живёт месяцами. Месячные план и вес — в campaignPlans,
+  // факт нигде не хранится: он собирается из ежедневных отчётов.
   campaigns: defineTable({
     code: v.string(), // человеко-читаемый ID, напр. FR-001
-    employeeId: v.optional(v.id('employees')),
     account: v.string(),
     category: v.string(),
     brand: v.string(),
     campaign: v.string(),
     moneySource: v.union(v.literal('FRANCHONE'), v.literal('Партнёр')),
     status: v.union(v.literal('Активна'), v.literal('Пауза'), v.literal('Завершена')),
-    weight: v.number(),
+    startedAt: v.optional(v.string()), // YYYY-MM-DD
+    endedAt: v.optional(v.string()),
+    note: v.optional(v.string()),
+  }).index('by_code', ['code']),
+
+  // План на месяц по кампании (лист «Планы по месяцам»): план бюджета,
+  // план заявок и вес в KPI. План CPL — производный, план/заявки.
+  campaignPlans: defineTable({
+    campaignId: v.id('campaigns'),
+    month: v.string(), // YYYY-MM
     planBudget: v.number(),
     planLeads: v.number(),
-    factBudget: v.number(),
-    factLeads: v.number(),
-    month: v.optional(v.string()), // месяц данных, YYYY-MM
-  }).index('by_code', ['code']),
+    weight: v.number(),
+  })
+    .index('by_month', ['month'])
+    .index('by_campaign', ['campaignId']),
 
   // Задачи (Kanban). Статусы по ТЗ: assigned / in_progress / done.
   tasks: defineTable({
@@ -157,12 +168,12 @@ export default defineSchema({
         v.object({ page: v.string(), type: v.string(), count: v.number() }),
       ),
     ),
-    // Таргетолог: строки по активным кампаниям
+    // Таргетолог: строка на каждую активную кампанию из реестра.
+    // Кампания опознаётся по code — свободный текст не сматчить с планом.
     targetolog: v.optional(
       v.array(
         v.object({
-          project: v.string(),
-          campaign: v.string(),
+          code: v.string(),
           budget: v.number(),
           leads: v.number(),
         }),

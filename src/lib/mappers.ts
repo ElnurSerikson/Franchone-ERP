@@ -37,7 +37,11 @@ export const mapTask = (d: Doc<'tasks'>): Task => ({
   kpiRef: d.kpiRef,
 })
 
-export const mapCampaign = (d: Doc<'campaigns'>): Campaign => ({
+// На вход идёт не документ, а строка из campaigns.list: карточка из реестра,
+// склеенная с месячным планом и фактом из ежедневных отчётов.
+type CampaignRow = Omit<Campaign, 'id'> & { code: string }
+
+export const mapCampaign = (d: CampaignRow): Campaign => ({
   id: d.code,
   account: d.account,
   category: d.category,

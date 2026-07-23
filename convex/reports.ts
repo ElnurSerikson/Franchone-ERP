@@ -39,8 +39,7 @@ const smmRows = v.array(
 )
 const targetologRows = v.array(
   v.object({
-    project: v.string(),
-    campaign: v.string(),
+    code: v.string(), // ID кампании из реестра
     budget: v.number(),
     leads: v.number(),
   }),

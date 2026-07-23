@@ -231,43 +231,59 @@ function SmmForm({ report }: { report: Report | null }) {
 }
 
 // ——— §3.2 Таргетолог ———
+// Строки не набираются руками: это все активные кампании из реестра, как в
+// KPI_TARGETOLOG.xlsx, где кампания выбирается по ID, а не пишется текстом.
+// Свободный текст невозможно сматчить с планом, и факт не дошёл бы до KPI.
 function TargetologForm({ report }: { report: Report | null }) {
   const submit = useMutation(api.reports.submit)
-  const [rows, setRows] = useState<TargetologRow[]>(() =>
-    report?.targetolog?.length
-      ? report.targetolog
-      : [{ project: '', campaign: '', budget: 0, leads: 0 }],
-  )
+  const campaigns = useQuery(api.campaigns.registry, { activeOnly: true })
+  const [vals, setVals] = useState<Record<string, { budget: number; leads: number }>>(() => {
+    const from: Record<string, { budget: number; leads: number }> = {}
+    for (const r of report?.targetolog ?? []) from[r.code] = { budget: r.budget, leads: r.leads }
+    return from
+  })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  const setRow = (i: number, patch: Partial<TargetologRow>) =>
-    setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)))
+  const list = campaigns ?? []
+  const get = (code: string) => vals[code] ?? { budget: 0, leads: 0 }
+  const setVal = (code: string, patch: Partial<{ budget: number; leads: number }>) =>
+    setVals((v) => ({ ...v, [code]: { ...get(code), ...patch } }))
 
-  const sumB = rows.reduce((s, r) => s + (Number(r.budget) || 0), 0)
-  const sumL = rows.reduce((s, r) => s + (Number(r.leads) || 0), 0)
+  const sumB = list.reduce((s, c) => s + get(c.code).budget, 0)
+  const sumL = list.reduce((s, c) => s + get(c.code).leads, 0)
 
   const save = async () => {
     setSaving(true)
     try {
-      await submit({
-        targetolog: rows.map((r) => ({
-          project: r.project,
-          campaign: r.campaign,
-          budget: Number(r.budget) || 0,
-          leads: Number(r.leads) || 0,
-        })),
-      })
+      const rows: TargetologRow[] = list.map((c) => ({
+        code: c.code,
+        budget: get(c.code).budget,
+        leads: get(c.code).leads,
+      }))
+      await submit({ targetolog: rows })
       setSaved(true)
     } finally {
       setSaving(false)
     }
   }
 
+  if (campaigns !== undefined && list.length === 0) {
+    return (
+      <div className="card p-10 text-center">
+        <div className="sec-title mb-1.5">В реестре нет активных кампаний</div>
+        <p className="text-sm text-muted max-w-md mx-auto">
+          Отчёт заполняется по кампаниям из реестра. Заведите кампанию — она сразу появится
+          здесь строкой.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <FormShell
       title="Отчёт таргетолога"
-      hint="Показатели по каждой активной рекламной кампании за сегодня"
+      hint="Бюджет и заявки по каждой активной кампании за сегодня. CPL считается сам; кампания не крутилась — оставьте 0"
       edited={!!report}
       saving={saving}
       saved={saved}
@@ -275,55 +291,52 @@ function TargetologForm({ report }: { report: Report | null }) {
     >
       <div className="overflow-x-auto">
         <div className="min-w-[560px]">
-          <div className="grid grid-cols-[1.2fr_1.2fr_104px_74px_96px_36px] gap-2 px-1 mb-1.5">
-            <Lbl>Проект</Lbl>
+          <div className="grid grid-cols-[92px_1fr_104px_74px_96px] gap-2 px-1 mb-1.5">
+            <Lbl>ID</Lbl>
             <Lbl>Кампания</Lbl>
             <Lbl right>Бюджет ₸</Lbl>
             <Lbl right>Заявки</Lbl>
             <Lbl right>CPL</Lbl>
-            <span />
           </div>
           <div className="flex flex-col gap-2">
-            {rows.map((r, i) => (
-              <div key={i} className="grid grid-cols-[1.2fr_1.2fr_104px_74px_96px_36px] gap-2 items-center">
-                <input
-                  className={txtCls}
-                  placeholder="Франшиза"
-                  value={r.project}
-                  onChange={(e) => setRow(i, { project: e.target.value })}
-                />
-                <input
-                  className={txtCls}
-                  placeholder="Название кампании"
-                  value={r.campaign}
-                  onChange={(e) => setRow(i, { campaign: e.target.value })}
-                />
-                <input
-                  type="number"
-                  min={0}
-                  className={numCls}
-                  value={r.budget}
-                  onChange={(e) => setRow(i, { budget: e.target.value === '' ? 0 : Number(e.target.value) })}
-                />
-                <input
-                  type="number"
-                  min={0}
-                  className={numCls}
-                  value={r.leads}
-                  onChange={(e) => setRow(i, { leads: e.target.value === '' ? 0 : Number(e.target.value) })}
-                />
-                <div className="h-[38px] flex items-center justify-end px-2 text-sm font-semibold text-ink-2 rounded-lg bg-chip">
-                  {r.leads > 0 ? kzt(cpl(Number(r.budget) || 0, Number(r.leads) || 0)) : '—'}
+            {list.map((c) => {
+              const val = get(c.code)
+              return (
+                <div key={c.code} className="grid grid-cols-[92px_1fr_104px_74px_96px] gap-2 items-center">
+                  <span className="chip bg-[#e2f2ef] text-green-d justify-center">{c.code}</span>
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-ink truncate">{c.campaign}</div>
+                    <div className="text-[11px] text-muted truncate">
+                      {c.brand} · деньги: {c.moneySource}
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    min={0}
+                    className={numCls}
+                    value={val.budget}
+                    onChange={(e) =>
+                      setVal(c.code, { budget: e.target.value === '' ? 0 : Number(e.target.value) })
+                    }
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    className={numCls}
+                    value={val.leads}
+                    onChange={(e) =>
+                      setVal(c.code, { leads: e.target.value === '' ? 0 : Number(e.target.value) })
+                    }
+                  />
+                  <div className="h-[38px] flex items-center justify-end px-2 text-sm font-semibold text-ink-2 rounded-lg bg-chip">
+                    {val.leads > 0 ? kzt(cpl(val.budget, val.leads)) : '—'}
+                  </div>
                 </div>
-                <RemoveBtn disabled={rows.length === 1} onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} />
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       </div>
-      <AddBtn onClick={() => setRows((rs) => [...rs, { project: '', campaign: '', budget: 0, leads: 0 }])}>
-        Добавить кампанию
-      </AddBtn>
       <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-line">
         <Summary label="Бюджет" value={kzt(sumB)} />
         <Summary label="Заявки" value={num(sumL)} />
