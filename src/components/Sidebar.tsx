@@ -12,7 +12,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   X,
-  Eye,
   type LucideIcon,
 } from 'lucide-react'
 import { useAuthActions } from '@convex-dev/auth/react'
@@ -21,7 +20,6 @@ import { useApp, useCurrentUser, roleLabel } from '@/store'
 import { useData } from '@/lib/useData'
 import { useIsPhone, useIsDesktop } from '@/lib/useMediaQuery'
 import Avatar from './ui/Avatar'
-import Select from './ui/Select'
 
 interface NavItem {
   to: string
@@ -43,8 +41,6 @@ const manage: NavItem[] = [
   { to: '/activity', label: 'Активность', icon: Activity, roles: ['owner', 'head'] },
   { to: '/settings', label: 'Настройки', icon: Settings, roles: ['owner'] },
 ]
-
-const roles: Role[] = ['owner', 'head', 'employee']
 
 function Item({
   item,
@@ -89,7 +85,7 @@ export default function Sidebar({
   drawerOpen: boolean
   onClose: () => void
 }) {
-  const { role, setRole, isOwner } = useApp()
+  const { role } = useApp()
   const user = useCurrentUser()
   const { signOut } = useAuthActions()
   const { tasks } = useData()
@@ -141,7 +137,10 @@ export default function Sidebar({
               F
             </div>
           ) : (
-            <img src="/logo-franchone.png" alt="FRANCHONE" className="h-[30px] w-auto shrink-0" />
+            <span className="text-[20px] font-extrabold tracking-tight leading-none select-none shrink-0">
+              <span className="text-ink">FRANCH</span>
+              <span className="text-green">ONE</span>
+            </span>
           )}
           {!collapsed && <div className="flex-1" />}
           {isPhone ? (
@@ -190,20 +189,6 @@ export default function Sidebar({
         )}
 
         <div className="flex-1" />
-
-        {/* «Просмотр как» — только на телефоне (на десктопе живёт в топбаре) */}
-        {isOwner && (
-          <div className="md:hidden mb-3">
-            <div className={`${label} flex items-center gap-1.5`}>
-              <Eye size={12} /> ПРОСМОТР КАК
-            </div>
-            <Select
-              value={role}
-              onChange={(v) => setRole(v as Role)}
-              options={roles.map((r) => ({ value: r, label: roleLabel[r] }))}
-            />
-          </div>
-        )}
 
         {/* Profile */}
         {collapsed ? (
