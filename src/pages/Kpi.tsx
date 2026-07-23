@@ -90,7 +90,10 @@ export default function Kpi() {
             key={d.id}
             onClick={() => setDept(d.id)}
             className={`h-9 px-4 rounded-lg text-sm font-semibold transition-colors flex-1 sm:flex-none ${
-              dept === d.id ? 'bg-white text-ink shadow-card' : 'text-muted hover:text-ink'
+              dept === d.id
+                ? 'bg-white text-ink shadow-card'
+                : // Неактивные — своя светло-серая плашка, чтобы читались как кнопки.
+                  'bg-line text-ink-2/70 hover:bg-line-2 hover:text-ink'
             }`}
           >
             {d.label}
