@@ -10,15 +10,11 @@ import { isOverdue } from '@/lib/selectors'
 import { shortDate } from '@/lib/format'
 import Avatar from './ui/Avatar'
 import DatePicker from './ui/DatePicker'
+import Select from './ui/Select'
+import { PRIORITY_OPTS } from './TaskCreateModal'
 import { statusMeta } from './ui/StatusChip'
 
 const statuses: TaskStatus[] = ['assigned', 'in_progress', 'done']
-const priorities: { v: Priority; label: string }[] = [
-  { v: 'low', label: 'Низкий' },
-  { v: 'medium', label: 'Средний' },
-  { v: 'high', label: 'Высокий' },
-  { v: 'urgent', label: 'Срочный' },
-]
 
 const inputCls =
   'w-full rounded-lg border border-line-2 px-2.5 py-1.5 text-sm text-ink focus:outline-none focus:border-green-light bg-white'
@@ -144,26 +140,18 @@ export default function TaskModal({
           {/* meta grid */}
           <div className="grid grid-cols-2 gap-4">
             <Field label="Исполнитель">
-              <select
+              <Select
                 value={task.assigneeId}
-                onChange={(e) => update({ id: tid, patch: { assigneeId: e.target.value as Id<'employees'> } })}
-                className={inputCls}
-              >
-                {employees.map((e) => (
-                  <option key={e.id} value={e.id}>{e.name}</option>
-                ))}
-              </select>
+                onChange={(v) => update({ id: tid, patch: { assigneeId: v as Id<'employees'> } })}
+                options={employees.map((e) => ({ value: e.id, label: e.name, dot: e.avatarColor }))}
+              />
             </Field>
             <Field label="Приоритет">
-              <select
+              <Select
                 value={task.priority}
-                onChange={(e) => update({ id: tid, patch: { priority: e.target.value as Priority } })}
-                className={inputCls}
-              >
-                {priorities.map((p) => (
-                  <option key={p.v} value={p.v}>{p.label}</option>
-                ))}
-              </select>
+                onChange={(v) => update({ id: tid, patch: { priority: v as Priority } })}
+                options={PRIORITY_OPTS}
+              />
             </Field>
             <Field label="Срок">
               <DatePicker

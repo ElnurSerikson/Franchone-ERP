@@ -4,16 +4,17 @@ import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
 import { X, Loader2 } from 'lucide-react'
 import DatePicker from './ui/DatePicker'
+import Select, { type SelectOption } from './ui/Select'
 import type { Employee, Priority } from '@/types'
 
 const inputCls =
   'w-full rounded-lg border border-line-2 px-3 py-2 text-sm text-ink focus:outline-none focus:border-green-light bg-white'
 
-const priorities: { v: Priority; label: string }[] = [
-  { v: 'low', label: 'Низкий' },
-  { v: 'medium', label: 'Средний' },
-  { v: 'high', label: 'Высокий' },
-  { v: 'urgent', label: 'Срочный' },
+export const PRIORITY_OPTS: SelectOption[] = [
+  { value: 'low', label: 'Низкий', dot: '#9498a1' },
+  { value: 'medium', label: 'Средний', dot: '#2563eb' },
+  { value: 'high', label: 'Высокий', dot: '#c05621' },
+  { value: 'urgent', label: 'Срочный', dot: '#c53030' },
 ]
 
 export default function TaskCreateModal({
@@ -77,19 +78,15 @@ export default function TaskCreateModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-ink-2 mb-1.5">Исполнитель</label>
-              <select value={assigneeId} onChange={(e) => setAssigneeId(e.target.value)} className={inputCls}>
-                {employees.map((e) => (
-                  <option key={e.id} value={e.id}>{e.name}</option>
-                ))}
-              </select>
+              <Select
+                value={assigneeId}
+                onChange={setAssigneeId}
+                options={employees.map((e) => ({ value: e.id, label: e.name, dot: e.avatarColor }))}
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-ink-2 mb-1.5">Приоритет</label>
-              <select value={priority} onChange={(e) => setPriority(e.target.value as Priority)} className={inputCls}>
-                {priorities.map((p) => (
-                  <option key={p.v} value={p.v}>{p.label}</option>
-                ))}
-              </select>
+              <Select value={priority} onChange={(v) => setPriority(v as Priority)} options={PRIORITY_OPTS} />
             </div>
             <div>
               <label className="block text-sm font-medium text-ink-2 mb-1.5">Срок</label>

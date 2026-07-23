@@ -2,6 +2,7 @@ import { Search, Bell, Mail, Eye } from 'lucide-react'
 import type { Role } from '@/types'
 import { useApp, useCurrentUser, roleLabel } from '@/store'
 import Avatar from './ui/Avatar'
+import Select from './ui/Select'
 
 const roles: Role[] = ['owner', 'head', 'employee']
 
@@ -30,17 +31,13 @@ export default function Topbar() {
         <div className="hidden md:flex items-center gap-2 h-11 pl-3 pr-2 rounded-xl bg-card border border-line-2">
           <Eye size={16} className="text-muted" />
           <span className="text-xs text-muted">Просмотр как</span>
-          <select
+          <Select
+            variant="ghost"
+            align="right"
             value={role}
-            onChange={(e) => setRole(e.target.value as Role)}
-            className="text-sm font-semibold text-ink bg-transparent focus:outline-none cursor-pointer"
-          >
-            {roles.map((r) => (
-              <option key={r} value={r}>
-                {roleLabel[r]}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setRole(v as Role)}
+            options={roles.map((r) => ({ value: r, label: roleLabel[r] }))}
+          />
         </div>
       )}
 
