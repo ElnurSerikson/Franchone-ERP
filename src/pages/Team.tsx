@@ -6,7 +6,7 @@ import TeamInviteDrawer from '@/components/TeamInviteDrawer'
 import { useData } from '@/lib/useData'
 import { roleLabel } from '@/store'
 
-const th = 'text-left text-[11px] font-semibold text-muted uppercase tracking-wide px-4 py-3'
+const th = 'text-left text-[11px] font-semibold text-ink uppercase tracking-wide px-4 py-3'
 const td = 'px-4 py-3 text-sm text-ink-2 border-t border-line align-middle'
 
 export default function Team() {
