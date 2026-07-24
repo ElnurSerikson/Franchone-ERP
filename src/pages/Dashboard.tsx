@@ -170,7 +170,11 @@ function ManagerView({ me }: { me: Employee }) {
   const ids = new Set(scoped.map((e) => e.id))
   const scopedTasks = me.role === 'head' ? tasks.filter((t) => ids.has(t.assigneeId)) : tasks
 
-  const kpis = scoped.map((e) => employeeKpi(e, smmMetrics, campaigns))
+  // Владельца в списке KPI нет: у него нет ни плана, ни выплаты — строка
+  // всегда была бы прочерком. В начислениях он тоже не участвует.
+  const kpis = scoped
+    .filter((e) => e.role !== 'owner')
+    .map((e) => employeeKpi(e, smmMetrics, campaigns))
   const withKpi = kpis.filter((k) => k.kpi !== null)
   const teamKpi = withKpi.reduce((s, k) => s + (k.kpi ?? 0), 0) / (withKpi.length || 1)
   const totalPayout = withKpi.reduce((s, k) => s + (k.payout ?? 0), 0)
@@ -376,7 +380,6 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
   const data = useQuery(api.payroll.month, { month })
   const close = useMutation(api.payroll.close)
   const reopen = useMutation(api.payroll.reopen)
-  const recalculate = useMutation(api.payroll.recalculate)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -413,14 +416,9 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
         )}
         <div className="flex-1" />
         {data?.canManage && data.closed && (
-          <>
-            <button onClick={() => run(() => recalculate({ month }))} disabled={busy} className="mini-btn">
-              Пересчитать
-            </button>
-            <button onClick={() => run(() => reopen({ month }))} disabled={busy} className="mini-btn">
-              Переоткрыть
-            </button>
-          </>
+          <button onClick={() => run(() => reopen({ month }))} disabled={busy} className="mini-btn">
+            Переоткрыть
+          </button>
         )}
         {data?.canManage && !data.closed && !atCurrent && (
           <button onClick={() => run(() => close({ month }))} disabled={busy} className="mini-btn">
