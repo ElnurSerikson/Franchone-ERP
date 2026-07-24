@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "comment": "SPA: маршруты вроде /kpi или /tasks — это не файлы, их разбирает роутер в браузере. Без этого правила Vercel ищет файл и отдаёт 404 при переходе по прямой ссылке. Исключаем всё с точкой в имени (favicon.png, logo-*.png, assets/*) — статика должна отдаваться как есть.",
+      "source": "/((?!assets/|.*\\.).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

@@ -209,8 +209,35 @@ export const clearCampaigns = mutation({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query('campaigns').collect()
-    for (const c of all) await ctx.db.delete(c._id)
-    return { deleted: all.length }
+    // Планы удаляем вместе с кампанией: раньше они оставались в базе
+    // осиротевшими — расчёт их пропускал, но мусор копился с каждой чисткой.
+    let plans = 0
+    for (const c of all) {
+      for (const p of await ctx.db
+        .query('campaignPlans')
+        .withIndex('by_campaign', (q) => q.eq('campaignId', c._id))
+        .collect()) {
+        await ctx.db.delete(p._id)
+        plans++
+      }
+      await ctx.db.delete(c._id)
+    }
+    return { deleted: all.length, plans }
+  },
+})
+
+// Разовая уборка: планы кампаний, которых уже нет в реестре.
+export const dropOrphanPlans = mutation({
+  args: {},
+  handler: async (ctx) => {
+    let deleted = 0
+    for (const p of await ctx.db.query('campaignPlans').collect()) {
+      if (!(await ctx.db.get(p.campaignId))) {
+        await ctx.db.delete(p._id)
+        deleted++
+      }
+    }
+    return { deleted }
   },
 })
 
