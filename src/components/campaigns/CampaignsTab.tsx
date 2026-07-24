@@ -6,11 +6,9 @@ import type { Doc } from '../../../convex/_generated/dataModel'
 import CampaignDrawer from './CampaignDrawer'
 import { kzt, num, pct } from '@/lib/format'
 import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
+import { th, thRight, td, theadRow } from '@/lib/table'
 
 type Campaign = Doc<'campaigns'>
-
-const th = 'text-left text-[11px] font-semibold text-green-d uppercase tracking-wide px-4 py-3'
-const td = 'px-4 py-3 text-sm text-ink-2 border-t border-line align-middle'
 
 const STATUS_CHIP: Record<string, string> = {
   Активна: 'bg-[#e2f2ef] text-green-d',
@@ -33,33 +31,36 @@ export default function CampaignsTab() {
 
   return (
     <>
-      <div className="card overflow-hidden">
-        <div className="px-4 py-3.5 border-b border-line flex items-center gap-2 flex-wrap">
-          <h3 className="sec-title flex-1">Реестр кампаний · {formatMonth(month)}</h3>
-          <div className="flex items-center gap-1.5">
-            <button
-              onClick={() => setMonth(addMonth(month, -1))}
-              className="ico-btn w-9 h-9"
-              title="Предыдущий месяц"
-              aria-label="Предыдущий месяц"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <button
-              onClick={() => setMonth(addMonth(month, 1))}
-              disabled={atCurrent}
-              className="ico-btn w-9 h-9 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-white"
-              title={atCurrent ? 'Текущий месяц' : 'Следующий месяц'}
-              aria-label="Следующий месяц"
-            >
-              <ChevronRight size={16} />
-            </button>
-          </div>
-          <button onClick={() => setOpen({ campaign: null })} className="btn btn-green h-9 px-3 text-sm">
-            <Plus size={15} /> Добавить кампанию
-          </button>
+      {/* Тулбар вне карточки: шапка таблицы должна быть первой строкой,
+          как в «Команде», а не второй после заголовка. */}
+      <div className="flex items-center gap-1.5 flex-wrap mb-5">
+        <button
+          onClick={() => setMonth(addMonth(month, -1))}
+          className="ico-btn w-10 h-10"
+          title="Предыдущий месяц"
+          aria-label="Предыдущий месяц"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <div className="btn btn-ghost min-w-[132px] justify-center cursor-default select-none">
+          {formatMonth(month)}
         </div>
+        <button
+          onClick={() => setMonth(addMonth(month, 1))}
+          disabled={atCurrent}
+          className="ico-btn w-10 h-10 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-white"
+          title={atCurrent ? 'Текущий месяц' : 'Следующий месяц'}
+          aria-label="Следующий месяц"
+        >
+          <ChevronRight size={16} />
+        </button>
+        <div className="flex-1" />
+        <button onClick={() => setOpen({ campaign: null })} className="btn btn-green">
+          <Plus size={16} /> Добавить кампанию
+        </button>
+      </div>
 
+      <div className="card overflow-hidden">
         {loading ? (
           <div className="p-10 grid place-items-center text-muted">
             <Loader2 className="animate-spin" size={20} />
@@ -79,14 +80,14 @@ export default function CampaignsTab() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[820px]">
               <thead>
-                <tr className="bg-[#e2f2ef]">
+                <tr className={theadRow}>
                   <th className={th}>ID</th>
                   <th className={th}>Кампания</th>
                   <th className={th}>Аккаунт</th>
                   <th className={th}>Деньги</th>
-                  <th className={`${th} text-right`}>План бюджета</th>
-                  <th className={`${th} text-right`}>План заявок</th>
-                  <th className={`${th} text-right`}>Вес</th>
+                  <th className={thRight}>План бюджета</th>
+                  <th className={thRight}>План заявок</th>
+                  <th className={thRight}>Вес</th>
                   <th className={th}>Статус</th>
                 </tr>
               </thead>

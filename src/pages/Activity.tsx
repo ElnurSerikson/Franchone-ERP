@@ -8,9 +8,8 @@ import { ProgressBar } from '@/components/ui/Progress'
 import { useData } from '@/lib/useData'
 import { taskStatsByEmployee } from '@/lib/selectors'
 import { pct } from '@/lib/format'
+import { th, td, theadRow } from '@/lib/table'
 
-const th = 'text-left text-[11px] font-semibold text-green-d uppercase tracking-wide px-4 py-3'
-const td = 'px-4 py-3 text-sm text-ink-2 border-t border-line align-middle'
 
 function ago(ms: number | null): { text: string; stale: boolean; today: boolean } {
   if (!ms) return { text: 'никогда', stale: true, today: false }
@@ -61,7 +60,7 @@ export default function Activity() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[820px]">
             <thead>
-              <tr className="bg-[#e2f2ef]">
+              <tr className={theadRow}>
                 <th className={`${th} sticky left-0 z-20 bg-[#e2f2ef] border-r border-line`}>Сотрудник</th>
                 <th className={th}>Последний вход</th>
                 <th className={th}>Входов (7 / 30 дн)</th>

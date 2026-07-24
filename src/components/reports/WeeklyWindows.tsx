@@ -6,9 +6,7 @@ import { computeSmm } from '@/lib/kpi'
 import { mapSmm } from '@/lib/mappers'
 import { num, pct } from '@/lib/format'
 import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
-
-const th = 'text-left text-[11px] font-semibold text-green-d uppercase tracking-wide px-3 py-2'
-const td = 'px-3 py-2.5 text-sm text-ink-2 border-t border-line'
+import { th, thRight, td, theadRow } from '@/lib/table'
 
 // Недельные окна из KPI_SMM.xlsx: блоки «НЕДЕЛЯ 1…5» на дашборде плюс
 // разбивка листа «Недельные планы» по каждому из шести форматов.
@@ -79,14 +77,14 @@ export default function WeeklyWindows() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[560px]">
               <thead>
-                <tr className="bg-[#e2f2ef]">
+                <tr className={theadRow}>
                   <th className={th}>Показатель</th>
                   {weeks.map((w) => (
-                    <th key={w.idx} className={`${th} text-right`}>
+                    <th key={w.idx} className={thRight}>
                       Нед. {w.idx + 1}
                     </th>
                   ))}
-                  <th className={`${th} text-right`}>Мес.</th>
+                  <th className={thRight}>Мес.</th>
                 </tr>
               </thead>
               <tbody>

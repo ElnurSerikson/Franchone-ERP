@@ -11,11 +11,8 @@ import ConfirmDialog from '@/components/ConfirmDialog'
 import { useData } from '@/lib/useData'
 import { errMessage } from '@/lib/errors'
 import { roleLabel, useCurrentUser } from '@/store'
+import { th, thCenter, td, theadRow } from '@/lib/table'
 
-const thBase = 'text-[11px] font-semibold text-green-d uppercase tracking-wide px-4 py-3'
-const th = `text-left ${thBase}`
-const thCenter = `text-center ${thBase}`
-const td = 'px-4 py-3 text-sm text-ink-2 border-t border-line align-middle'
 
 export default function Team() {
   const { employees } = useData()
@@ -62,7 +59,7 @@ export default function Team() {
         <div className="overflow-x-auto">
           <table className="w-full min-w-[680px]">
             <thead>
-              <tr className="bg-[#e2f2ef]">
+              <tr className={theadRow}>
                 <th
                   className={`${th} sticky left-0 z-20 bg-[#e2f2ef] border-r border-line md:static md:z-auto md:border-r-0`}
                 >
