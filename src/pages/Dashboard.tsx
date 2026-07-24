@@ -1,5 +1,9 @@
-import { useQuery } from 'convex/react'
-import { Wallet, TrendingUp, AlertTriangle, ClipboardList, CheckSquare } from 'lucide-react'
+import { useState } from 'react'
+import { useMutation, useQuery } from 'convex/react'
+import {
+  Wallet, TrendingUp, AlertTriangle, ClipboardList, CheckSquare, Pencil,
+  ChevronLeft, ChevronRight,
+} from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
@@ -14,7 +18,9 @@ import {
 } from '@/lib/selectors'
 import { REPORT_STATUS, type ReportStatus } from '@/lib/reports'
 import { kzt, num, pct, plural, shortDate } from '@/lib/format'
-import { CURRENT_MONTH, formatMonth } from '@/lib/month'
+import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
+import { th, thRight, td, theadRow } from '@/lib/table'
+import { errMessage } from '@/lib/errors'
 import type { Employee, Task } from '@/types'
 
 const DUE_SOON_DAYS = 3
@@ -216,8 +222,10 @@ function ManagerView({ me }: { me: Employee }) {
         />
       </div>
 
+      <PayrollTable employees={scoped} />
+
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 mb-5">
-        <div className="card p-5 lg:col-span-2">
+        <div className="card p-5 lg:col-span-3">
           <div className="flex items-center justify-between mb-4">
             <h3 className="sec-title">KPI по сотрудникам</h3>
             <span className="text-xs text-muted">за {reportMonth}</span>
@@ -257,32 +265,6 @@ function ManagerView({ me }: { me: Employee }) {
               ))}
             </div>
           )}
-        </div>
-
-        <div className="card p-5">
-          <h3 className="sec-title mb-4">Выплаты к начислению</h3>
-          {withKpi.length === 0 ? (
-            <p className="text-sm text-muted">Пока не по кому считать выплату.</p>
-          ) : (
-            <div className="flex flex-col divide-y divide-line">
-              {withKpi.map(({ employee: e, payout }) => (
-                <div key={e.id} className="flex items-center justify-between py-3 first:pt-0">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Avatar initials={e.initials} color={e.avatarColor} size={34} />
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-ink truncate">{e.name}</div>
-                      <div className="text-[11px] text-muted">оклад {kzt(e.salary)}</div>
-                    </div>
-                  </div>
-                  <div className="text-sm font-bold text-ink whitespace-nowrap">{kzt(payout ?? 0)}</div>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="mt-4 pt-4 border-t border-line flex items-center justify-between">
-            <span className="text-sm text-muted">Итого</span>
-            <span className="text-lg font-bold text-green-d">{kzt(totalPayout)}</span>
-          </div>
         </div>
       </div>
 
@@ -384,6 +366,232 @@ function planFor(
 const barColor = (v: number) => (v >= 0.9 ? '#057269' : v >= 0.7 ? '#d69e2e' : '#c53030')
 
 // Прогресс-бар успеваемости: подпись, процент и пояснение под полосой.
+// Начисления за месяц (§5). Пока месяц открыт — предварительный расчёт,
+// после закрытия — зафиксированный архив.
+function PayrollTable({ employees }: { employees: Employee[] }) {
+  // Свой переключатель месяцев: закрытые месяцы — это и есть архив начислений,
+  // и попасть в него можно только отсюда.
+  const [month, setMonth] = useState(CURRENT_MONTH)
+  const atCurrent = month >= CURRENT_MONTH
+  const data = useQuery(api.payroll.month, { month })
+  const close = useMutation(api.payroll.close)
+  const reopen = useMutation(api.payroll.reopen)
+  const recalculate = useMutation(api.payroll.recalculate)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  if (!data || data.rows.length === 0) return null
+
+  const byId = new Map(employees.map((e) => [e.id, e]))
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true)
+    setError('')
+    try {
+      await fn()
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось выполнить действие.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="card overflow-hidden mb-5">
+      <div className="px-4 py-3.5 border-b border-line flex items-center gap-2 flex-wrap">
+        <Wallet size={16} className="text-green" />
+        <h3 className="sec-title flex-1">Начисления · {formatMonth(month)}</h3>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setMonth(addMonth(month, -1))}
+            className="ico-btn w-8 h-8"
+            title="Предыдущий месяц"
+            aria-label="Предыдущий месяц"
+          >
+            <ChevronLeft size={15} />
+          </button>
+          <button
+            onClick={() => setMonth(addMonth(month, 1))}
+            disabled={atCurrent}
+            className="ico-btn w-8 h-8 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-white"
+            title={atCurrent ? 'Текущий месяц' : 'Следующий месяц'}
+            aria-label="Следующий месяц"
+          >
+            <ChevronRight size={15} />
+          </button>
+        </div>
+        {data.closed ? (
+          <span className="chip bg-[#e2f2ef] text-green-d">
+            Закрыт{data.auto ? ' автоматически' : ''}
+          </span>
+        ) : (
+          <span className="chip bg-[#fff6e6] text-[#b7791f]">Предварительно</span>
+        )}
+        {data.canManage && data.closed && (
+          <>
+            <button onClick={() => run(() => recalculate({ month }))} disabled={busy} className="mini-btn">
+              Пересчитать
+            </button>
+            <button onClick={() => run(() => reopen({ month }))} disabled={busy} className="mini-btn">
+              Переоткрыть
+            </button>
+          </>
+        )}
+        {data.canManage && !data.closed && !atCurrent && (
+          <button onClick={() => run(() => close({ month }))} disabled={busy} className="mini-btn">
+            Закрыть месяц
+          </button>
+        )}
+      </div>
+
+      {error && <div className="px-4 py-2 text-sm text-[#c53030]">{error}</div>}
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[680px]">
+          <thead>
+            <tr className={theadRow}>
+              <th className={th}>Сотрудник</th>
+              <th className={th}>Должность</th>
+              <th className={thRight}>KPI</th>
+              <th className={thRight}>Оклад</th>
+              <th className={thRight}>К выплате</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.rows.map((r) => {
+              const e = byId.get(r.employeeId as string)
+              return (
+                <tr key={r.employeeId} className="hover:bg-chip/40 transition-colors">
+                  <td className={td}>
+                    <div className="flex items-center gap-3">
+                      {e && <Avatar initials={e.initials} color={e.avatarColor} size={34} />}
+                      <span className="font-semibold text-ink whitespace-nowrap">{r.name}</span>
+                    </div>
+                  </td>
+                  <td className={td}>{r.positionLabel}</td>
+                  <td className={`${td} text-right`}>
+                    <span
+                      className={`chip tabular-nums ${
+                        r.kpi >= 1 ? 'bg-[#e2f2ef] text-green-d' : 'bg-chip text-ink-2'
+                      }`}
+                    >
+                      {pct(r.kpi, 1)}
+                    </span>
+                  </td>
+                  <td className={`${td} text-right`}>
+                    <SalaryCell
+                      value={r.salary}
+                      position={r.position}
+                      // Закрытый месяц уже начислен — оклад в нём не правим.
+                      editable={data.canManage && !data.closed}
+                    />
+                  </td>
+                  <td className={`${td} text-right font-bold text-ink tabular-nums`}>
+                    {kzt(r.payout)}
+                  </td>
+                </tr>
+              )
+            })}
+            <tr className="bg-chip/40">
+              <td className={`${td} font-semibold text-ink`} colSpan={4}>
+                Итого
+              </td>
+              <td className={`${td} text-right font-bold text-green-d tabular-nums`}>
+                {kzt(data.total)}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div className="px-4 py-3 border-t border-line text-[11px] text-muted">
+        {data.closed
+          ? 'Суммы зафиксированы: правки отчётов за этот месяц больше не принимаются.'
+          : atCurrent
+            ? 'Расчёт по текущим данным. Месяц закроется автоматически 1-го числа.'
+            : 'Месяц ещё не закрыт — суммы могут измениться.'}
+      </div>
+    </div>
+  )
+}
+
+// Оклад правится прямо в таблице. Он привязан к должности, а не к человеку,
+// поэтому правка меняет базу всему отделу — об этом говорит подсказка.
+const SALARY_KEY: Record<string, 'salarySmm' | 'salaryTargetolog' | 'salarySales'> = {
+  smm: 'salarySmm',
+  targetolog: 'salaryTargetolog',
+  sales: 'salarySales',
+}
+
+function SalaryCell({
+  value,
+  position,
+  editable,
+}: {
+  value: number
+  position: string
+  editable: boolean
+}) {
+  const update = useMutation(api.settings.update)
+  const key = SALARY_KEY[position]
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(String(value))
+  const [saving, setSaving] = useState(false)
+
+  if (!editable || !key) {
+    return <span className="tabular-nums">{kzt(value)}</span>
+  }
+
+  const commit = async () => {
+    const next = Number(draft)
+    setEditing(false)
+    if (!Number.isFinite(next) || next < 0 || next === value) return
+    setSaving(true)
+    try {
+      await update({ [key]: next })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <input
+        autoFocus
+        type="number"
+        min={0}
+        step={10000}
+        value={draft}
+        onChange={(ev) => setDraft(ev.target.value)}
+        onBlur={commit}
+        onKeyDown={(ev) => {
+          if (ev.key === 'Enter') commit()
+          if (ev.key === 'Escape') {
+            setDraft(String(value))
+            setEditing(false)
+          }
+        }}
+        className="w-32 h-8 px-2 rounded-lg border border-green-light text-sm text-right tabular-nums focus:outline-none"
+      />
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setDraft(String(value))
+        setEditing(true)
+      }}
+      disabled={saving}
+      title="Изменить оклад должности"
+      className="inline-flex items-center gap-1.5 px-2 py-1 -mr-2 rounded-lg tabular-nums hover:bg-chip transition-colors group"
+    >
+      {kzt(value)}
+      <Pencil size={12} className="text-muted-2 group-hover:text-green" />
+    </button>
+  )
+}
+
 function Meter({
   label,
   pctValue,

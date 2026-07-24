@@ -1,9 +1,8 @@
 import { useState, type ReactNode } from 'react'
-import { useMutation, useQuery } from 'convex/react'
-import type { FunctionReturnType } from 'convex/server'
+import { useQuery } from 'convex/react'
 import {
   TrendingUp, Wallet, Building2, User, Users, Target,
-  ShoppingCart, Percent, Receipt, Loader2, ChevronLeft, ChevronRight, Lock, type LucideIcon,
+  ShoppingCart, Percent, Receipt, Loader2, ChevronLeft, ChevronRight, type LucideIcon,
 } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import { useApp, useCurrentUser } from '@/store'
@@ -13,10 +12,6 @@ import { computeSmm, computeTargetolog, spendBySource } from '@/lib/kpi'
 import { mapSmm, mapCampaign } from '@/lib/mappers'
 import { kzt, num, pct } from '@/lib/format'
 import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
-import { reportTime } from '@/lib/reports'
-
-type PayrollData = FunctionReturnType<typeof api.payroll.month>
-const payTd = 'px-5 py-3 text-sm text-ink-2 border-t border-line align-middle'
 
 // Базы выплат и веса берутся из настроек (ячейки «Оклад» и B6/B7 на дашбордах
 // KPI_SMM / KPI_TARGETOLOG). Выплата = оклад × Итоговый KPI.
@@ -45,10 +40,6 @@ export default function Kpi() {
   const ownDept = DEPTS.find((d) => d.id === (me.position as Dept))?.id ?? null
   const active: Dept | null = canSeeAll ? dept : ownDept
 
-  // Начисления за месяц: у закрытого — из архива, у открытого — предварительный
-  // расчёт по текущим данным (§5).
-  const payroll = useQuery(api.payroll.month, { month })
-
   const subtitle =
     active === 'smm'
       ? `Контент · FRANCHONE + ANUAR · ${monthLabel}`
@@ -73,14 +64,7 @@ export default function Kpi() {
             >
               <ChevronLeft size={16} />
             </button>
-            {/* Закрытый месяц выглядит иначе: его цифры зафиксированы. */}
-            <div
-              className={`btn min-w-[132px] justify-center cursor-default select-none ${
-                payroll?.closed ? 'btn-ghost' : 'btn-green'
-              }`}
-              title={payroll?.closed ? 'Месяц закрыт — начисления зафиксированы' : undefined}
-            >
-              {payroll?.closed && <Lock size={14} className="text-muted" />}
+            <div className="btn btn-green min-w-[132px] justify-center cursor-default select-none">
               {monthLabel}
             </div>
             <button
@@ -116,8 +100,6 @@ export default function Kpi() {
       </div>
       )}
 
-      <PayrollCard month={month} monthLabel={monthLabel} data={payroll} />
-
       {active === 'smm' && <SmmKpi month={month} />}
       {active === 'targetolog' && <TargetologKpi month={month} />}
       {active === 'sales' && <SalesKpi month={month} monthLabel={monthLabel} />}
@@ -129,131 +111,6 @@ export default function Kpi() {
         />
       )}
     </>
-  )
-}
-
-// Начисления за месяц (§5). Пока месяц открыт — предварительный расчёт,
-// после закрытия — зафиксированный архив, который уже не пересчитывается.
-function PayrollCard({
-  month,
-  monthLabel,
-  data,
-}: {
-  month: string
-  monthLabel: string
-  data: PayrollData | undefined
-}) {
-  const close = useMutation(api.payroll.close)
-  const reopen = useMutation(api.payroll.reopen)
-  const recalculate = useMutation(api.payroll.recalculate)
-  const [busy, setBusy] = useState('')
-  const [error, setError] = useState('')
-
-  if (data === undefined) return null
-  if (data === null || data.rows.length === 0) return null
-
-  const run = async (name: string, fn: () => Promise<unknown>) => {
-    setBusy(name)
-    setError('')
-    try {
-      await fn()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не удалось выполнить действие')
-    } finally {
-      setBusy('')
-    }
-  }
-
-  const canClose = data.canManage && !data.closed && month < CURRENT_MONTH
-
-  return (
-    <div className="card overflow-hidden mb-5">
-      <div className="px-4 py-3.5 border-b border-line flex items-center gap-2 flex-wrap">
-        <Wallet size={16} className="text-green" />
-        <h3 className="sec-title flex-1">Начисления · {monthLabel}</h3>
-        {data.closed ? (
-          <span className="chip bg-[#e2f2ef] text-green-d">
-            <Lock size={12} /> Закрыт{data.auto ? ' автоматически' : ''}
-          </span>
-        ) : (
-          <span className="chip bg-[#fff6e6] text-[#b7791f]">Предварительно</span>
-        )}
-        {canClose && (
-          <button
-            onClick={() => run('close', () => close({ month }))}
-            disabled={!!busy}
-            className="btn btn-green h-8 px-3 text-xs disabled:opacity-60"
-          >
-            Закрыть месяц
-          </button>
-        )}
-        {data.canManage && data.closed && (
-          <>
-            <button
-              onClick={() => run('recalc', () => recalculate({ month }))}
-              disabled={!!busy}
-              className="mini-btn"
-            >
-              Пересчитать
-            </button>
-            <button
-              onClick={() => run('reopen', () => reopen({ month }))}
-              disabled={!!busy}
-              className="mini-btn"
-            >
-              Переоткрыть
-            </button>
-          </>
-        )}
-      </div>
-
-      {error && <div className="px-4 py-2 text-sm text-[#c53030]">{error}</div>}
-
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[560px]">
-          <thead>
-            <tr className="bg-[#e2f2ef]">
-              <Th>Сотрудник</Th>
-              <Th>Должность</Th>
-              <Th right>KPI</Th>
-              <Th right>Оклад</Th>
-              <Th right>К выплате</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.rows.map((r) => (
-              <tr key={r.employeeId} className="hover:bg-chip/40 transition-colors">
-                <td className={payTd}>
-                  <span className="font-medium text-ink whitespace-nowrap">{r.name}</span>
-                </td>
-                <td className={payTd}>{r.positionLabel}</td>
-                <td className={`${payTd} text-right`}>
-                  <PctChip value={r.kpi} />
-                </td>
-                <td className={`${payTd} text-right tabular-nums`}>{kzt(r.salary)}</td>
-                <td className={`${payTd} text-right font-bold text-ink tabular-nums`}>
-                  {kzt(r.payout)}
-                </td>
-              </tr>
-            ))}
-            <tr className="bg-chip/40">
-              <td className={`${payTd} font-semibold text-ink`} colSpan={4}>
-                Итого
-              </td>
-              <td className={`${payTd} text-right font-bold text-green-d tabular-nums`}>
-                {kzt(data.total)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div className="px-4 py-3 border-t border-line text-[11px] text-muted">
-        {data.closed
-          ? `Зафиксировано ${reportTime(data.closedAt ?? 0)}. Правки отчётов за этот месяц больше не принимаются.`
-          : `Расчёт по текущим данным. Месяц закроется автоматически 1-го числа — после этого суммы зафиксируются.`}
-      </div>
-    </div>
   )
 }
 
