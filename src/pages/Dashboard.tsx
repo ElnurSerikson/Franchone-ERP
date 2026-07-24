@@ -107,21 +107,32 @@ function PersonalView({ me }: { me: Employee }) {
         <div className="card p-5">
           <h3 className="sec-title mb-1">Задачи</h3>
           <p className="text-xs text-muted mb-4">успеваемость за {formatMonth(CURRENT_MONTH)}</p>
-          <div className="grid grid-cols-3 gap-2 mb-4">
+
+          {/* Ближайшая работа — §4 «на сегодня / приближается / просрочено». */}
+          <div className="grid grid-cols-3 gap-2 mb-5">
             <Mini label="На сегодня" value={dueToday} />
             <Mini label={`Ближайшие ${DUE_SOON_DAYS} дня`} value={dueSoon} />
             <Mini label="Просрочено" value={counts.overdue} tone={counts.overdue > 0 ? 'red' : undefined} />
           </div>
-          <div className="flex items-baseline gap-2 mb-2">
-            <span className="text-[22px] font-bold text-ink leading-none">{pct(stats.onTimePct)}</span>
-            <span className="text-sm text-muted">выполнено в срок</span>
+
+          {/* Прогресс-бары успеваемости — §1: процент выполнения и соблюдения сроков. */}
+          <Meter
+            label="Выполнено"
+            pctValue={stats.completionPct}
+            caption={`${stats.done} из ${stats.total} ${plural(stats.total, 'задачи', 'задач', 'задач')}`}
+          />
+          <div className="mt-3">
+            <Meter
+              label="Соблюдение сроков"
+              pctValue={stats.onTimePct}
+              caption={stats.done ? `вовремя ${stats.onTime} · с опозданием ${stats.late}` : 'нет выполненных'}
+            />
           </div>
-          <ProgressBar value={stats.onTimePct} color={barColor(stats.onTimePct)} />
-          <div className="text-xs text-muted mt-2">
-            {stats.done === 0
-              ? 'В этом месяце пока нет завершённых задач.'
-              : `вовремя ${stats.onTime} · с опозданием ${stats.late}`}
-          </div>
+          {stats.total === 0 && (
+            <p className="text-[11px] text-muted-2 mt-3">
+              На этот месяц задач со сроком не назначено.
+            </p>
+          )}
         </div>
       </div>
 
@@ -371,6 +382,28 @@ function planFor(
 }
 
 const barColor = (v: number) => (v >= 0.9 ? '#057269' : v >= 0.7 ? '#d69e2e' : '#c53030')
+
+// Прогресс-бар успеваемости: подпись, процент и пояснение под полосой.
+function Meter({
+  label,
+  pctValue,
+  caption,
+}: {
+  label: string
+  pctValue: number
+  caption: string
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between mb-1.5">
+        <span className="text-sm text-ink-2">{label}</span>
+        <span className="text-sm font-bold text-ink tabular-nums">{pct(pctValue)}</span>
+      </div>
+      <ProgressBar value={pctValue} color={barColor(pctValue)} />
+      <div className="text-[11px] text-muted mt-1">{caption}</div>
+    </div>
+  )
+}
 
 function Mini({ label, value, tone }: { label: string; value: number; tone?: 'red' }) {
   return (

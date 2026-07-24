@@ -39,21 +39,22 @@ export function isDueSoon(t: Task, days: number): boolean {
 
 export const isDueToday = (t: Task) => t.status !== 'done' && t.deadline === TODAY
 
-// Успеваемость за месяц (§4 ТЗ): считаем по задачам, завершённым в этом месяце.
-// Активные и просроченные — это состояние «сейчас», их месяцем не ограничиваем.
+// Успеваемость за месяц — все семь показателей §1 ТЗ по одному набору задач.
+// Набор — задачи со сроком в этом месяце, то есть «что нужно было закрыть».
+// Общий знаменатель важен: иначе «поставлено» и «выполнено» считались бы по
+// разным множествам и процент выполнения ничего бы не значил.
 export function monthTaskStats(tasks: Task[], month: string) {
-  const done = tasks.filter(
-    (t) =>
-      t.status === 'done' &&
-      t.completedAt != null &&
-      new Date(t.completedAt).toISOString().slice(0, 7) === month,
-  )
+  const scope = tasks.filter((t) => t.deadline.slice(0, 7) === month)
+  const done = scope.filter((t) => t.status === 'done')
   const onTime = done.filter((t) => t.completedOnTime).length
   const late = done.filter((t) => t.completedOnTime === false).length
   return {
-    done: done.length,
-    onTime,
-    late,
+    total: scope.length, // поставлено
+    done: done.length, // выполнено
+    onTime, // выполнено в срок
+    late, // выполнено с опозданием
+    overdue: scope.filter(isOverdue).length, // просрочено и не выполнено
+    completionPct: scope.length ? done.length / scope.length : 0,
     onTimePct: done.length ? onTime / done.length : 0,
   }
 }
