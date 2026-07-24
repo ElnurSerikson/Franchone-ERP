@@ -26,9 +26,18 @@ async function requirePlanAccess(ctx: Parameters<typeof requireEmployee>[0]) {
 export const registry = query({
   args: { activeOnly: v.optional(v.boolean()) },
   handler: async (ctx, { activeOnly }) => {
-    const rows = await ctx.db.query('campaigns').collect()
+    const rows = (await ctx.db.query('campaigns').collect()).filter((c) => !c.archived)
     const list = activeOnly ? rows.filter((c) => c.status === 'Активна') : rows
     return list.sort((a, b) => a.code.localeCompare(b.code))
+  },
+})
+
+// Софт-делит: убираем из интерфейса, запись и отчёты по ней остаются в базе.
+export const archive = mutation({
+  args: { id: v.id('campaigns'), archived: v.optional(v.boolean()) },
+  handler: async (ctx, { id, archived }) => {
+    await requireRegistryAccess(ctx)
+    await ctx.db.patch(id, { archived: archived ?? true })
   },
 })
 
@@ -138,7 +147,7 @@ export const list = query({
     const out = []
     for (const p of monthPlans) {
       const c = await ctx.db.get(p.campaignId)
-      if (!c) continue
+      if (!c || c.archived) continue
       const f = facts.get(c.code) ?? { budget: 0, leads: 0 }
       out.push({
         _id: c._id,

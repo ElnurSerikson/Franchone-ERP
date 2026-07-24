@@ -1,18 +1,20 @@
 import { useState, type ReactNode } from 'react'
-import { ClipboardList, LayoutGrid, CalendarRange, type LucideIcon } from 'lucide-react'
+import { ClipboardList, LayoutGrid, CalendarRange, Megaphone, type LucideIcon } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
 import ReportForm from '@/components/reports/ReportForm'
 import DisciplineGrid from '@/components/reports/DisciplineGrid'
 import WeeklyWindows from '@/components/reports/WeeklyWindows'
+import CampaignsTab from '@/components/campaigns/CampaignsTab'
 import { useApp, useCurrentUser } from '@/store'
 import { reportsDaily } from '@/lib/constants'
 
-type Tab = 'mine' | 'discipline' | 'weekly'
+type Tab = 'mine' | 'discipline' | 'weekly' | 'campaigns'
 
 const SUBTITLE: Record<Tab, string> = {
   mine: 'Ваш отчёт за сегодня и история сдачи',
   discipline: 'Регулярность и дисциплина заполнения по команде',
   weekly: 'Выполнение плана по неделям месяца',
+  campaigns: 'Реестр рекламных кампаний и планы на месяц',
 }
 
 export default function Reports() {
@@ -23,11 +25,14 @@ export default function Reports() {
   // Недельные окна описаны только в модели SMM: у таргетолога и продаж
   // недельного плана нет, показывать им пустой экран незачем.
   const showWeekly = showDiscipline || me.position === 'smm'
+  // Реестр ведут руководство и сам таргетолог — он запускает кампании.
+  const showCampaigns = showDiscipline || me.position === 'targetolog'
 
   const available: Tab[] = [
     ...(showMine ? (['mine'] as const) : []),
     ...(showDiscipline ? (['discipline'] as const) : []),
     ...(showWeekly ? (['weekly'] as const) : []),
+    ...(showCampaigns ? (['campaigns'] as const) : []),
   ]
 
   const [tab, setTab] = useState<Tab>(available[0] ?? 'mine')
@@ -73,6 +78,11 @@ export default function Reports() {
                   По неделям
                 </TabBtn>
               )}
+              {showCampaigns && (
+                <TabBtn active={view === 'campaigns'} onClick={() => setTab('campaigns')} icon={Megaphone}>
+                  Кампании
+                </TabBtn>
+              )}
             </div>
           ) : undefined
         }
@@ -81,6 +91,7 @@ export default function Reports() {
       {view === 'mine' && <ReportForm />}
       {view === 'discipline' && <DisciplineGrid />}
       {view === 'weekly' && <WeeklyWindows />}
+      {view === 'campaigns' && <CampaignsTab />}
     </>
   )
 }

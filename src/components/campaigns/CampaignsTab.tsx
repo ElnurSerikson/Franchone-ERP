@@ -1,0 +1,162 @@
+import { useState } from 'react'
+import { useQuery } from 'convex/react'
+import { Plus, ChevronLeft, ChevronRight, Loader2, Megaphone } from 'lucide-react'
+import { api } from '../../../convex/_generated/api'
+import type { Doc } from '../../../convex/_generated/dataModel'
+import CampaignDrawer from './CampaignDrawer'
+import { kzt, num, pct } from '@/lib/format'
+import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
+
+type Campaign = Doc<'campaigns'>
+
+const th = 'text-left text-[11px] font-semibold text-green-d uppercase tracking-wide px-4 py-3'
+const td = 'px-4 py-3 text-sm text-ink-2 border-t border-line align-middle'
+
+const STATUS_CHIP: Record<string, string> = {
+  Активна: 'bg-[#e2f2ef] text-green-d',
+  Пауза: 'bg-[#fff6e6] text-[#b7791f]',
+  Завершена: 'bg-chip text-muted',
+}
+
+// Реестр рекламных кампаний: карточка живёт месяцами, план задаётся на месяц.
+// Правки идут через drawer справа — там же и план, чтобы не разводить по экранам.
+export default function CampaignsTab() {
+  const [month, setMonth] = useState(CURRENT_MONTH)
+  const [open, setOpen] = useState<{ campaign: Campaign | null } | null>(null)
+  const registry = useQuery(api.campaigns.registry, {})
+  const plans = useQuery(api.campaigns.plans, { month })
+  const atCurrent = month >= CURRENT_MONTH
+
+  const planOf = (c: Campaign) => plans?.find((p) => p.campaignId === c._id)
+  const weightSum = (registry ?? []).reduce((s, c) => s + (planOf(c)?.weight ?? 0), 0)
+  const loading = registry === undefined || plans === undefined
+
+  return (
+    <>
+      <div className="card overflow-hidden">
+        <div className="px-4 py-3.5 border-b border-line flex items-center gap-2 flex-wrap">
+          <h3 className="sec-title flex-1">Реестр кампаний · {formatMonth(month)}</h3>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => setMonth(addMonth(month, -1))}
+              className="ico-btn w-9 h-9"
+              title="Предыдущий месяц"
+              aria-label="Предыдущий месяц"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={() => setMonth(addMonth(month, 1))}
+              disabled={atCurrent}
+              className="ico-btn w-9 h-9 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-white"
+              title={atCurrent ? 'Текущий месяц' : 'Следующий месяц'}
+              aria-label="Следующий месяц"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+          <button onClick={() => setOpen({ campaign: null })} className="btn btn-green h-9 px-3 text-sm">
+            <Plus size={15} /> Добавить кампанию
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="p-10 grid place-items-center text-muted">
+            <Loader2 className="animate-spin" size={20} />
+          </div>
+        ) : registry.length === 0 ? (
+          <div className="p-10 text-center">
+            <span className="w-12 h-12 rounded-full bg-chip text-muted grid place-items-center mx-auto mb-3">
+              <Megaphone size={20} />
+            </span>
+            <div className="sec-title mb-1">В реестре пока нет кампаний</div>
+            <p className="text-sm text-muted max-w-md mx-auto">
+              Заведите кампанию — она сразу появится строкой в ежедневном отчёте таргетолога,
+              а её план ляжет в расчёт KPI.
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[820px]">
+              <thead>
+                <tr className="bg-[#e2f2ef]">
+                  <th className={th}>ID</th>
+                  <th className={th}>Кампания</th>
+                  <th className={th}>Аккаунт</th>
+                  <th className={th}>Деньги</th>
+                  <th className={`${th} text-right`}>План бюджета</th>
+                  <th className={`${th} text-right`}>План заявок</th>
+                  <th className={`${th} text-right`}>Вес</th>
+                  <th className={th}>Статус</th>
+                </tr>
+              </thead>
+              <tbody>
+                {registry.map((c) => {
+                  const p = planOf(c)
+                  return (
+                    <tr
+                      key={c._id}
+                      onClick={() => setOpen({ campaign: c })}
+                      className="hover:bg-chip/40 transition-colors cursor-pointer"
+                    >
+                      <td className={td}>
+                        <span className="chip bg-[#e2f2ef] text-green-d">{c.code}</span>
+                      </td>
+                      <td className={td}>
+                        <div className="font-medium text-ink whitespace-nowrap">{c.campaign}</div>
+                        <div className="text-[11px] text-muted whitespace-nowrap">{c.brand}</div>
+                      </td>
+                      <td className={td}>{c.account}</td>
+                      <td className={td}>
+                        <span
+                          className={`chip ${
+                            c.moneySource === 'FRANCHONE'
+                              ? 'bg-[#e2f2ef] text-green-d'
+                              : 'bg-chip text-ink-2'
+                          }`}
+                        >
+                          {c.moneySource}
+                        </span>
+                      </td>
+                      <td className={`${td} text-right tabular-nums`}>
+                        {p?.planBudget ? kzt(p.planBudget) : <span className="text-muted-2">—</span>}
+                      </td>
+                      <td className={`${td} text-right tabular-nums`}>
+                        {p?.planLeads ? num(p.planLeads) : <span className="text-muted-2">—</span>}
+                      </td>
+                      <td className={`${td} text-right tabular-nums`}>
+                        {p?.weight ? pct(p.weight) : <span className="text-muted-2">—</span>}
+                      </td>
+                      <td className={td}>
+                        <span className={`chip ${STATUS_CHIP[c.status] ?? 'bg-chip text-ink-2'}`}>
+                          {c.status}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {!loading && registry.length > 0 && (
+          <div className="px-4 py-3 border-t border-line flex items-center gap-3 flex-wrap">
+            <span className="text-[11px] text-muted">Клик по строке — открыть карточку</span>
+            <span
+              className={`text-[11px] ml-auto ${
+                Math.abs(weightSum - 1) < 0.001 ? 'text-muted-2' : 'text-[#c53030]'
+              }`}
+            >
+              Сумма весов за {formatMonth(month)}: {pct(weightSum)}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {open && (
+        <CampaignDrawer campaign={open.campaign} month={month} onClose={() => setOpen(null)} />
+      )}
+    </>
+  )
+}

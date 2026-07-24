@@ -65,6 +65,9 @@ export default defineSchema({
     startedAt: v.optional(v.string()), // YYYY-MM-DD
     endedAt: v.optional(v.string()),
     note: v.optional(v.string()),
+    // Софт-делит: кампания исчезает из всех списков, но запись и связанные
+    // отчёты остаются в базе — чтобы расчёты прошлых месяцев не разъехались.
+    archived: v.optional(v.boolean()),
   }).index('by_code', ['code']),
 
   // План на месяц по кампании (лист «Планы по месяцам»): план бюджета,
