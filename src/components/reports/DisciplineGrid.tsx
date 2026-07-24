@@ -137,9 +137,12 @@ export default function DisciplineGrid() {
         </div>
 
         <div className="flex flex-wrap items-center gap-4 px-4 py-3 border-t border-line">
-          {(['onTime', 'late', 'missed', 'pending'] as ReportStatus[]).map((s) => (
+          {(['onTime', 'late', 'missed', 'pending', 'na'] as ReportStatus[]).map((s) => (
             <div key={s} className="flex items-center gap-1.5 text-xs text-muted">
-              <span className="w-4 h-4 rounded" style={{ background: REPORT_STATUS[s].cell }} />
+              <span
+                className="w-4 h-4 rounded border border-line"
+                style={{ background: REPORT_STATUS[s].cell }}
+              />
               {REPORT_STATUS[s].label}
             </div>
           ))}

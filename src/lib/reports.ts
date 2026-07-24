@@ -1,5 +1,6 @@
 // Общие цвета/подписи статусов отчётности + мелкие форматтеры.
-export type ReportStatus = 'onTime' | 'late' | 'missed' | 'pending'
+// na — день до найма: отчёта не могло быть, это не нарушение.
+export type ReportStatus = 'onTime' | 'late' | 'missed' | 'pending' | 'na'
 
 export const REPORT_STATUS: Record<
   ReportStatus,
@@ -9,6 +10,7 @@ export const REPORT_STATUS: Record<
   late: { label: 'С опозданием', chip: 'bg-[#fff6e6] text-[#b7791f]', dot: '#d69e2e', cell: '#fbe6ba' },
   missed: { label: 'Пропущен', chip: 'bg-[#fdeaea] text-[#c53030]', dot: '#c53030', cell: '#f6cbcb' },
   pending: { label: 'Ожидается', chip: 'bg-chip text-muted', dot: '#c9ccd1', cell: '#eaecef' },
+  na: { label: 'Ещё не работал', chip: 'bg-chip text-muted-2', dot: '#e7e9ea', cell: '#fafbfb' },
 }
 
 // Дата+время отправки в часовом поясе Алматы.

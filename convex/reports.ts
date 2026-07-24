@@ -166,6 +166,10 @@ export const discipline = query({
       let late = 0
       let missed = 0
       const cells = dates.map((d) => {
+        // До даты найма сотрудника в компании не было — отчёта не могло быть
+        // в принципе. Такие дни не пропуск и в знаменатель заполняемости
+        // не идут, иначе новичок стартует со 100% нарушений.
+        if (d < e.hiredAt) return { date: d, status: 'na' as const }
         const r = byDate.get(d)
         if (r) {
           if (r.onTime) onTime++
