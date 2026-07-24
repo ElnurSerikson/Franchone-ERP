@@ -226,6 +226,85 @@ export const clearCampaigns = mutation({
   },
 })
 
+// ——— Сброс перед боевым запуском ———
+// Снимает накопленное за демо: сотрудников кроме руководства, их отчёты,
+// задачи со всей перепиской и вложениями, историю входов и тестовые закрытия
+// месяцев. Конфигурацию (планы SMM, реестр кампаний, оклады, дедлайн) НЕ
+// трогает: без неё KPI не с чем сравнивать.
+//
+// Владельцев не удаляем ни при каких условиях — это единственный вход в
+// систему, и потерять его нельзя.
+export const resetForProduction = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const employees = await ctx.db.query('employees').collect()
+    const keep = employees.filter((e) => e.role === 'owner')
+    const drop = employees.filter((e) => e.role !== 'owner')
+
+    // Задачи: вместе с комментариями, событиями и файлами из хранилища.
+    let tasks = 0
+    for (const t of await ctx.db.query('tasks').collect()) {
+      for (const c of await ctx.db
+        .query('taskComments')
+        .withIndex('by_task', (q) => q.eq('taskId', t._id))
+        .collect())
+        await ctx.db.delete(c._id)
+      for (const e of await ctx.db
+        .query('taskEvents')
+        .withIndex('by_task', (q) => q.eq('taskId', t._id))
+        .collect())
+        await ctx.db.delete(e._id)
+      for (const a of await ctx.db
+        .query('taskAttachments')
+        .withIndex('by_task', (q) => q.eq('taskId', t._id))
+        .collect()) {
+        if (a.storageId) await ctx.storage.delete(a.storageId)
+        await ctx.db.delete(a._id)
+      }
+      await ctx.db.delete(t._id)
+      tasks++
+    }
+
+    // Отчёты и входы — по всем, включая владельцев (демо-данные были и у них).
+    let reports = 0
+    for (const r of await ctx.db.query('dailyReports').collect()) {
+      await ctx.db.delete(r._id)
+      reports++
+    }
+    let logins = 0
+    for (const l of await ctx.db.query('loginEvents').collect()) {
+      await ctx.db.delete(l._id)
+      logins++
+    }
+
+    // Тестовые закрытия месяцев и снапшоты начислений.
+    let closures = 0
+    for (const c of await ctx.db.query('monthClosures').collect()) {
+      await ctx.db.delete(c._id)
+      closures++
+    }
+    for (const s of await ctx.db.query('payrollSnapshots').collect()) await ctx.db.delete(s._id)
+
+    // Сотрудники — последними, когда всё связанное уже снято.
+    for (const e of drop) {
+      await ctx.db.patch(e._id, { lastLoginAt: undefined })
+      await ctx.db.delete(e._id)
+    }
+
+    // Ключи латиницей: Convex допускает в именах полей только ASCII.
+    return {
+      deleted: {
+        employees: drop.length,
+        tasks,
+        reports,
+        logins,
+        monthClosures: closures,
+      },
+      kept: keep.map((e) => `${e.name} (${e.role})`),
+    }
+  },
+})
+
 // Разовая уборка: планы кампаний, которых уже нет в реестре.
 export const dropOrphanPlans = mutation({
   args: {},
