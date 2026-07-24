@@ -222,53 +222,7 @@ function ManagerView({ me }: { me: Employee }) {
         />
       </div>
 
-      <PayrollTable employees={scoped} />
-
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 mb-5">
-        <div className="card p-5 lg:col-span-3">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="sec-title">KPI по сотрудникам</h3>
-            <span className="text-xs text-muted">за {reportMonth}</span>
-          </div>
-          {kpis.length === 0 ? (
-            <p className="text-sm text-muted py-4">В отделе пока нет сотрудников.</p>
-          ) : (
-            <div className="flex flex-col divide-y divide-line">
-              {kpis.map(({ employee: e, kpi }) => (
-                <div key={e.id} className="py-3 first:pt-0 last:pb-0">
-                  <div className="flex items-center gap-3 sm:gap-4">
-                    <Avatar initials={e.initials} color={e.avatarColor} size={38} />
-                    <div className="min-w-0 flex-1 sm:w-44 sm:flex-none">
-                      <div className="text-sm font-semibold text-ink truncate">{e.name}</div>
-                      <div className="text-xs text-muted truncate">{e.positionLabel}</div>
-                    </div>
-                    <div className="hidden sm:block flex-1 min-w-0">
-                      {kpi === null ? (
-                        <div className="text-xs text-muted-2">
-                          {e.role === 'owner' ? 'Руководитель' : 'KPI-модель не настроена'}
-                        </div>
-                      ) : (
-                        <ProgressBar value={kpi} color={barColor(kpi)} />
-                      )}
-                    </div>
-                    <div className="w-12 sm:w-14 text-right text-sm font-bold text-ink">
-                      {kpi === null ? '—' : pct(kpi)}
-                    </div>
-                    <div className="hidden sm:flex w-28 justify-end">
-                      {kpi === null ? null : <KpiChip value={kpi} />}
-                    </div>
-                  </div>
-                  <div className="sm:hidden mt-2">
-                    {kpi !== null && <ProgressBar value={kpi} color={barColor(kpi)} />}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <div className="card p-5">
           <h3 className="sec-title mb-1">Не сдали отчёт сегодня</h3>
           <p className="text-xs text-muted mb-4">дедлайн {disc?.deadlineTime ?? '20:00'}</p>
@@ -315,6 +269,52 @@ function ManagerView({ me }: { me: Employee }) {
 
         <OverdueList tasks={overdue} title="Просроченные задачи" employees={employees} />
       </div>
+
+      <div className="mb-5">
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="sec-title">KPI по сотрудникам</h3>
+            <span className="text-xs text-muted">за {reportMonth}</span>
+          </div>
+          {kpis.length === 0 ? (
+            <p className="text-sm text-muted py-4">В отделе пока нет сотрудников.</p>
+          ) : (
+            <div className="flex flex-col divide-y divide-line">
+              {kpis.map(({ employee: e, kpi }) => (
+                <div key={e.id} className="py-3 first:pt-0 last:pb-0">
+                  <div className="flex items-center gap-3 sm:gap-4">
+                    <Avatar initials={e.initials} color={e.avatarColor} size={38} />
+                    <div className="min-w-0 flex-1 sm:w-44 sm:flex-none">
+                      <div className="text-sm font-semibold text-ink truncate">{e.name}</div>
+                      <div className="text-xs text-muted truncate">{e.positionLabel}</div>
+                    </div>
+                    <div className="hidden sm:block flex-1 min-w-0">
+                      {kpi === null ? (
+                        <div className="text-xs text-muted-2">
+                          {e.role === 'owner' ? 'Руководитель' : 'KPI-модель не настроена'}
+                        </div>
+                      ) : (
+                        <ProgressBar value={kpi} color={barColor(kpi)} />
+                      )}
+                    </div>
+                    <div className="w-12 sm:w-14 text-right text-sm font-bold text-ink">
+                      {kpi === null ? '—' : pct(kpi)}
+                    </div>
+                    <div className="hidden sm:flex w-28 justify-end">
+                      {kpi === null ? null : <KpiChip value={kpi} />}
+                    </div>
+                  </div>
+                  <div className="sm:hidden mt-2">
+                    {kpi !== null && <ProgressBar value={kpi} color={barColor(kpi)} />}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <PayrollTable employees={scoped} />
     </>
   )
 }
@@ -398,29 +398,12 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
   }
 
   return (
-    <div className="card overflow-hidden mb-5">
-      <div className="px-4 py-3.5 border-b border-line flex items-center gap-2 flex-wrap">
+    <>
+      {/* Заголовок и пикер — вне карточки: зелёная шапка таблицы должна быть
+          её первой строкой, как в «Команде» и «Кампаниях». */}
+      <div className="flex items-center gap-2 flex-wrap mb-4">
         <Wallet size={16} className="text-green" />
-        <h3 className="sec-title flex-1">Начисления · {formatMonth(month)}</h3>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setMonth(addMonth(month, -1))}
-            className="ico-btn w-8 h-8"
-            title="Предыдущий месяц"
-            aria-label="Предыдущий месяц"
-          >
-            <ChevronLeft size={15} />
-          </button>
-          <button
-            onClick={() => setMonth(addMonth(month, 1))}
-            disabled={atCurrent}
-            className="ico-btn w-8 h-8 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-white"
-            title={atCurrent ? 'Текущий месяц' : 'Следующий месяц'}
-            aria-label="Следующий месяц"
-          >
-            <ChevronRight size={15} />
-          </button>
-        </div>
+        <h3 className="sec-title">Начисления · {formatMonth(month)}</h3>
         {data === undefined ? null : data.closed ? (
           <span className="chip bg-[#e2f2ef] text-green-d">
             Закрыт{data.auto ? ' автоматически' : ''}
@@ -428,6 +411,7 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
         ) : (
           <span className="chip bg-[#fff6e6] text-[#b7791f]">Предварительно</span>
         )}
+        <div className="flex-1" />
         {data?.canManage && data.closed && (
           <>
             <button onClick={() => run(() => recalculate({ month }))} disabled={busy} className="mini-btn">
@@ -443,10 +427,30 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
             Закрыть месяц
           </button>
         )}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setMonth(addMonth(month, -1))}
+            className="ico-btn w-10 h-10"
+            title="Предыдущий месяц"
+            aria-label="Предыдущий месяц"
+          >
+            <ChevronLeft size={16} />
+          </button>
+          <button
+            onClick={() => setMonth(addMonth(month, 1))}
+            disabled={atCurrent}
+            className="ico-btn w-10 h-10 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-white"
+            title={atCurrent ? 'Текущий месяц' : 'Следующий месяц'}
+            aria-label="Следующий месяц"
+          >
+            <ChevronRight size={16} />
+          </button>
+        </div>
       </div>
 
-      {error && <div className="px-4 py-2 text-sm text-[#c53030]">{error}</div>}
+      {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
 
+      <div className="card overflow-hidden">
       {data === undefined ? (
         <div className="p-10 grid place-items-center text-muted">
           <Loader2 className="animate-spin" size={20} />
@@ -529,7 +533,8 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
               : 'Месяц ещё не закрыт — суммы могут измениться.'}
         </div>
       )}
-    </div>
+      </div>
+    </>
   )
 }
 
