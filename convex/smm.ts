@@ -1,6 +1,10 @@
 import { query, mutation } from './_generated/server'
-import { v } from 'convex/values'
+import { v, ConvexError } from 'convex/values'
 import { requireManager } from './lib'
+
+// Оси модели SMM — те же, что в KPI_SMM.xlsx.
+const ACCOUNT = v.union(v.literal('FRANCHONE'), v.literal('ANUAR'))
+const FORMAT = v.union(v.literal('Рилсы'), v.literal('Сторис'), v.literal('Карусели'))
 
 // Номер недели внутри месяца — как в KPI_SMM.xlsx: MIN(5; ROUNDUP(день/7)).
 // Возвращает 0-based индекс для weekPlans/weekFacts.
@@ -54,5 +58,43 @@ export const setPlan = mutation({
     // План и вес напрямую задают чужую выплату — правит только руководство.
     await requireManager(ctx)
     await ctx.db.patch(id, { weekPlans, weight })
+  },
+})
+
+// ——— Набор метрик KPI (§5: «набор KPI настраивается для каждой должности») ———
+// Строка «аккаунт × формат» — единица модели SMM. Пары фиксированы моделью,
+// но какие именно пары считаются в этом месяце, решает руководитель.
+
+export const addMetric = mutation({
+  args: {
+    month: v.string(),
+    account: ACCOUNT,
+    format: FORMAT,
+    weight: v.number(),
+  },
+  handler: async (ctx, { month, account, format, weight }) => {
+    await requireManager(ctx)
+    const existing = (await ctx.db.query('smmMetrics').collect()).find(
+      (m) => m.month === month && m.account === account && m.format === format,
+    )
+    if (existing) throw new ConvexError(`${account} · ${format} уже есть в наборе`)
+    return await ctx.db.insert('smmMetrics', {
+      month,
+      account,
+      format,
+      weight,
+      weekPlans: [0, 0, 0, 0, 0],
+      weekFacts: [0, 0, 0, 0, 0],
+    })
+  },
+})
+
+export const removeMetric = mutation({
+  args: { id: v.id('smmMetrics') },
+  handler: async (ctx, { id }) => {
+    await requireManager(ctx)
+    // Факт метрики живёт в ежедневных отчётах и никуда не денется: убираем
+    // строку только из расчёта текущего месяца.
+    await ctx.db.delete(id)
   },
 })

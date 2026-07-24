@@ -8,6 +8,8 @@ const DEFAULTS = {
   cplWeight: 0.3,
   salarySmm: 600000,
   salaryTargetolog: 200000,
+  salarySales: 0,
+  planRevenueSales: 0,
   reportMonth: 'Июль 2026',
   reportDeadlineTime: '20:00',
 }
@@ -30,6 +32,7 @@ export const get = query({
       ...all,
       salarySmm: me?.position === 'smm' ? all.salarySmm : 0,
       salaryTargetolog: me?.position === 'targetolog' ? all.salaryTargetolog : 0,
+      salarySales: me?.position === 'sales' ? all.salarySales : 0,
     }
   },
 })
@@ -40,6 +43,8 @@ export const update = mutation({
     cplWeight: v.optional(v.number()),
     salarySmm: v.optional(v.number()),
     salaryTargetolog: v.optional(v.number()),
+    salarySales: v.optional(v.number()),
+    planRevenueSales: v.optional(v.number()),
     reportMonth: v.optional(v.string()),
     reportDeadlineTime: v.optional(v.string()),
   },

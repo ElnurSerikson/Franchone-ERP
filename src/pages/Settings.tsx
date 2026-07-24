@@ -1,32 +1,57 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { Sliders, Users2, Building2, Wallet, Timer, Check } from 'lucide-react'
+import { Sliders, Users2, Building2, Timer, Check, Plus, Trash2 } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
 import Select from '@/components/ui/Select'
 import { useData } from '@/lib/useData'
 import { DEFAULT_WEIGHTS } from '@/lib/kpi'
 import type { Id } from '../../convex/_generated/dataModel'
-import { kzt, pct } from '@/lib/format'
+import { pct } from '@/lib/format'
+import { CURRENT_MONTH } from '@/lib/month'
+import { errMessage } from '@/lib/errors'
+import { th, td, theadRow } from '@/lib/table'
 
-const th = 'text-left text-[11px] font-semibold text-green-d uppercase tracking-wide px-3 py-2'
-const td = 'px-3 py-2.5 text-sm text-ink-2 border-t border-line'
 const cellCls =
   'w-16 h-8 px-2 rounded-lg border border-line-2 text-sm text-right tabular-nums focus:outline-none focus:border-green-light'
 
+// §5 ТЗ: «формулы расчёта и набор KPI настраиваются отдельно для каждой
+// должности». Поэтому настройки сгруппированы по должности, а не по типу
+// параметра: у каждой своя формула, свой оклад и свой набор показателей.
+type Position = 'smm' | 'targetolog' | 'sales'
+const POSITIONS: { id: Position; label: string }[] = [
+  { id: 'smm', label: 'SMM' },
+  { id: 'targetolog', label: 'Таргетолог' },
+  { id: 'sales', label: 'Отдел продаж' },
+]
+
 export default function Settings() {
   const registry = useQuery(api.campaigns.registry, {})
+  const [pos, setPos] = useState<Position>('smm')
+
   return (
     <>
-      <PageHeader title="Настройки" subtitle="Веса KPI, оклады и справочники системы" />
+      <PageHeader title="Настройки" subtitle="KPI по должностям, отчётность и справочники" />
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <SmmPlanCard />
-        <div className="flex flex-col gap-5">
-          <TargetologWeightsCard />
-          <SalaryCard />
-        </div>
+      <div className="flex items-center gap-1 p-1 bg-chip rounded-xl w-full sm:w-fit mb-5">
+        {POSITIONS.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => setPos(p.id)}
+            className={`h-9 px-4 rounded-lg text-sm font-semibold transition-colors flex-1 sm:flex-none ${
+              pos === p.id
+                ? 'bg-white text-ink shadow-card'
+                : 'bg-line text-ink-2/70 hover:bg-line-2 hover:text-ink'
+            }`}
+          >
+            {p.label}
+          </button>
+        ))}
       </div>
+
+      {pos === 'smm' && <SmmKpiSetup />}
+      {pos === 'targetolog' && <TargetologKpiSetup />}
+      {pos === 'sales' && <SalesKpiSetup />}
 
       {/* Ежедневная отчётность */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 mt-5">
@@ -65,57 +90,176 @@ export default function Settings() {
   )
 }
 
-// ——— Недельные планы и веса SMM (лист «Недельные планы» в KPI_SMM.xlsx) ———
-function SmmPlanCard() {
+// ——— Общее для всех должностей ———
+
+// Формула должности словами: что именно настраивают поля ниже.
+function FormulaNote({ children }: { children: ReactNode }) {
+  return (
+    <div className="rounded-xl bg-chip px-4 py-3 mb-4">
+      <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1">
+        Формула расчёта
+      </div>
+      <div className="text-sm text-ink-2">{children}</div>
+    </div>
+  )
+}
+
+// Оклад должности — база выплаты: выплата = оклад × итоговый KPI.
+function SalaryField({
+  label = 'Оклад, ₸',
+  value,
+  onChange,
+  hint,
+}: {
+  label?: string
+  value: number
+  onChange: (v: number) => void
+  hint?: string
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <span className="text-sm text-ink-2">{label}</span>
+        {hint && <p className="text-[11px] text-muted-2 mt-0.5">{hint}</p>}
+      </div>
+      <input
+        type="number"
+        min={0}
+        step={10000}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value) || 0)}
+        className="w-36 h-9 px-2 rounded-lg border border-line-2 text-sm font-semibold text-right focus:outline-none focus:border-green-light shrink-0"
+      />
+    </div>
+  )
+}
+
+function SaveBar({
+  dirty,
+  saving,
+  saved,
+  onSave,
+}: {
+  dirty: boolean
+  saving: boolean
+  saved: boolean
+  onSave: () => void
+}) {
+  if (saved && !dirty)
+    return (
+      <span className="chip bg-[#e2f2ef] text-green-d">
+        <Check size={12} /> Сохранено
+      </span>
+    )
+  if (!dirty) return null
+  return (
+    <button onClick={onSave} disabled={saving} className="btn btn-green h-8 px-3 text-xs disabled:opacity-60">
+      Сохранить
+    </button>
+  )
+}
+
+// ——— SMM: набор «аккаунт × формат», веса и недельные планы ———
+const SMM_ACCOUNTS = ['FRANCHONE', 'ANUAR'] as const
+const SMM_FORMATS = ['Рилсы', 'Сторис', 'Карусели'] as const
+
+function SmmKpiSetup() {
   const { smmMetrics } = useData()
+  const settings = useQuery(api.settings.get, {})
+  const updateSettings = useMutation(api.settings.update)
   const setPlan = useMutation(api.smm.setPlan)
+  const addMetric = useMutation(api.smm.addMetric)
+  const removeMetric = useMutation(api.smm.removeMetric)
+
   const [draft, setDraft] = useState<Record<string, { weight: number; weekPlans: number[] }>>({})
+  const [salary, setSalary] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
+  const [newPair, setNewPair] = useState<{ account: string; format: string } | null>(null)
 
   const rowOf = (m: (typeof smmMetrics)[number]) =>
     draft[m.id] ?? { weight: m.weight, weekPlans: m.weekPlans }
   const edit = (id: string, patch: Partial<{ weight: number; weekPlans: number[] }>) => {
     const base = smmMetrics.find((m) => m.id === id)!
-    setDraft((d) => ({ ...d, [id]: { ...(d[id] ?? { weight: base.weight, weekPlans: base.weekPlans }), ...patch } }))
+    setDraft((d) => ({
+      ...d,
+      [id]: { ...(d[id] ?? { weight: base.weight, weekPlans: base.weekPlans }), ...patch },
+    }))
     setSaved(false)
   }
 
+  const curSalary = salary ?? settings?.salarySmm ?? 0
   const weightSum = smmMetrics.reduce((s, m) => s + rowOf(m).weight, 0)
+  const dirty = Object.keys(draft).length > 0 || salary !== null
+
+  // Пары, которых ещё нет в наборе — их и предлагаем добавить.
+  const freePairs = SMM_ACCOUNTS.flatMap((a) =>
+    SMM_FORMATS.filter((f) => !smmMetrics.some((m) => m.account === a && m.format === f)).map(
+      (f) => ({ account: a, format: f }),
+    ),
+  )
 
   const save = async () => {
     setSaving(true)
+    setError('')
     try {
       for (const [id, val] of Object.entries(draft)) {
         await setPlan({ id: id as Id<'smmMetrics'>, weight: val.weight, weekPlans: val.weekPlans })
       }
+      if (salary !== null) await updateSettings({ salarySmm: salary })
       setDraft({})
+      setSalary(null)
       setSaved(true)
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось сохранить настройки.'))
     } finally {
       setSaving(false)
     }
   }
 
+  const run = async (fn: () => Promise<unknown>) => {
+    setError('')
+    try {
+      await fn()
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось изменить набор метрик.'))
+    }
+  }
+
   return (
     <div className="card p-5">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Sliders size={18} className="text-green" />
-        <h3 className="sec-title flex-1">Планы и веса KPI · SMM</h3>
-        {Object.keys(draft).length > 0 && (
-          <button onClick={save} disabled={saving} className="btn btn-green h-8 px-3 text-xs disabled:opacity-60">
-            Сохранить
-          </button>
-        )}
-        {saved && (
-          <span className="chip bg-[#e2f2ef] text-green-d">
-            <Check size={12} /> Сохранено
-          </span>
-        )}
+        <h3 className="sec-title flex-1">KPI · SMM-специалист</h3>
+        <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />
+      </div>
+
+      <FormulaNote>
+        По каждой паре «аккаунт × формат»: <b>МИН(факт ÷ план; 1) × вес</b>. Итоговый KPI —
+        сумма вкладов, выплата — <b>оклад × KPI</b>. Перевыполнение сверх плана не начисляется.
+      </FormulaNote>
+
+      {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
+
+      <div className="mb-4">
+        <SalaryField
+          value={curSalary}
+          onChange={(v) => {
+            setSalary(v)
+            setSaved(false)
+          }}
+          hint="база выплаты для должности"
+        />
+      </div>
+
+      <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">
+        Набор показателей
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[520px]">
+        <table className="w-full min-w-[560px]">
           <thead>
-            <tr className="bg-[#e2f2ef]">
+            <tr className={theadRow}>
               <th className={th}>Аккаунт · Формат</th>
               <th className={th}>Вес</th>
               {[1, 2, 3, 4, 5].map((w) => (
@@ -124,6 +268,7 @@ function SmmPlanCard() {
                 </th>
               ))}
               <th className={th}>Мес.</th>
+              <th className={th} />
             </tr>
           </thead>
           <tbody>
@@ -162,12 +307,67 @@ function SmmPlanCard() {
                   <td className={`${td} font-semibold text-ink tabular-nums`}>
                     {r.weekPlans.reduce((s, x) => s + x, 0)}
                   </td>
+                  <td className={td}>
+                    <button
+                      onClick={() => run(() => removeMetric({ id: m.id as Id<'smmMetrics'> }))}
+                      className="w-8 h-8 grid place-items-center rounded-lg text-muted hover:text-[#c53030] hover:bg-chip transition-colors"
+                      title="Убрать показатель из расчёта"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </td>
                 </tr>
               )
             })}
           </tbody>
         </table>
       </div>
+
+      {freePairs.length > 0 &&
+        (newPair ? (
+          <div className="flex items-end gap-2 flex-wrap mt-3">
+            <div className="w-40">
+              <Select
+                value={`${newPair.account}|${newPair.format}`}
+                onChange={(v) => {
+                  const [account, format] = v.split('|')
+                  setNewPair({ account, format })
+                }}
+                options={freePairs.map((p) => ({
+                  value: `${p.account}|${p.format}`,
+                  label: `${p.account} · ${p.format}`,
+                }))}
+              />
+            </div>
+            <button
+              onClick={() =>
+                run(async () => {
+                  await addMetric({
+                    month: CURRENT_MONTH,
+                    account: newPair.account as 'FRANCHONE' | 'ANUAR',
+                    format: newPair.format as 'Рилсы' | 'Сторис' | 'Карусели',
+                    weight: 0,
+                  })
+                  setNewPair(null)
+                })
+              }
+              className="btn btn-green h-9 px-3 text-sm"
+            >
+              Добавить
+            </button>
+            <button onClick={() => setNewPair(null)} className="btn btn-ghost h-9 px-3 text-sm">
+              Отмена
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setNewPair(freePairs[0])}
+            className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-green-d hover:text-green transition-colors"
+          >
+            <Plus size={15} /> Добавить показатель
+          </button>
+        ))}
+
       <p className={`text-[11px] mt-3 ${Math.abs(weightSum - 1) < 0.001 ? 'text-muted-2' : 'text-[#c53030]'}`}>
         Сумма весов = {pct(weightSum)}. В модели KPI она должна быть 100%.
       </p>
@@ -175,17 +375,22 @@ function SmmPlanCard() {
   )
 }
 
-// ——— Веса KPI таргетолога (B6/B7 дашборда KPI_TARGETOLOG.xlsx) ———
-function TargetologWeightsCard() {
+// ——— Таргетолог: веса заявок и CPL ———
+function TargetologKpiSetup() {
   const settings = useQuery(api.settings.get, {})
   const update = useMutation(api.settings.update)
-  const [draft, setDraft] = useState<{ leadWeight: number; cplWeight: number } | null>(null)
+  const [draft, setDraft] = useState<{
+    leadWeight: number
+    cplWeight: number
+    salaryTargetolog: number
+  } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
   const cur = draft ?? {
     leadWeight: settings?.leadWeight ?? DEFAULT_WEIGHTS.leadWeight,
     cplWeight: settings?.cplWeight ?? DEFAULT_WEIGHTS.cplWeight,
+    salaryTargetolog: settings?.salaryTargetolog ?? 0,
   }
   const sum = cur.leadWeight + cur.cplWeight
 
@@ -200,21 +405,35 @@ function TargetologWeightsCard() {
     }
   }
 
+  const set = (patch: Partial<typeof cur>) => {
+    setDraft({ ...cur, ...patch })
+    setSaved(false)
+  }
+
   return (
     <div className="card p-5">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Sliders size={18} className="text-green" />
-        <h3 className="sec-title flex-1">Веса KPI · Таргетолог</h3>
-        {draft && (
-          <button onClick={save} disabled={saving} className="btn btn-green h-8 px-3 text-xs disabled:opacity-60">
-            Сохранить
-          </button>
-        )}
-        {saved && (
-          <span className="chip bg-[#e2f2ef] text-green-d">
-            <Check size={12} /> Сохранено
-          </span>
-        )}
+        <h3 className="sec-title flex-1">KPI · Таргетолог</h3>
+        <SaveBar dirty={!!draft} saving={saving} saved={saved} onSave={save} />
+      </div>
+
+      <FormulaNote>
+        По каждой кампании: <b>МИН(факт заявок ÷ план; 1) × вес заявок + МИН(план CPL ÷ факт
+        CPL; 1) × вес CPL</b>. Итог — среднее по кампаниям с учётом их весов, выплата —{' '}
+        <b>оклад × KPI</b>.
+      </FormulaNote>
+
+      <div className="mb-4">
+        <SalaryField
+          value={cur.salaryTargetolog}
+          onChange={(v) => set({ salaryTargetolog: v })}
+          hint="база выплаты для должности"
+        />
+      </div>
+
+      <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">
+        Набор показателей
       </div>
       <div className="grid grid-cols-2 gap-3">
         {(
@@ -231,39 +450,29 @@ function TargetologWeightsCard() {
               min={0}
               max={1}
               value={cur[key]}
-              onChange={(e) => {
-                setDraft({ ...cur, [key]: Number(e.target.value) || 0 })
-                setSaved(false)
-              }}
+              onChange={(e) => set({ [key]: Number(e.target.value) || 0 })}
               className="w-full h-9 px-2 rounded-lg border border-line-2 text-lg font-bold focus:outline-none focus:border-green-light"
             />
           </div>
         ))}
       </div>
       <p className={`text-[11px] mt-3 ${Math.abs(sum - 1) < 0.001 ? 'text-muted-2' : 'text-[#c53030]'}`}>
-        Сумма весов = {pct(sum)}. Применяется во всех расчётах KPI таргетолога.
+        Сумма весов = {pct(sum)}. Планы бюджета и заявок задаются по каждой кампании —
+        в «Отчётности → Кампании».
       </p>
     </div>
   )
 }
 
-// ——— Оклады: база выплаты по должности («Оклад» на дашбордах) ———
-function SalaryCard() {
-  const { employees } = useData()
+// ——— Отдел продаж: план выручки ———
+function SalesKpiSetup() {
   const settings = useQuery(api.settings.get, {})
   const update = useMutation(api.settings.update)
-  const [draft, setDraft] = useState<{
-    salarySmm: number
-    salaryTargetolog: number
-    salarySales: number
-    planRevenueSales: number
-  } | null>(null)
+  const [draft, setDraft] = useState<{ salarySales: number; planRevenueSales: number } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
   const cur = draft ?? {
-    salarySmm: settings?.salarySmm ?? 0,
-    salaryTargetolog: settings?.salaryTargetolog ?? 0,
     salarySales: settings?.salarySales ?? 0,
     planRevenueSales: settings?.planRevenueSales ?? 0,
   }
@@ -279,88 +488,44 @@ function SalaryCard() {
     }
   }
 
-  const paid = employees.filter((e) => e.salary > 0)
+  const set = (patch: Partial<typeof cur>) => {
+    setDraft({ ...cur, ...patch })
+    setSaved(false)
+  }
 
   return (
     <div className="card p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <Wallet size={18} className="text-green" />
-        <h3 className="sec-title flex-1">Оклады</h3>
-        {draft && (
-          <button onClick={save} disabled={saving} className="btn btn-green h-8 px-3 text-xs disabled:opacity-60">
-            Сохранить
-          </button>
-        )}
-        {saved && (
-          <span className="chip bg-[#e2f2ef] text-green-d">
-            <Check size={12} /> Сохранено
-          </span>
-        )}
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <Sliders size={18} className="text-green" />
+        <h3 className="sec-title flex-1">KPI · Отдел продаж</h3>
+        <SaveBar dirty={!!draft} saving={saving} saved={saved} onSave={save} />
       </div>
-      <div className="flex flex-col gap-3">
-        {(
-          [
-            ['salarySmm', 'SMM-специалист'],
-            ['salaryTargetolog', 'Таргетолог'],
-            ['salarySales', 'Отдел продаж'],
-          ] as const
-        ).map(([key, label]) => (
-          <div key={key} className="flex items-center justify-between gap-3">
-            <span className="text-sm text-ink-2">{label}</span>
-            <input
-              type="number"
-              min={0}
-              step={10000}
-              value={cur[key]}
-              onChange={(e) => {
-                setDraft({ ...cur, [key]: Number(e.target.value) || 0 })
-                setSaved(false)
-              }}
-              className="w-36 h-9 px-2 rounded-lg border border-line-2 text-sm font-semibold text-right focus:outline-none focus:border-green-light"
-            />
-          </div>
-        ))}
-      </div>
-      <p className="text-[11px] text-muted-2 mt-3">
-        База выплаты по должности: выплата = оклад × итоговый KPI.
-      </p>
 
-      {/* План продаж — не оклад, поэтому отдельным блоком. */}
-      <div className="mt-4 pt-4 border-t border-line">
-        <div className="flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <span className="text-sm text-ink-2">План выручки, ₸</span>
-            <p className="text-[11px] text-muted-2 mt-0.5">
-              KPI продаж = МИН(факт / план; 1)
-            </p>
-          </div>
-          <input
-            type="number"
-            min={0}
-            step={100000}
+      <FormulaNote>
+        <b>МИН(выручка за месяц ÷ план выручки; 1)</b>, выплата — <b>оклад × KPI</b>. Выручка
+        собирается из ежедневных отчётов отдела продаж.
+      </FormulaNote>
+
+      <div className="flex flex-col gap-4">
+        <SalaryField
+          value={cur.salarySales}
+          onChange={(v) => set({ salarySales: v })}
+          hint="база выплаты для должности"
+        />
+        <div className="pt-4 border-t border-line">
+          <SalaryField
+            label="План выручки, ₸"
             value={cur.planRevenueSales}
-            onChange={(e) => {
-              setDraft({ ...cur, planRevenueSales: Number(e.target.value) || 0 })
-              setSaved(false)
-            }}
-            className="w-36 h-9 px-2 rounded-lg border border-line-2 text-sm font-semibold text-right focus:outline-none focus:border-green-light shrink-0"
+            onChange={(v) => set({ planRevenueSales: v })}
+            hint="цель месяца, с которой сравнивается факт"
           />
         </div>
-        {cur.salarySales > 0 && cur.planRevenueSales === 0 && (
-          <p className="text-[11px] text-[#c53030] mt-2">
-            Без плана выручки KPI продаж не считается, и выплата останется нулевой.
-          </p>
-        )}
       </div>
-      {paid.length > 0 && (
-        <div className="flex flex-col divide-y divide-line mt-3 pt-3 border-t border-line">
-          {paid.map((e) => (
-            <div key={e.id} className="flex items-center justify-between py-2 first:pt-0 last:pb-0">
-              <span className="text-sm text-muted">{e.name}</span>
-              <span className="text-sm text-ink-2">{kzt(e.salary)}</span>
-            </div>
-          ))}
-        </div>
+
+      {cur.salarySales > 0 && cur.planRevenueSales === 0 && (
+        <p className="text-[11px] text-[#c53030] mt-3">
+          Без плана выручки KPI продаж не считается, и выплата останется нулевой.
+        </p>
       )}
     </div>
   )
