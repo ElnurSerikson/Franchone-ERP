@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import {
   Wallet, TrendingUp, AlertTriangle, ClipboardList, CheckSquare, Pencil,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, Loader2,
 } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
@@ -380,7 +380,9 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  if (!data || data.rows.length === 0) return null
+  // Скрывать карточку целиком нельзя: вместе с ней исчезли бы стрелки месяцев,
+  // и из пустого месяца было бы не вернуться. Пустоту показываем внутри.
+  if (data === null) return null
 
   const byId = new Map(employees.map((e) => [e.id, e]))
   const run = async (fn: () => Promise<unknown>) => {
@@ -419,14 +421,14 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
             <ChevronRight size={15} />
           </button>
         </div>
-        {data.closed ? (
+        {data === undefined ? null : data.closed ? (
           <span className="chip bg-[#e2f2ef] text-green-d">
             Закрыт{data.auto ? ' автоматически' : ''}
           </span>
         ) : (
           <span className="chip bg-[#fff6e6] text-[#b7791f]">Предварительно</span>
         )}
-        {data.canManage && data.closed && (
+        {data?.canManage && data.closed && (
           <>
             <button onClick={() => run(() => recalculate({ month }))} disabled={busy} className="mini-btn">
               Пересчитать
@@ -436,7 +438,7 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
             </button>
           </>
         )}
-        {data.canManage && !data.closed && !atCurrent && (
+        {data?.canManage && !data.closed && !atCurrent && (
           <button onClick={() => run(() => close({ month }))} disabled={busy} className="mini-btn">
             Закрыть месяц
           </button>
@@ -445,6 +447,20 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
 
       {error && <div className="px-4 py-2 text-sm text-[#c53030]">{error}</div>}
 
+      {data === undefined ? (
+        <div className="p-10 grid place-items-center text-muted">
+          <Loader2 className="animate-spin" size={20} />
+        </div>
+      ) : data.rows.length === 0 ? (
+        <div className="p-10 text-center">
+          <div className="sec-title mb-1">За этот месяц начислений нет</div>
+          <p className="text-sm text-muted max-w-md mx-auto">
+            {data.closed
+              ? 'Месяц закрыт без начислений — данных по KPI за него не было.'
+              : 'Начисления появятся, когда у должностей будут заданы планы и сданы отчёты.'}
+          </p>
+        </div>
+      ) : (
       <div className="overflow-x-auto">
         <table className="w-full min-w-[680px]">
           <thead>
@@ -502,14 +518,17 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
           </tbody>
         </table>
       </div>
+      )}
 
-      <div className="px-4 py-3 border-t border-line text-[11px] text-muted">
-        {data.closed
-          ? 'Суммы зафиксированы: правки отчётов за этот месяц больше не принимаются.'
-          : atCurrent
-            ? 'Расчёт по текущим данным. Месяц закроется автоматически 1-го числа.'
-            : 'Месяц ещё не закрыт — суммы могут измениться.'}
-      </div>
+      {data !== undefined && (
+        <div className="px-4 py-3 border-t border-line text-[11px] text-muted">
+          {data.closed
+            ? 'Суммы зафиксированы: правки отчётов за этот месяц больше не принимаются.'
+            : atCurrent
+              ? 'Расчёт по текущим данным. Месяц закроется автоматически 1-го числа.'
+              : 'Месяц ещё не закрыт — суммы могут измениться.'}
+        </div>
+      )}
     </div>
   )
 }
