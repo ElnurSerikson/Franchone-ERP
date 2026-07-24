@@ -3,7 +3,7 @@ import { v, ConvexError } from 'convex/values'
 import { internal } from './_generated/api'
 import { Resend as ResendAPI } from 'resend'
 import { inviteEmail } from './emails'
-import { requireEmployee } from './lib'
+import { currentEmployee, requireEmployee } from './lib'
 
 // Палитра аватаров — цвет назначается детерминированно по имени (без random,
 // т.к. мутации Convex должны быть детерминированными).
@@ -18,10 +18,19 @@ function colorFor(name: string): string {
 }
 
 // Список сотрудников для фронта — скрытые служебные аккаунты не отдаём.
+//
+// Запрос нужен всем (аватары и имена исполнителей в задачах, на дашборде), но
+// оклад, почта и телефон — только руководству. Роутер прячет «Команду» лишь
+// как экран: любой авторизованный может дёрнуть запрос напрямую, поэтому
+// чувствительные поля вычищаем на сервере, а не на фронте.
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return (await ctx.db.query('employees').collect()).filter((e) => !e.hidden)
+    const me = await currentEmployee(ctx)
+    const privileged = me?.role === 'owner' || me?.role === 'head'
+    const rows = (await ctx.db.query('employees').collect()).filter((e) => !e.hidden)
+    if (privileged) return rows
+    return rows.map((e) => ({ ...e, salary: 0, email: '', phone: '' }))
   },
 })
 

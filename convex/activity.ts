@@ -1,9 +1,15 @@
 import { query } from './_generated/server'
+import { currentEmployee } from './lib'
 
 // Сводка входов по активным сотрудникам (для контроля активности §10).
+// Это надзорные данные — отдаём только руководству. Роутер прячет экран,
+// но сам запрос доступен любому авторизованному, поэтому проверяем здесь.
 export const overview = query({
   args: {},
   handler: async (ctx) => {
+    const me = await currentEmployee(ctx)
+    if (me?.role !== 'owner' && me?.role !== 'head') return []
+
     const emps = await ctx.db.query('employees').collect()
     const now = Date.now()
     const D = 24 * 60 * 60 * 1000
