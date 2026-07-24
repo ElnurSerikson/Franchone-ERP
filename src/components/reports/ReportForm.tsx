@@ -8,6 +8,7 @@ import { REPORTING_POSITIONS, REPORT_PAGES, CONTENT_TYPES } from '@/lib/constant
 import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
 import { kzt, num } from '@/lib/format'
 import { useMediaQuery } from '@/lib/useMediaQuery'
+import DatePicker from '../ui/DatePicker'
 
 type Report = Doc<'dailyReports'>
 
@@ -26,7 +27,9 @@ function longDate(date: string): string {
 }
 
 export default function ReportForm() {
-  const data = useQuery(api.reports.mine, {})
+  // Дата отчёта: по умолчанию сегодня, но пропущенный день можно дозаполнить.
+  const [date, setDate] = useState<string | undefined>(undefined)
+  const data = useQuery(api.reports.mine, date ? { date } : {})
 
   if (data === undefined)
     return (
@@ -52,11 +55,21 @@ export default function ReportForm() {
   return (
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px] items-start">
       <div className="flex flex-col gap-5 min-w-0">
-        <StatusBanner report={data.report} today={data.today} deadline={data.deadlineTime} />
-        <div className="card p-5">
-          {data.position === 'smm' && <SmmForm report={data.report} />}
-          {data.position === 'targetolog' && <TargetologForm report={data.report} />}
-          {data.position === 'sales' && <SalesForm report={data.report} />}
+        <StatusBanner
+          report={data.report}
+          today={data.today}
+          date={data.date}
+          earliest={data.earliestDate}
+          deadline={data.deadlineTime}
+          onDate={(d) => setDate(d === data.today ? undefined : d)}
+        />
+        {/* key по дате: форму пересоздаём при переключении дня, иначе в полях
+            останутся значения предыдущей даты — начальное состояние берётся
+            из report один раз при монтировании. */}
+        <div className="card p-5" key={data.date}>
+          {data.position === 'smm' && <SmmForm report={data.report} date={data.date} />}
+          {data.position === 'targetolog' && <TargetologForm report={data.report} date={data.date} />}
+          {data.position === 'sales' && <SalesForm report={data.report} date={data.date} />}
         </div>
       </div>
       <HistoryPanel history={data.history} />
@@ -64,34 +77,64 @@ export default function ReportForm() {
   )
 }
 
-// ——— Баннер статуса за сегодня ———
+// ——— Баннер статуса + выбор даты отчёта ———
 function StatusBanner({
   report,
   today,
+  date,
+  earliest,
   deadline,
+  onDate,
 }: {
   report: Report | null
   today: string
+  date: string
+  earliest: string
   deadline: string
+  onDate: (d: string) => void
 }) {
-  if (!report)
+  const past = date < today
+  const picker = (
+    <div className="flex items-center gap-2 shrink-0">
+      <div className="w-[172px]">
+        <DatePicker value={date} onChange={onDate} min={earliest} max={today} />
+      </div>
+      {past && (
+        <button onClick={() => onDate(today)} className="mini-btn whitespace-nowrap">
+          Сегодня
+        </button>
+      )}
+    </div>
+  )
+
+  if (!report) {
+    // За прошлый день отчёт уже не может быть «в срок» — предупреждаем заранее,
+    // чтобы отметка «с опозданием» в сетке дисциплины не была сюрпризом.
+    const color = past ? '#c53030' : '#d69e2e'
     return (
-      <div className="card p-4 flex items-center gap-3 border-l-4" style={{ borderLeftColor: '#d69e2e' }}>
-        <span className="w-9 h-9 rounded-full bg-[#fff6e6] text-[#b7791f] grid place-items-center shrink-0">
+      <div className="card p-4 flex items-center gap-3 flex-wrap border-l-4" style={{ borderLeftColor: color }}>
+        <span
+          className="w-9 h-9 rounded-full grid place-items-center shrink-0"
+          style={{ background: past ? '#fdeaea' : '#fff6e6', color }}
+        >
           <Clock size={18} />
         </span>
-        <div className="min-w-0">
-          <div className="font-semibold text-ink">Отчёт за сегодня ещё не заполнен</div>
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-ink">
+            {past ? 'Отчёт за этот день пропущен' : 'Отчёт за сегодня ещё не заполнен'}
+          </div>
           <div className="text-sm text-muted">
-            {longDate(today)} · дедлайн {deadline}
+            {longDate(date)} · {past ? 'будет отмечен как сданный с опозданием' : `дедлайн ${deadline}`}
           </div>
         </div>
+        {picker}
       </div>
     )
+  }
 
   const st = REPORT_STATUS[report.onTime ? 'onTime' : 'late']
   return (
-    <div className="card p-4 flex items-center gap-3 border-l-4" style={{ borderLeftColor: st.dot }}>
+    <div className="card p-4 flex items-center gap-3 flex-wrap border-l-4" style={{ borderLeftColor: st.dot }}>
       <span
         className="w-9 h-9 rounded-full grid place-items-center shrink-0"
         style={{ background: st.cell, color: st.dot }}
@@ -103,7 +146,7 @@ function StatusBanner({
           Отчёт отправлен · <span style={{ color: st.dot }}>{st.label.toLowerCase()}</span>
         </div>
         <div className="text-sm text-muted">
-          {longDate(today)} · {reportTime(report.submittedAt)}
+          {longDate(date)} · {reportTime(report.submittedAt)}
         </div>
       </div>
       {report.editCount > 0 && report.editedAt && (
@@ -111,6 +154,7 @@ function StatusBanner({
           <PencilLine size={12} /> изм. {report.editCount}×
         </span>
       )}
+      {picker}
     </div>
   )
 }
@@ -163,7 +207,7 @@ function FormShell({
 const SMM_CELLS = REPORT_PAGES.flatMap((page) => CONTENT_TYPES.map((type) => ({ page, type })))
 const cellKey = (page: string, type: string) => `${page}|${type}`
 
-function SmmForm({ report }: { report: Report | null }) {
+function SmmForm({ report, date }: { report: Report | null; date: string }) {
   const submit = useMutation(api.reports.submit)
   const [counts, setCounts] = useState<Record<string, number>>(() => {
     const from: Record<string, number> = {}
@@ -188,7 +232,7 @@ function SmmForm({ report }: { report: Report | null }) {
         type: c.type,
         count: get(c.page, c.type),
       }))
-      await submit({ smm: rows, note: note.trim() || undefined })
+      await submit({ date, smm: rows, note: note.trim() || undefined })
       setSaved(true)
     } finally {
       setSaving(false)
@@ -252,7 +296,7 @@ function SmmForm({ report }: { report: Report | null }) {
 // Строки не набираются руками: это все активные кампании из реестра, как в
 // KPI_TARGETOLOG.xlsx, где кампания выбирается по ID, а не пишется текстом.
 // Свободный текст невозможно сматчить с планом, и факт не дошёл бы до KPI.
-function TargetologForm({ report }: { report: Report | null }) {
+function TargetologForm({ report, date }: { report: Report | null; date: string }) {
   const submit = useMutation(api.reports.submit)
   const campaigns = useQuery(api.campaigns.registry, { activeOnly: true })
   const [vals, setVals] = useState<Record<string, { budget: number; leads: number }>>(() => {
@@ -279,7 +323,7 @@ function TargetologForm({ report }: { report: Report | null }) {
         budget: get(c.code).budget,
         leads: get(c.code).leads,
       }))
-      await submit({ targetolog: rows })
+      await submit({ date, targetolog: rows })
       setSaved(true)
     } finally {
       setSaving(false)
@@ -365,7 +409,7 @@ function TargetologForm({ report }: { report: Report | null }) {
 }
 
 // ——— §3.3 Отдел продаж ———
-function SalesForm({ report }: { report: Report | null }) {
+function SalesForm({ report, date }: { report: Report | null; date: string }) {
   const submit = useMutation(api.reports.submit)
   const init: SalesPayload = report?.sales ?? { leads: 0, meetings: 0, sales: 0, revenue: 0, note: '' }
   const [f, setF] = useState<SalesPayload>(init)
@@ -379,6 +423,7 @@ function SalesForm({ report }: { report: Report | null }) {
     setSaving(true)
     try {
       await submit({
+        date,
         sales: {
           leads: Number(f.leads) || 0,
           meetings: Number(f.meetings) || 0,

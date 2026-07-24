@@ -117,6 +117,49 @@ export const setPlan = mutation({
   },
 })
 
+// Факт по кампаниям за произвольный период (§3.2: «показатели должны
+// собираться за день, за выбранный период, за месяц, по каждой кампании
+// и суммарно»). Плана здесь нет — он задаётся на месяц и к отрезку дат
+// неприменим; отдаём расход, заявки и CPL.
+export const factsForPeriod = query({
+  args: { from: v.string(), to: v.string() },
+  handler: async (ctx, { from, to }) => {
+    const registry = (await ctx.db.query('campaigns').collect()).filter((c) => !c.archived)
+    const facts = new Map<string, { budget: number; leads: number; days: Set<string> }>()
+    for (const r of await ctx.db.query('dailyReports').collect()) {
+      if (r.position !== 'targetolog' || !r.targetolog) continue
+      if (r.date < from || r.date > to) continue
+      for (const line of r.targetolog) {
+        const acc = facts.get(line.code) ?? { budget: 0, leads: 0, days: new Set<string>() }
+        acc.budget += line.budget
+        acc.leads += line.leads
+        acc.days.add(r.date)
+        facts.set(line.code, acc)
+      }
+    }
+
+    const rows = registry.map((c) => {
+      const f = facts.get(c.code) ?? { budget: 0, leads: 0, days: new Set<string>() }
+      return {
+        code: c.code,
+        campaign: c.campaign,
+        brand: c.brand,
+        moneySource: c.moneySource,
+        status: c.status,
+        budget: f.budget,
+        leads: f.leads,
+        cpl: f.leads ? f.budget / f.leads : 0,
+        days: f.days.size,
+      }
+    })
+    // Кампании без данных за период не показываем — иначе таблица забита нулями.
+    const active = rows.filter((r) => r.days > 0).sort((a, b) => b.budget - a.budget)
+    const budget = active.reduce((s, r) => s + r.budget, 0)
+    const leads = active.reduce((s, r) => s + r.leads, 0)
+    return { from, to, rows: active, budget, leads, cpl: leads ? budget / leads : 0 }
+  },
+})
+
 // ——— Кампании месяца: план + факт ———
 
 // Отдаёт форму, которую ждёт computeTargetolog. Факт нигде не хранится —

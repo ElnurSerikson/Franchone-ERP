@@ -29,10 +29,14 @@ export default function DatePicker({
   value,
   onChange,
   placeholder = 'Выберите дату',
+  min,
+  max,
 }: {
   value?: string
   onChange: (v: string) => void
   placeholder?: string
+  min?: string // самая ранняя выбираемая дата, YYYY-MM-DD
+  max?: string // самая поздняя
 }) {
   const selected = parse(value)
   const [open, setOpen] = useState(false)
@@ -40,6 +44,9 @@ export default function DatePicker({
   const btnRef = useRef<HTMLButtonElement>(null)
   const isSheet = useIsSmDown() // на телефоне — bottom-sheet
   // Клик вне: на десктопе им занимается AnchoredPopover, у листа свой backdrop.
+
+  // Строки «YYYY-MM-DD» сравниваются лексикографически — этого достаточно.
+  const outOfRange = (v: string) => (min != null && v < min) || (max != null && v > max)
 
   const today = new Date()
   const y = view.getFullYear()
@@ -92,11 +99,12 @@ export default function DatePicker({
             <button
               key={i}
               type="button"
+              disabled={outOfRange(toValue(d))}
               onClick={() => {
                 onChange(toValue(d))
                 setOpen(false)
               }}
-              className={`h-10 sm:h-8 rounded-lg text-sm flex items-center justify-center transition-colors ${
+              className={`h-10 sm:h-8 rounded-lg text-sm flex items-center justify-center transition-colors disabled:text-muted-2/50 disabled:cursor-default disabled:hover:bg-transparent ${
                 selected && sameDay(d, selected)
                   ? 'bg-green text-white font-semibold'
                   : sameDay(d, today)

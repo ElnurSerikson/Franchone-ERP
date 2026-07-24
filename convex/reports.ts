@@ -1,5 +1,5 @@
 import { query, mutation } from './_generated/server'
-import { v } from 'convex/values'
+import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc } from './_generated/dataModel'
 import { currentEmployee, isManager, requireEmployee } from './lib'
@@ -53,14 +53,23 @@ const salesPayload = v.object({
   note: v.optional(v.string()),
 })
 
-// Мой отчёт за сегодня + короткая история (для страницы «Отчёты» сотрудника).
+// Самая ранняя дата, за которую сотрудник может дозаполнить отчёт: начало
+// текущего месяца, но не раньше даты найма. Месяц — естественная граница:
+// по нему считается KPI и выплата, и закрытый месяц пересобирать нельзя.
+function earliestReportDate(me: Doc<'employees'>, today: string): string {
+  const monthStart = `${today.slice(0, 7)}-01`
+  return me.hiredAt > monthStart ? me.hiredAt : monthStart
+}
+
+// Мой отчёт за дату (по умолчанию сегодня) + короткая история.
 export const mine = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { date: v.optional(v.string()) },
+  handler: async (ctx, { date }) => {
     const me = await currentEmployee(ctx)
     if (!me) return null
     const time = await deadlineTime(ctx)
     const today = businessToday()
+    const target = date ?? today
 
     const all = await ctx.db
       .query('dailyReports')
@@ -70,9 +79,11 @@ export const mine = query({
 
     return {
       today,
+      date: target,
+      earliestDate: earliestReportDate(me, today),
       deadlineTime: time,
       position: me.position,
-      report: all.find((r) => r.date === today) ?? null,
+      report: all.find((r) => r.date === target) ?? null,
       history: all.slice(0, 21),
     }
   },
@@ -93,7 +104,15 @@ export const submit = mutation({
       throw new Error('Для вашей роли ежедневный отчёт не предусмотрен')
     }
     const position = me.position as 'smm' | 'targetolog' | 'sales'
-    const date = args.date ?? businessToday()
+    const today = businessToday()
+    const date = args.date ?? today
+    // Дозаполнить прошлый день можно, выдумать будущий — нет. Нижняя граница —
+    // начало месяца: KPI и выплата считаются по месяцу, и задним числом
+    // переписывать уже посчитанный период нельзя.
+    if (date > today) throw new ConvexError('Отчёт за будущую дату сдать нельзя')
+    if (date < earliestReportDate(me, today)) {
+      throw new ConvexError('Отчёт за эту дату уже нельзя изменить')
+    }
     const now = Date.now()
     const payload = {
       smm: args.smm,
