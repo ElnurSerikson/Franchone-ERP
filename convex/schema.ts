@@ -211,7 +211,50 @@ export default defineSchema({
     // Оклад привязан к должности, а не к человеку: KPI считается по отделу.
     salarySmm: v.optional(v.number()),
     salaryTargetolog: v.optional(v.number()),
+    salarySales: v.optional(v.number()),
+    // План выручки отдела продаж на месяц: KPI = МИН(факт/план; 1).
+    planRevenueSales: v.optional(v.number()),
     reportMonth: v.string(),
     reportDeadlineTime: v.optional(v.string()), // дедлайн дневного отчёта, «HH:MM» (Алматы)
   }).index('by_key', ['key']),
+
+  // ——— Закрытие месяца (§5: «сохранять итоговые показатели и начисления в архиве») ———
+  // Пока месяц открыт, KPI и выплата пересчитываются из живых данных. После
+  // закрытия цифры фиксируются снапшотом: правка старого отчёта или смена
+  // оклада задним числом больше не меняют уже начисленное.
+  monthClosures: defineTable({
+    month: v.string(), // YYYY-MM
+    closed: v.boolean(), // false — месяц переоткрыт
+    closedAt: v.number(),
+    // Кто закрыл. Пусто — закрыл планировщик 1-го числа.
+    byId: v.optional(v.id('employees')),
+    history: v.array(
+      v.object({
+        at: v.number(),
+        action: v.union(
+          v.literal('closed'),
+          v.literal('reopened'),
+          v.literal('recalculated'),
+        ),
+        byId: v.optional(v.id('employees')),
+        auto: v.boolean(),
+      }),
+    ),
+  }).index('by_month', ['month']),
+
+  // Начисления на момент закрытия. Имя и должность копируем в строку:
+  // сотрудник может уволиться или сменить должность, а архив обязан
+  // остаться читаемым в том виде, в каком его закрывали.
+  payrollSnapshots: defineTable({
+    month: v.string(),
+    employeeId: v.id('employees'),
+    name: v.string(),
+    positionLabel: v.string(),
+    position: v.string(),
+    kpi: v.number(),
+    salary: v.number(),
+    payout: v.number(),
+    planTotal: v.optional(v.number()), // план месяца в единицах должности
+    factTotal: v.optional(v.number()),
+  }).index('by_month', ['month']),
 })

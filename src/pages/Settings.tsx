@@ -252,13 +252,20 @@ function SalaryCard() {
   const { employees } = useData()
   const settings = useQuery(api.settings.get, {})
   const update = useMutation(api.settings.update)
-  const [draft, setDraft] = useState<{ salarySmm: number; salaryTargetolog: number } | null>(null)
+  const [draft, setDraft] = useState<{
+    salarySmm: number
+    salaryTargetolog: number
+    salarySales: number
+    planRevenueSales: number
+  } | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
   const cur = draft ?? {
     salarySmm: settings?.salarySmm ?? 0,
     salaryTargetolog: settings?.salaryTargetolog ?? 0,
+    salarySales: settings?.salarySales ?? 0,
+    planRevenueSales: settings?.planRevenueSales ?? 0,
   }
 
   const save = async () => {
@@ -295,6 +302,7 @@ function SalaryCard() {
           [
             ['salarySmm', 'SMM-специалист'],
             ['salaryTargetolog', 'Таргетолог'],
+            ['salarySales', 'Отдел продаж'],
           ] as const
         ).map(([key, label]) => (
           <div key={key} className="flex items-center justify-between gap-3">
@@ -316,6 +324,34 @@ function SalaryCard() {
       <p className="text-[11px] text-muted-2 mt-3">
         База выплаты по должности: выплата = оклад × итоговый KPI.
       </p>
+
+      {/* План продаж — не оклад, поэтому отдельным блоком. */}
+      <div className="mt-4 pt-4 border-t border-line">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <span className="text-sm text-ink-2">План выручки, ₸</span>
+            <p className="text-[11px] text-muted-2 mt-0.5">
+              KPI продаж = МИН(факт / план; 1)
+            </p>
+          </div>
+          <input
+            type="number"
+            min={0}
+            step={100000}
+            value={cur.planRevenueSales}
+            onChange={(e) => {
+              setDraft({ ...cur, planRevenueSales: Number(e.target.value) || 0 })
+              setSaved(false)
+            }}
+            className="w-36 h-9 px-2 rounded-lg border border-line-2 text-sm font-semibold text-right focus:outline-none focus:border-green-light shrink-0"
+          />
+        </div>
+        {cur.salarySales > 0 && cur.planRevenueSales === 0 && (
+          <p className="text-[11px] text-[#c53030] mt-2">
+            Без плана выручки KPI продаж не считается, и выплата останется нулевой.
+          </p>
+        )}
+      </div>
       {paid.length > 0 && (
         <div className="flex flex-col divide-y divide-line mt-3 pt-3 border-t border-line">
           {paid.map((e) => (

@@ -3,6 +3,7 @@ import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc } from './_generated/dataModel'
 import { currentEmployee, isManager, requireEmployee } from './lib'
+import { isMonthClosed } from './payroll'
 
 // Бизнес-часовой пояс компании — Asia/Almaty (UTC+5, без перехода на летнее время).
 const TZ = '+05:00'
@@ -112,6 +113,11 @@ export const submit = mutation({
     if (date > today) throw new ConvexError('Отчёт за будущую дату сдать нельзя')
     if (date < earliestReportDate(me, today)) {
       throw new ConvexError('Отчёт за эту дату уже нельзя изменить')
+    }
+    // Закрытый месяц — это уже начисленная зарплата. Иначе правку можно было бы
+    // протащить в переоткрытый месяц и разойтись со снапшотом.
+    if (await isMonthClosed(ctx, date.slice(0, 7))) {
+      throw new ConvexError('Месяц закрыт — отчёты за него больше не принимаются')
     }
     const now = Date.now()
     const payload = {
