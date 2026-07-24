@@ -26,7 +26,6 @@ export default function CampaignsTab() {
   const atCurrent = month >= CURRENT_MONTH
 
   const planOf = (c: Campaign) => plans?.find((p) => p.campaignId === c._id)
-  const weightSum = (registry ?? []).reduce((s, c) => s + (planOf(c)?.weight ?? 0), 0)
   const loading = registry === undefined || plans === undefined
 
   return (
@@ -141,18 +140,6 @@ export default function CampaignsTab() {
           </div>
         )}
 
-        {!loading && registry.length > 0 && (
-          <div className="px-4 py-3 border-t border-line flex items-center gap-3 flex-wrap">
-            <span className="text-[11px] text-muted">Клик по строке — открыть карточку</span>
-            <span
-              className={`text-[11px] ml-auto ${
-                Math.abs(weightSum - 1) < 0.001 ? 'text-muted-2' : 'text-[#c53030]'
-              }`}
-            >
-              Сумма весов за {formatMonth(month)}: {pct(weightSum)}
-            </span>
-          </div>
-        )}
       </div>
 
       {open && (

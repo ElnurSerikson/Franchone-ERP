@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { X, Megaphone, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { X, Megaphone, Pencil, Trash2, Loader2, Plus, Check } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Doc, Id } from '../../../convex/_generated/dataModel'
 import Select from '@/components/ui/Select'
+import DatePicker from '@/components/ui/DatePicker'
 import { useApp } from '@/store'
 import { kzt } from '@/lib/format'
 import { formatMonth } from '@/lib/month'
@@ -14,7 +15,9 @@ const inputCls =
   'w-full rounded-lg border border-line-2 px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-green-light bg-white'
 const labelCls = 'block text-sm font-medium text-ink-2 mb-1.5'
 
-const ACCOUNTS = ['FRANCHONE', 'ANUAR']
+// Базовые аккаунты из KPI_TARGETOLOG; остальные подтягиваются из реестра,
+// а новый можно завести прямо в форме — список не зашит намертво.
+const BASE_ACCOUNTS = ['FRANCHONE', 'ANUAR']
 const MONEY = ['FRANCHONE', 'Партнёр'] as const
 const STATUSES = ['Активна', 'Пауза', 'Завершена'] as const
 
@@ -63,6 +66,7 @@ export default function CampaignDrawer({
   const archive = useMutation(api.campaigns.archive)
   const setPlan = useMutation(api.campaigns.setPlan)
   const plans = useQuery(api.campaigns.plans, { month })
+  const registry = useQuery(api.campaigns.registry, {})
 
   const plan = plans?.find((p) => p.campaignId === campaign?._id)
 
@@ -89,6 +93,21 @@ export default function CampaignDrawer({
   const [saving, setSaving] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const [error, setError] = useState('')
+  const [newAccount, setNewAccount] = useState<string | null>(null)
+  const [extraAccounts, setExtraAccounts] = useState<string[]>([])
+
+  // Уже заведённые аккаунты + добавленные в этой сессии + текущий выбранный.
+  const accounts = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [...BASE_ACCOUNTS, ...(registry ?? []).map((c) => c.account), ...extraAccounts, f.account]
+            .map((a) => a.trim())
+            .filter(Boolean),
+        ),
+      ).sort((a, b) => a.localeCompare(b)),
+    [registry, extraAccounts, f.account],
+  )
 
   useEffect(() => setShown(true), [])
   // План приезжает отдельным запросом — подставляем, когда он загрузился.
@@ -106,6 +125,16 @@ export default function CampaignDrawer({
   const set = (patch: Partial<Form>) => {
     setF((p) => ({ ...p, ...patch }))
     setError('')
+  }
+
+  // Новый аккаунт живёт в списке до сохранения кампании; после сохранения он
+  // появится у всех сам — список строится из реестра.
+  const addAccount = () => {
+    const name = (newAccount ?? '').trim()
+    if (!name) return
+    setExtraAccounts((a) => [...a, name])
+    set({ account: name })
+    setNewAccount(null)
   }
 
   const planCpl = planLeads > 0 ? planBudget / planLeads : 0
@@ -230,11 +259,59 @@ export default function CampaignDrawer({
           </Field>
 
           <Field label="Аккаунт">
-            <Select
-              value={f.account}
-              onChange={(v) => set({ account: v })}
-              options={ACCOUNTS.map((a) => ({ value: a, label: a }))}
-            />
+            {newAccount === null ? (
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0">
+                  <Select
+                    value={f.account}
+                    onChange={(v) => set({ account: v })}
+                    options={accounts.map((a) => ({ value: a, label: a }))}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setNewAccount('')}
+                  className="ico-btn w-10 h-10 shrink-0"
+                  title="Добавить аккаунт"
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  autoFocus
+                  className={inputCls}
+                  placeholder="Название аккаунта"
+                  value={newAccount}
+                  onChange={(e) => setNewAccount(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      addAccount()
+                    }
+                    if (e.key === 'Escape') setNewAccount(null)
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={addAccount}
+                  disabled={!newAccount.trim()}
+                  className="ico-btn w-10 h-10 shrink-0 disabled:opacity-40"
+                  title="Добавить"
+                >
+                  <Check size={16} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewAccount(null)}
+                  className="ico-btn w-10 h-10 shrink-0"
+                  title="Отмена"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
           </Field>
 
           <Field label="Категория">
@@ -268,24 +345,21 @@ export default function CampaignDrawer({
             </p>
           </Field>
 
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Дата запуска">
-              <input
-                type="date"
-                className={inputCls}
-                value={f.startedAt}
-                onChange={(e) => set({ startedAt: e.target.value })}
-              />
-            </Field>
-            <Field label="Дата завершения">
-              <input
-                type="date"
-                className={inputCls}
-                value={f.endedAt}
-                onChange={(e) => set({ endedAt: e.target.value })}
-              />
-            </Field>
-          </div>
+          <Field label="Дата запуска">
+            <DatePicker
+              value={f.startedAt}
+              onChange={(v) => set({ startedAt: v })}
+              placeholder="Когда запустили"
+            />
+          </Field>
+
+          <Field label="Дата завершения">
+            <DatePicker
+              value={f.endedAt}
+              onChange={(v) => set({ endedAt: v })}
+              placeholder="Пока не завершена"
+            />
+          </Field>
 
           <Field label="Комментарий">
             <textarea
