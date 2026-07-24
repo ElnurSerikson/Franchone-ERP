@@ -12,6 +12,9 @@ import Avatar from './ui/Avatar'
 import DatePicker from './ui/DatePicker'
 import Select from './ui/Select'
 import { PRIORITY_OPTS } from './TaskCreateModal'
+import ConfirmDialog from './ConfirmDialog'
+import { useApp } from '@/store'
+import { errMessage } from '@/lib/errors'
 import { statusMeta } from './ui/StatusChip'
 
 const statuses: TaskStatus[] = ['assigned', 'in_progress', 'done']
@@ -51,7 +54,14 @@ export default function TaskModal({
 
   const [comment, setComment] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
+  const [confirmDel, setConfirmDel] = useState(false)
+  const [delBusy, setDelBusy] = useState(false)
+  const [delError, setDelError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Удаление безвозвратное, поэтому только владелец — то же правило на бэкенде.
+  const { role } = useApp()
+  const isOwner = role === 'owner'
 
   const reporter = employees.find((e) => e.id === task.reporterId)
   const overdue = isOverdue(task)
@@ -96,18 +106,15 @@ export default function TaskModal({
               </button>
             ))}
           </div>
-          <button
-            onClick={async () => {
-              if (confirm('Удалить задачу?')) {
-                await remove({ id: tid })
-                onClose()
-              }
-            }}
-            className="ico-btn w-9 h-9"
-            title="Удалить"
-          >
-            <Trash2 size={16} />
-          </button>
+          {isOwner && (
+            <button
+              onClick={() => setConfirmDel(true)}
+              className="ico-btn w-9 h-9 text-muted hover:text-[#c53030]"
+              title="Удалить задачу"
+            >
+              <Trash2 size={16} />
+            </button>
+          )}
           <button onClick={onClose} className="ico-btn w-9 h-9" title="Закрыть">
             <X size={16} />
           </button>
@@ -319,6 +326,37 @@ export default function TaskModal({
           </div>
         </div>
       </div>
+
+      {confirmDel && (
+        <ConfirmDialog
+          title="Удалить задачу?"
+          description={
+            <>
+              <b className="text-ink-2">{task.title}</b> будет удалена безвозвратно — вместе с
+              комментариями, историей и вложениями.
+            </>
+          }
+          confirmLabel="Удалить"
+          danger
+          loading={delBusy}
+          error={delError}
+          onConfirm={async () => {
+            setDelBusy(true)
+            setDelError(null)
+            try {
+              await remove({ id: tid })
+              onClose()
+            } catch (err) {
+              setDelError(errMessage(err, 'Не удалось удалить задачу.'))
+              setDelBusy(false)
+            }
+          }}
+          onCancel={() => {
+            setConfirmDel(false)
+            setDelError(null)
+          }}
+        />
+      )}
     </div>
   )
 }

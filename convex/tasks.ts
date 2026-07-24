@@ -1,6 +1,7 @@
 import { query, mutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
-import { requireEmployee, isManager, isOnTime } from './lib'
+import type { Doc } from './_generated/dataModel'
+import { currentEmployee, requireEmployee, isManager, isOnTime } from './lib'
 
 const statusV = v.union(v.literal('assigned'), v.literal('in_progress'), v.literal('done'))
 const priorityV = v.union(
@@ -12,16 +13,33 @@ const priorityV = v.union(
 
 // ——— Запросы ———
 
+// «Свои» задачи сотрудника (§4 ТЗ): назначенные ему и поставленные им.
+// Созданные учитываем тоже — иначе задача исчезала бы сразу после создания.
+function isOwnTask(task: Doc<'tasks'>, me: Doc<'employees'>): boolean {
+  return task.assigneeId === me._id || task.reporterId === me._id
+}
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query('tasks').collect()
+    const me = await currentEmployee(ctx)
+    if (!me) return []
+    const rows = await ctx.db.query('tasks').collect()
+    // Фильтруем на сервере: доска, счётчик в меню и дашборд берут этот запрос,
+    // и прятать чужое только в UI означало бы отдавать его в открытую.
+    return isManager(me) ? rows : rows.filter((t) => isOwnTask(t, me))
   },
 })
 
 export const get = query({
   args: { id: v.id('tasks') },
-  handler: async (ctx, { id }) => ctx.db.get(id),
+  handler: async (ctx, { id }) => {
+    const me = await currentEmployee(ctx)
+    if (!me) return null
+    const task = await ctx.db.get(id)
+    if (!task) return null
+    return isManager(me) || isOwnTask(task, me) ? task : null
+  },
 })
 
 export const comments = query({
@@ -175,14 +193,11 @@ export const remove = mutation({
   args: { id: v.id('tasks') },
   handler: async (ctx, { id }) => {
     // Удаление безвозвратное — вместе с комментариями, историей и файлами.
-    // Поэтому только руководство, постановщик или исполнитель задачи.
+    // Поэтому только владелец: остальным доступна смена статуса.
     const me = await requireEmployee(ctx)
+    if (me.role !== 'owner') throw new ConvexError('Удалить задачу может только владелец')
     const task = await ctx.db.get(id)
     if (!task) throw new ConvexError('Задача не найдена')
-    const own = task.reporterId === me._id || task.assigneeId === me._id
-    if (!isManager(me) && !own) {
-      throw new ConvexError('Удалить задачу может постановщик, исполнитель или руководитель')
-    }
 
     const comments = await ctx.db
       .query('taskComments')
