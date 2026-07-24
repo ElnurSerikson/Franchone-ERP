@@ -3,7 +3,7 @@ import { useMutation, useQuery } from 'convex/react'
 import { api } from '../../../convex/_generated/api'
 import type { Doc } from '../../../convex/_generated/dataModel'
 import { Loader2, Save, Check, Clock, PencilLine, History, ChevronDown } from 'lucide-react'
-import type { SmmRow, TargetologRow, SalesPayload } from '@/types'
+import type { SmmRow, TargetologRow } from '@/types'
 import { REPORTING_POSITIONS, REPORT_PAGES, CONTENT_TYPES } from '@/lib/constants'
 import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
 import { kzt, num } from '@/lib/format'
@@ -16,6 +16,35 @@ const numCls =
   'w-full h-[38px] rounded-lg border border-line-2 px-2.5 text-sm text-ink text-right focus:outline-none focus:border-green-light bg-white'
 const txtCls =
   'w-full h-[38px] rounded-lg border border-line-2 px-2.5 text-sm text-ink focus:outline-none focus:border-green-light bg-white'
+
+// Числовое поле отчёта. Значение — строка, поэтому поле можно очистить
+// полностью: у number-инпута со значением 0 бэкспейс возвращает ноль, и
+// следующая цифра дописывается к нему («01», «10»). Клик выделяет содержимое,
+// чтобы ввод сразу заменял старое число. Стрелки-счётчики скрыты в index.css.
+function NumInput({
+  value,
+  onChange,
+  className = numCls,
+  placeholder = '0',
+}: {
+  value: string
+  onChange: (v: string) => void
+  className?: string
+  placeholder?: string
+}) {
+  return (
+    <input
+      type="number"
+      min={0}
+      inputMode="numeric"
+      placeholder={placeholder}
+      value={value}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => onChange(e.target.value)}
+      className={className}
+    />
+  )
+}
 
 function longDate(date: string): string {
   return new Date(`${date}T12:00:00+05:00`).toLocaleDateString('ru-RU', {
@@ -209,20 +238,23 @@ const cellKey = (page: string, type: string) => `${page}|${type}`
 
 function SmmForm({ report, date }: { report: Report | null; date: string }) {
   const submit = useMutation(api.reports.submit)
-  const [counts, setCounts] = useState<Record<string, number>>(() => {
-    const from: Record<string, number> = {}
-    for (const r of report?.smm ?? []) from[cellKey(r.page, r.type)] = r.count
+  // Значения держим строками: number-поле со значением 0 нельзя очистить —
+  // бэкспейс возвращает 0, и следующая цифра дописывается к нему («01», «10»).
+  const [counts, setCounts] = useState<Record<string, string>>(() => {
+    const from: Record<string, string> = {}
+    for (const r of report?.smm ?? []) from[cellKey(r.page, r.type)] = String(r.count)
     return from
   })
   const [note, setNote] = useState(report?.note ?? '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  const get = (page: string, type: string) => counts[cellKey(page, type)] ?? 0
-  const setCount = (page: string, type: string, n: number) =>
-    setCounts((c) => ({ ...c, [cellKey(page, type)]: n }))
+  const get = (page: string, type: string) => counts[cellKey(page, type)] ?? ''
+  const setCount = (page: string, type: string, v: string) =>
+    setCounts((c) => ({ ...c, [cellKey(page, type)]: v }))
+  const numOf = (page: string, type: string) => Number(get(page, type)) || 0
 
-  const total = SMM_CELLS.reduce((s, c) => s + get(c.page, c.type), 0)
+  const total = SMM_CELLS.reduce((s, c) => s + numOf(c.page, c.type), 0)
 
   const save = async () => {
     setSaving(true)
@@ -230,7 +262,7 @@ function SmmForm({ report, date }: { report: Report | null; date: string }) {
       const rows: SmmRow[] = SMM_CELLS.map((c) => ({
         page: c.page,
         type: c.type,
-        count: get(c.page, c.type),
+        count: numOf(c.page, c.type),
       }))
       await submit({ date, smm: rows, note: note.trim() || undefined })
       setSaved(true)
@@ -258,14 +290,10 @@ function SmmForm({ report, date }: { report: Report | null; date: string }) {
               {CONTENT_TYPES.map((type) => (
                 <div key={type} className="flex items-center justify-between gap-3">
                   <span className="text-sm text-ink-2">{type}</span>
-                  <input
-                    type="number"
-                    min={0}
+                  <NumInput
                     className={`${numCls} w-24`}
                     value={get(page, type)}
-                    onChange={(e) =>
-                      setCount(page, type, e.target.value === '' ? 0 : Number(e.target.value))
-                    }
+                    onChange={(v) => setCount(page, type, v)}
                   />
                 </div>
               ))}
@@ -299,30 +327,32 @@ function SmmForm({ report, date }: { report: Report | null; date: string }) {
 function TargetologForm({ report, date }: { report: Report | null; date: string }) {
   const submit = useMutation(api.reports.submit)
   const campaigns = useQuery(api.campaigns.registry, { activeOnly: true })
-  const [vals, setVals] = useState<Record<string, { budget: number; leads: number }>>(() => {
-    const from: Record<string, { budget: number; leads: number }> = {}
-    for (const r of report?.targetolog ?? []) from[r.code] = { budget: r.budget, leads: r.leads }
+  // Строки, а не числа: иначе поле нельзя очистить, см. NumInput.
+  const [vals, setVals] = useState<Record<string, { budget: string; leads: string }>>(() => {
+    const from: Record<string, { budget: string; leads: string }> = {}
+    for (const r of report?.targetolog ?? [])
+      from[r.code] = { budget: String(r.budget), leads: String(r.leads) }
     return from
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
   const list = campaigns ?? []
-  const get = (code: string) => vals[code] ?? { budget: 0, leads: 0 }
-  const setVal = (code: string, patch: Partial<{ budget: number; leads: number }>) =>
+  const get = (code: string) => vals[code] ?? { budget: '', leads: '' }
+  const setVal = (code: string, patch: Partial<{ budget: string; leads: string }>) =>
     setVals((v) => ({ ...v, [code]: { ...get(code), ...patch } }))
+  const numOf = (code: string) => ({
+    budget: Number(get(code).budget) || 0,
+    leads: Number(get(code).leads) || 0,
+  })
 
-  const sumB = list.reduce((s, c) => s + get(c.code).budget, 0)
-  const sumL = list.reduce((s, c) => s + get(c.code).leads, 0)
+  const sumB = list.reduce((s, c) => s + numOf(c.code).budget, 0)
+  const sumL = list.reduce((s, c) => s + numOf(c.code).leads, 0)
 
   const save = async () => {
     setSaving(true)
     try {
-      const rows: TargetologRow[] = list.map((c) => ({
-        code: c.code,
-        budget: get(c.code).budget,
-        leads: get(c.code).leads,
-      }))
+      const rows: TargetologRow[] = list.map((c) => ({ code: c.code, ...numOf(c.code) }))
       await submit({ date, targetolog: rows })
       setSaved(true)
     } finally {
@@ -363,6 +393,7 @@ function TargetologForm({ report, date }: { report: Report | null; date: string 
           <div className="flex flex-col gap-2">
             {list.map((c) => {
               const val = get(c.code)
+              const n = numOf(c.code)
               return (
                 <div key={c.code} className="grid grid-cols-[92px_1fr_104px_74px_96px] gap-2 items-center">
                   <span className="chip bg-[#e2f2ef] text-green-d justify-center">{c.code}</span>
@@ -372,26 +403,10 @@ function TargetologForm({ report, date }: { report: Report | null; date: string 
                       {c.brand} · деньги: {c.moneySource}
                     </div>
                   </div>
-                  <input
-                    type="number"
-                    min={0}
-                    className={numCls}
-                    value={val.budget}
-                    onChange={(e) =>
-                      setVal(c.code, { budget: e.target.value === '' ? 0 : Number(e.target.value) })
-                    }
-                  />
-                  <input
-                    type="number"
-                    min={0}
-                    className={numCls}
-                    value={val.leads}
-                    onChange={(e) =>
-                      setVal(c.code, { leads: e.target.value === '' ? 0 : Number(e.target.value) })
-                    }
-                  />
+                  <NumInput value={val.budget} onChange={(v) => setVal(c.code, { budget: v })} />
+                  <NumInput value={val.leads} onChange={(v) => setVal(c.code, { leads: v })} />
                   <div className="h-[38px] flex items-center justify-end px-2 text-sm font-semibold text-ink-2 rounded-lg bg-chip">
-                    {val.leads > 0 ? kzt(cpl(val.budget, val.leads)) : '—'}
+                    {n.leads > 0 ? kzt(cpl(n.budget, n.leads)) : '—'}
                   </div>
                 </div>
               )
@@ -411,13 +426,19 @@ function TargetologForm({ report, date }: { report: Report | null; date: string 
 // ——— §3.3 Отдел продаж ———
 function SalesForm({ report, date }: { report: Report | null; date: string }) {
   const submit = useMutation(api.reports.submit)
-  const init: SalesPayload = report?.sales ?? { leads: 0, meetings: 0, sales: 0, revenue: 0, note: '' }
-  const [f, setF] = useState<SalesPayload>(init)
+  // Числа держим строками — иначе поле не очистить, см. NumInput.
+  const [f, setF] = useState({
+    leads: report?.sales ? String(report.sales.leads) : '',
+    meetings: report?.sales ? String(report.sales.meetings) : '',
+    sales: report?.sales ? String(report.sales.sales) : '',
+    revenue: report?.sales ? String(report.sales.revenue) : '',
+    note: report?.sales?.note ?? '',
+  })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  const setNum = (k: keyof SalesPayload, v: string) =>
-    setF((p) => ({ ...p, [k]: v === '' ? 0 : Number(v) }))
+  const setNum = (k: 'leads' | 'meetings' | 'sales' | 'revenue', v: string) =>
+    setF((p) => ({ ...p, [k]: v }))
 
   const save = async () => {
     setSaving(true)
@@ -429,7 +450,7 @@ function SalesForm({ report, date }: { report: Report | null; date: string }) {
           meetings: Number(f.meetings) || 0,
           sales: Number(f.sales) || 0,
           revenue: Number(f.revenue) || 0,
-          note: f.note || undefined,
+          note: f.note.trim() || undefined,
         },
       })
       setSaved(true)
@@ -549,19 +570,15 @@ function NumField({
   onChange,
 }: {
   label: string
-  value: number
+  value: string
   onChange: (v: string) => void
 }) {
   return (
     <div>
       <Lbl>{label}</Lbl>
-      <input
-        type="number"
-        min={0}
-        className={`${numCls} text-left mt-1`}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
+      <div className="mt-1">
+        <NumInput value={value} onChange={onChange} className={`${numCls} text-left`} />
+      </div>
     </div>
   )
 }

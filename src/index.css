@@ -34,6 +34,18 @@
     }
   }
 
+  /* Стрелки-счётчики у числовых полей: перекрывают цифры в узких ячейках
+     и провоцируют случайный клик вместо ввода. Значения набирают с клавиатуры. */
+  input[type='number']::-webkit-outer-spin-button,
+  input[type='number']::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type='number'] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+
   /* Гасим «резиновый» вертикальный скролл страницы под мобильными оболочками. */
   html,
   body {
