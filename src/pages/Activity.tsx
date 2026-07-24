@@ -1,13 +1,17 @@
+import { useState } from 'react'
 import { useQuery } from 'convex/react'
 import { api } from '../../convex/_generated/api'
-import { LogIn, AlertTriangle, Clock, CalendarCheck } from 'lucide-react'
+import { LogIn, AlertTriangle, Clock, CalendarCheck, History, X, Loader2 } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
 import Avatar from '@/components/ui/Avatar'
 import { ProgressBar } from '@/components/ui/Progress'
 import { useData } from '@/lib/useData'
 import { taskStatsByEmployee } from '@/lib/selectors'
-import { pct } from '@/lib/format'
+import { pct, plural } from '@/lib/format'
+import { reportTime } from '@/lib/reports'
+import type { Employee } from '@/types'
+import type { Id } from '../../convex/_generated/dataModel'
 import { th, td, theadRow } from '@/lib/table'
 
 
@@ -24,6 +28,7 @@ export default function Activity() {
   // Контроль активности — только по действующим сотрудникам.
   const { tasks, activeEmployees } = useData()
   const activity = useQuery(api.activity.overview, {}) ?? []
+  const [historyOf, setHistoryOf] = useState<Employee | null>(null)
 
   const statsMap = new Map(
     taskStatsByEmployee(tasks, activeEmployees).map((s) => [s.employee.id, s]),
@@ -86,13 +91,33 @@ export default function Activity() {
                       </div>
                     </td>
                     <td className={td}>
+                      {/* §10 требует и дату, и время последнего входа —
+                          относительной подписи «N дн. назад» для этого мало. */}
                       <span className={a.stale ? 'text-[#c53030] font-semibold' : a.today ? 'text-green-d' : ''}>
                         {a.text}
                       </span>
+                      {act?.lastLoginAt ? (
+                        <div className="text-[11px] text-muted whitespace-nowrap">
+                          {reportTime(act.lastLoginAt)}
+                        </div>
+                      ) : null}
                     </td>
                     <td className={td}>
-                      <span className="font-medium text-ink">{act?.loginCount7d ?? 0}</span>
-                      <span className="text-muted"> / {act?.loginCount30d ?? 0}</span>
+                      <button
+                        type="button"
+                        disabled={!act?.loginTotal}
+                        onClick={() => setHistoryOf(e)}
+                        className="inline-flex items-center gap-1.5 text-left disabled:cursor-default group"
+                        title={act?.loginTotal ? 'Показать историю входов' : 'Входов ещё не было'}
+                      >
+                        <span>
+                          <span className="font-medium text-ink">{act?.loginCount7d ?? 0}</span>
+                          <span className="text-muted"> / {act?.loginCount30d ?? 0}</span>
+                        </span>
+                        {act?.loginTotal ? (
+                          <History size={13} className="text-muted-2 group-hover:text-green" />
+                        ) : null}
+                      </button>
                     </td>
                     <td className={td}>
                       {stats?.overdue ? <span className="text-[#c53030] font-semibold">{stats.overdue}</span> : '—'}
@@ -126,6 +151,92 @@ export default function Activity() {
           </table>
         </div>
       </div>
+
+      {historyOf && <LoginHistoryModal employee={historyOf} onClose={() => setHistoryOf(null)} />}
     </>
   )
 }
+
+// История входов сотрудника (§10). Открывается кликом по счётчику входов.
+function LoginHistoryModal({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+  const times = useQuery(api.activity.loginHistory, {
+    employeeId: employee.id as Id<'employees'>,
+  })
+
+  // Группируем по календарной дате: за день часто несколько входов подряд.
+  const byDay = new Map<string, number[]>()
+  for (const t of times ?? []) {
+    const day = new Date(t + 5 * 3600 * 1000).toISOString().slice(0, 10)
+    byDay.set(day, [...(byDay.get(day) ?? []), t])
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center p-4" onClick={onClose}>
+      <div className="absolute inset-0 bg-black/30" />
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-md max-h-[80vh] flex flex-col bg-white rounded-card shadow-soft"
+      >
+        <div className="shrink-0 px-5 py-4 border-b border-line flex items-center gap-3">
+          <Avatar initials={employee.initials} color={employee.avatarColor} size={38} />
+          <div className="min-w-0 flex-1">
+            <h2 className="font-bold text-ink leading-tight">История входов</h2>
+            <p className="text-[13px] text-muted truncate">{employee.name}</p>
+          </div>
+          <button onClick={onClose} className="ico-btn w-9 h-9 shrink-0" title="Закрыть">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {times === undefined ? (
+            <div className="py-8 grid place-items-center text-muted">
+              <Loader2 className="animate-spin" size={20} />
+            </div>
+          ) : times.length === 0 ? (
+            <p className="text-sm text-muted py-4 text-center">Входов пока не было.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {[...byDay.entries()].map(([day, list]) => (
+                <div key={day}>
+                  <div className="text-[11px] font-semibold text-muted-2 uppercase tracking-wide mb-1.5">
+                    {longDay(day)}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {list.map((t) => (
+                      <span key={t} className="chip bg-chip text-ink-2 tabular-nums">
+                        {onlyTime(t)}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {times && times.length > 0 && (
+          <div className="shrink-0 px-5 py-3 border-t border-line text-[11px] text-muted">
+            Показаны последние {times.length}{' '}
+            {plural(times.length, 'вход', 'входа', 'входов')} · время по Алматы
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const longDay = (date: string) =>
+  new Date(`${date}T12:00:00+05:00`).toLocaleDateString('ru-RU', {
+    day: 'numeric',
+    month: 'long',
+    weekday: 'long',
+    timeZone: 'Asia/Almaty',
+  })
+
+const onlyTime = (ms: number) =>
+  new Date(ms).toLocaleTimeString('ru-RU', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'Asia/Almaty',
+  })

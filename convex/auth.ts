@@ -3,6 +3,8 @@ import { ConvexError } from 'convex/values'
 import { ResendOTP } from './ResendOTP'
 
 const WEEK_MS = 1000 * 60 * 60 * 24 * 7
+// Окно одного визита: повторные срабатывания колбэка внутри него — тот же вход.
+export const LOGIN_WINDOW_MS = 1000 * 60 * 5
 
 export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
   providers: [ResendOTP],
@@ -42,7 +44,21 @@ export const { auth, signIn, signOut, store, isAuthenticated } = convexAuth({
 
       const now = Date.now()
       await ctx.db.patch(employee._id, { lastLoginAt: now })
-      await ctx.db.insert('loginEvents', { employeeId: employee._id, at: now })
+      // Колбэк срабатывает несколько раз за один вход (проверка кода, создание
+      // сессии) — в базе появлялись дубли с разницей в 10–30 секунд, и счётчик
+      // входов задваивался. Пишем событие, только если в окне визита пусто.
+      // Индекс здесь недоступен: ctx колбэка типизирован обобщённо, как и
+      // в запросе сотрудника выше — поэтому фильтром.
+      const since = now - LOGIN_WINDOW_MS
+      const recent = await ctx.db
+        .query('loginEvents')
+        .filter((q) =>
+          q.and(q.eq(q.field('employeeId'), employee._id), q.gte(q.field('at'), since)),
+        )
+        .first()
+      if (!recent) {
+        await ctx.db.insert('loginEvents', { employeeId: employee._id, at: now })
+      }
 
       if (existingUserId) {
         await ctx.db.patch(existingUserId, { email, name: employee.name })
