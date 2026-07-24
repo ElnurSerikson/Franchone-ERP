@@ -13,7 +13,7 @@ import {
   employeeKpi, taskCounts, isOverdue, isDueToday, isDueSoon, monthTaskStats,
 } from '@/lib/selectors'
 import { REPORT_STATUS, type ReportStatus } from '@/lib/reports'
-import { kzt, num, pct, shortDate } from '@/lib/format'
+import { kzt, num, pct, plural, shortDate } from '@/lib/format'
 import { CURRENT_MONTH, formatMonth } from '@/lib/month'
 import type { Employee, Task } from '@/types'
 
@@ -183,7 +183,11 @@ function ManagerView({ me }: { me: Employee }) {
           highlight
           label="Средний KPI команды"
           value={pct(teamKpi, 1)}
-          foot={withKpi.length ? `по ${withKpi.length} сотрудникам с KPI` : 'KPI ещё не настроен'}
+          foot={
+            withKpi.length
+              ? `по ${withKpi.length} ${plural(withKpi.length, 'сотруднику', 'сотрудникам', 'сотрудникам')} с KPI`
+              : 'KPI ещё не настроен'
+          }
           icon={TrendingUp}
         />
         <StatCard label="К выплате за месяц" value={kzt(totalPayout)} foot="оклад × KPI" icon={Wallet} />
@@ -416,12 +420,16 @@ function ReportStrip({
         })}
       </div>
       <div className="flex flex-wrap items-center gap-3">
-        {(['onTime', 'late', 'missed'] as ReportStatus[]).map((s) => (
-          <div key={s} className="flex items-center gap-1.5 text-[11px] text-muted">
-            <span className="w-3 h-3 rounded border border-line" style={{ background: REPORT_STATUS[s].cell }} />
-            {REPORT_STATUS[s].label}
-          </div>
-        ))}
+        {/* Только те статусы, что реально есть в полоске: у новичка почти все
+            клетки — «ещё не работал», и легенда без него ничего не объясняет. */}
+        {(['onTime', 'late', 'missed', 'pending', 'na'] as ReportStatus[])
+          .filter((s) => cells.some((c) => c.status === s))
+          .map((s) => (
+            <div key={s} className="flex items-center gap-1.5 text-[11px] text-muted">
+              <span className="w-3 h-3 rounded border border-line" style={{ background: REPORT_STATUS[s].cell }} />
+              {REPORT_STATUS[s].label}
+            </div>
+          ))}
       </div>
     </div>
   )

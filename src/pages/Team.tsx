@@ -12,6 +12,7 @@ import { useData } from '@/lib/useData'
 import { errMessage } from '@/lib/errors'
 import { roleLabel, useCurrentUser } from '@/store'
 import { th, thCenter, td, theadRow } from '@/lib/table'
+import { plural } from '@/lib/format'
 
 
 export default function Team() {
@@ -47,7 +48,10 @@ export default function Team() {
     <>
       <PageHeader
         title="Команда"
-        subtitle={`${employees.length} сотрудников · ${departments.length} отдела`}
+        subtitle={
+          `${employees.length} ${plural(employees.length, 'сотрудник', 'сотрудника', 'сотрудников')}` +
+          ` · ${departments.length} ${plural(departments.length, 'отдел', 'отдела', 'отделов')}`
+        }
         actions={
           <button className="btn btn-green" onClick={() => setCreating(true)}>
             <UserPlus size={16} /> Добавить сотрудника
