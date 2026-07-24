@@ -1,7 +1,7 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
-import { currentEmployee, requireEmployee } from './lib'
+import { currentEmployee, isManager, requireEmployee } from './lib'
 
 // Бизнес-часовой пояс компании — Asia/Almaty (UTC+5, без перехода на летнее время).
 const TZ = '+05:00'
@@ -141,6 +141,10 @@ export const discipline = query({
     const N = days ?? 14
     const time = await deadlineTime(ctx)
     const today = businessToday()
+    // Надзорная сводка по всей команде — только руководству. Экран и так
+    // спрятан роутером, но сам запрос доступен любому авторизованному.
+    const viewer = await currentEmployee(ctx)
+    if (!isManager(viewer)) return { today, deadlineTime: time, dates: [], rows: [] }
     const now = Date.now()
     const deadlinePassedToday = now > deadlineMs(today, time)
 
@@ -212,6 +216,9 @@ export const discipline = query({
 export const reportFor = query({
   args: { employeeId: v.id('employees'), date: v.string() },
   handler: async (ctx, { employeeId, date }) => {
+    // Чужой отчёт открывает только руководство; свой — сам сотрудник.
+    const viewer = await currentEmployee(ctx)
+    if (!isManager(viewer) && viewer?._id !== employeeId) return null
     return await ctx.db
       .query('dailyReports')
       .withIndex('by_employee_date', (q) =>

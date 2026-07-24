@@ -31,6 +31,19 @@ export async function requireEmployee(ctx: MutationCtx): Promise<Doc<'employees'
   return me
 }
 
+// Руководство — владелец и руководитель отдела.
+export function isManager(me: Doc<'employees'> | null | undefined): boolean {
+  return me?.role === 'owner' || me?.role === 'head'
+}
+
+// Мутация только для руководства. Роутер прячет экраны, но запросы и мутации
+// доступны любому авторизованному напрямую — значит право проверяем здесь.
+export async function requireManager(ctx: MutationCtx): Promise<Doc<'employees'>> {
+  const me = await requireEmployee(ctx)
+  if (!isManager(me)) throw new ConvexError('Недостаточно прав')
+  return me
+}
+
 // В срок ли завершена задача: дата завершения <= срок (по календарной дате).
 export function isOnTime(completedAtMs: number, deadline: string): boolean {
   const d = new Date(completedAtMs)

@@ -3,7 +3,7 @@ import { v, ConvexError } from 'convex/values'
 import { internal } from './_generated/api'
 import { Resend as ResendAPI } from 'resend'
 import { inviteEmail } from './emails'
-import { currentEmployee, requireEmployee } from './lib'
+import { currentEmployee, requireEmployee, requireManager } from './lib'
 
 // Палитра аватаров — цвет назначается детерминированно по имени (без random,
 // т.к. мутации Convex должны быть детерминированными).
@@ -55,6 +55,12 @@ export const create = mutation({
     hiredAt: v.string(),
   },
   handler: async (ctx, args) => {
+    const me = await requireManager(ctx)
+    // Владельца может назначить только владелец: иначе руководитель отдела
+    // выписал бы себе полный доступ через создание второго аккаунта.
+    if (args.role === 'owner' && me.role !== 'owner') {
+      throw new ConvexError('Роль владельца назначает только владелец')
+    }
     return await ctx.db.insert('employees', { ...args, status: 'active' })
   },
 })
@@ -75,6 +81,20 @@ export const update = mutation({
     }),
   },
   handler: async (ctx, { id, patch }) => {
+    const me = await requireManager(ctx)
+    // Роль и оклад — только владелец. Без этого любой авторизованный мог
+    // пропатчить собственную запись и стать владельцем.
+    if (patch.role !== undefined && me.role !== 'owner') {
+      throw new ConvexError('Роль меняет только владелец')
+    }
+    if (patch.salary !== undefined && me.role !== 'owner') {
+      throw new ConvexError('Оклад меняет только владелец')
+    }
+    const target = await ctx.db.get(id)
+    if (!target) throw new ConvexError('Сотрудник не найден')
+    if (patch.role !== undefined && target.role === 'owner' && me._id !== id) {
+      throw new ConvexError('Нельзя менять роль владельца')
+    }
     await ctx.db.patch(id, patch)
   },
 })
@@ -82,6 +102,11 @@ export const update = mutation({
 export const archive = mutation({
   args: { id: v.id('employees') },
   handler: async (ctx, { id }) => {
+    const me = await requireManager(ctx)
+    if (me._id === id) throw new ConvexError('Нельзя архивировать самого себя')
+    const target = await ctx.db.get(id)
+    if (!target) throw new ConvexError('Сотрудник не найден')
+    if (target.role === 'owner') throw new ConvexError('Нельзя архивировать владельца')
     await ctx.db.patch(id, { status: 'archived' })
   },
 })

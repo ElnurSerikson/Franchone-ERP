@@ -1,5 +1,6 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
+import { requireManager } from './lib'
 
 // Номер недели внутри месяца — как в KPI_SMM.xlsx: MIN(5; ROUNDUP(день/7)).
 // Возвращает 0-based индекс для weekPlans/weekFacts.
@@ -50,6 +51,8 @@ export const setPlan = mutation({
     weight: v.number(),
   },
   handler: async (ctx, { id, weekPlans, weight }) => {
+    // План и вес напрямую задают чужую выплату — правит только руководство.
+    await requireManager(ctx)
     await ctx.db.patch(id, { weekPlans, weight })
   },
 })

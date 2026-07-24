@@ -1,5 +1,6 @@
 import { query } from './_generated/server'
 import { v } from 'convex/values'
+import { currentEmployee, isManager } from './lib'
 
 // Текущий месяц в часовом поясе Алматы (YYYY-MM).
 function businessMonth(): string {
@@ -12,6 +13,11 @@ export const summary = query({
   args: { month: v.optional(v.string()) },
   handler: async (ctx, { month: arg }) => {
     const month = arg ?? businessMonth()
+    // Выручка компании — руководству и самому отделу продаж, не всем подряд.
+    const me = await currentEmployee(ctx)
+    if (!isManager(me) && me?.position !== 'sales') {
+      return { leads: 0, meetings: 0, deals: 0, revenue: 0, days: 0 }
+    }
     const reports = await ctx.db.query('dailyReports').collect()
     let leads = 0
     let meetings = 0

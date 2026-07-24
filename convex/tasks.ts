@@ -1,6 +1,6 @@
 import { query, mutation } from './_generated/server'
-import { v } from 'convex/values'
-import { requireEmployee, isOnTime } from './lib'
+import { v, ConvexError } from 'convex/values'
+import { requireEmployee, isManager, isOnTime } from './lib'
 
 const statusV = v.union(v.literal('assigned'), v.literal('in_progress'), v.literal('done'))
 const priorityV = v.union(
@@ -174,6 +174,16 @@ export const update = mutation({
 export const remove = mutation({
   args: { id: v.id('tasks') },
   handler: async (ctx, { id }) => {
+    // Удаление безвозвратное — вместе с комментариями, историей и файлами.
+    // Поэтому только руководство, постановщик или исполнитель задачи.
+    const me = await requireEmployee(ctx)
+    const task = await ctx.db.get(id)
+    if (!task) throw new ConvexError('Задача не найдена')
+    const own = task.reporterId === me._id || task.assigneeId === me._id
+    if (!isManager(me) && !own) {
+      throw new ConvexError('Удалить задачу может постановщик, исполнитель или руководитель')
+    }
+
     const comments = await ctx.db
       .query('taskComments')
       .withIndex('by_task', (q) => q.eq('taskId', id))

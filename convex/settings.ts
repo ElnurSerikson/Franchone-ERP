@@ -1,6 +1,6 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
-import { requireEmployee } from './lib'
+import { currentEmployee, isManager, requireEmployee } from './lib'
 
 // Значения по умолчанию — из дашбордов KPI_SMM.xlsx и KPI_TARGETOLOG.xlsx.
 const DEFAULTS = {
@@ -20,7 +20,17 @@ export const get = query({
       .withIndex('by_key', (q) => q.eq('key', 'global'))
       .first()
     // Отдаём с подставленными умолчаниями, чтобы фронт не дублировал числа.
-    return { ...DEFAULTS, ...(row ?? {}) }
+    const all = { ...DEFAULTS, ...(row ?? {}) }
+
+    const me = await currentEmployee(ctx)
+    if (isManager(me)) return all
+    // Сотруднику — только база его собственной должности: своя выплата в KPI
+    // считаться должна, а чужой оклад его не касается.
+    return {
+      ...all,
+      salarySmm: me?.position === 'smm' ? all.salarySmm : 0,
+      salaryTargetolog: me?.position === 'targetolog' ? all.salaryTargetolog : 0,
+    }
   },
 })
 
