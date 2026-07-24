@@ -1,27 +1,42 @@
 import { useState, type ReactNode } from 'react'
-import { ClipboardList, LayoutGrid, type LucideIcon } from 'lucide-react'
+import { ClipboardList, LayoutGrid, CalendarRange, type LucideIcon } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
 import ReportForm from '@/components/reports/ReportForm'
 import DisciplineGrid from '@/components/reports/DisciplineGrid'
+import WeeklyWindows from '@/components/reports/WeeklyWindows'
 import { useApp, useCurrentUser } from '@/store'
 import { reportsDaily } from '@/lib/constants'
 
-type Tab = 'mine' | 'discipline'
+type Tab = 'mine' | 'discipline' | 'weekly'
+
+const SUBTITLE: Record<Tab, string> = {
+  mine: 'Ваш отчёт за сегодня и история сдачи',
+  discipline: 'Регулярность и дисциплина заполнения по команде',
+  weekly: 'Выполнение плана по неделям месяца',
+}
 
 export default function Reports() {
   const { role } = useApp()
   const me = useCurrentUser()
   const showMine = reportsDaily(me.role, me.position) // сдаёт отчёт только не-владелец с профильной должностью
   const showDiscipline = role === 'owner' || role === 'head'
-  const both = showMine && showDiscipline
+  // Недельные окна описаны только в модели SMM: у таргетолога и продаж
+  // недельного плана нет, показывать им пустой экран незачем.
+  const showWeekly = showDiscipline || me.position === 'smm'
 
-  const [tab, setTab] = useState<Tab>(showMine ? 'mine' : 'discipline')
-  const view: Tab = both ? tab : showMine ? 'mine' : 'discipline'
+  const available: Tab[] = [
+    ...(showMine ? (['mine'] as const) : []),
+    ...(showDiscipline ? (['discipline'] as const) : []),
+    ...(showWeekly ? (['weekly'] as const) : []),
+  ]
 
-  if (!showMine && !showDiscipline)
+  const [tab, setTab] = useState<Tab>(available[0] ?? 'mine')
+  const view: Tab = available.includes(tab) ? tab : (available[0] ?? 'mine')
+
+  if (available.length === 0)
     return (
       <>
-        <PageHeader title="Ежедневная отчётность" subtitle="Форма ежедневного отчёта" />
+        <PageHeader title="Отчётность команды" subtitle="Форма ежедневного отчёта" />
         <div className="card p-10 text-center">
           <div className="text-ink font-semibold mb-1">Ежедневный отчёт не предусмотрен</div>
           <p className="text-sm text-muted max-w-md mx-auto">
@@ -34,27 +49,38 @@ export default function Reports() {
   return (
     <>
       <PageHeader
-        title="Ежедневная отчётность"
-        subtitle={
-          view === 'mine'
-            ? 'Ваш отчёт за сегодня и история сдачи'
-            : 'Регулярность и дисциплина заполнения по команде'
-        }
+        title="Отчётность команды"
+        subtitle={SUBTITLE[view]}
         actions={
-          both ? (
+          available.length > 1 ? (
             <div className="flex items-center gap-1 p-1 bg-chip rounded-xl">
-              <TabBtn active={view === 'mine'} onClick={() => setTab('mine')} icon={ClipboardList}>
-                Мой отчёт
-              </TabBtn>
-              <TabBtn active={view === 'discipline'} onClick={() => setTab('discipline')} icon={LayoutGrid}>
-                Дисциплина
-              </TabBtn>
+              {showMine && (
+                <TabBtn active={view === 'mine'} onClick={() => setTab('mine')} icon={ClipboardList}>
+                  Мой отчёт
+                </TabBtn>
+              )}
+              {showDiscipline && (
+                <TabBtn
+                  active={view === 'discipline'}
+                  onClick={() => setTab('discipline')}
+                  icon={LayoutGrid}
+                >
+                  Дисциплина
+                </TabBtn>
+              )}
+              {showWeekly && (
+                <TabBtn active={view === 'weekly'} onClick={() => setTab('weekly')} icon={CalendarRange}>
+                  По неделям
+                </TabBtn>
+              )}
             </div>
           ) : undefined
         }
       />
 
-      {view === 'mine' ? <ReportForm /> : <DisciplineGrid />}
+      {view === 'mine' && <ReportForm />}
+      {view === 'discipline' && <DisciplineGrid />}
+      {view === 'weekly' && <WeeklyWindows />}
     </>
   )
 }

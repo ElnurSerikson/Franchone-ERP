@@ -11,24 +11,11 @@ import StatCard from '@/components/ui/StatCard'
 import { computeSmm, computeTargetolog, spendBySource } from '@/lib/kpi'
 import { mapSmm, mapCampaign } from '@/lib/mappers'
 import { kzt, num, pct } from '@/lib/format'
+import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
 
 // Базы выплат и веса берутся из настроек (ячейки «Оклад» и B6/B7 на дашбордах
 // KPI_SMM / KPI_TARGETOLOG). Выплата = оклад × Итоговый KPI.
 
-const MONTHS = [
-  'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
-  'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
-]
-function formatMonth(ym: string): string {
-  const [y, m] = ym.split('-').map(Number)
-  return `${MONTHS[m - 1]} ${y}`
-}
-function addMonth(ym: string, delta: number): string {
-  const [y, m] = ym.split('-').map(Number)
-  const d = new Date(y, m - 1 + delta, 1)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
-const CURRENT_MONTH = new Date().toISOString().slice(0, 7)
 
 type Dept = 'smm' | 'targetolog' | 'sales'
 const DEPTS: { id: Dept; label: string }[] = [
