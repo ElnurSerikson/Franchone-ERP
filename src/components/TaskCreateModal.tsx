@@ -24,6 +24,12 @@ type Pending =
   | { kind: 'link'; name: string; url: string }
   | { kind: 'file'; name: string; file: File }
 
+function fileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} Б`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} КБ`
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} МБ`
+}
+
 // Drawer создания задачи — тот же шаблон, что и у карточки сотрудника:
 // выезжает справа, шапка с иконкой, поля в одну колонку, липкий футер.
 export default function TaskCreateModal({
@@ -72,6 +78,7 @@ export default function TaskCreateModal({
   const [tags, setTags] = useState('')
   const [attachments, setAttachments] = useState<Pending[]>([])
   const [linkUrl, setLinkUrl] = useState('')
+  const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -80,10 +87,20 @@ export default function TaskCreateModal({
     title.trim() && description.trim() && assigneeId && priority && deadline && !loading
 
   const addLink = () => {
-    const url = linkUrl.trim()
+    let url = linkUrl.trim()
     if (!url) return
+    // Без схемы ссылка открывалась бы как относительная — дописываем https.
+    if (!/^https?:\/\//i.test(url)) url = `https://${url}`
     setAttachments((a) => [...a, { kind: 'link', name: url, url }])
     setLinkUrl('')
+  }
+
+  const addFiles = (list: FileList | null) => {
+    if (!list?.length) return
+    setAttachments((a) => [
+      ...a,
+      ...Array.from(list).map((file) => ({ kind: 'file' as const, name: file.name, file })),
+    ])
   }
 
   const submit = async (e: FormEvent) => {
@@ -192,63 +209,99 @@ export default function TaskCreateModal({
               <DatePicker value={deadline} onChange={setDeadline} />
             </Field>
 
-            <Field label="Вложения" hint="необязательно">
-              {attachments.length > 0 && (
-                <div className="flex flex-col gap-1.5 mb-2">
-                  {attachments.map((a, i) => (
-                    <div
-                      key={i}
-                      className="flex items-center gap-2 text-sm rounded-lg border border-line-2 bg-white px-2.5 py-2"
-                    >
-                      {a.kind === 'file' ? (
-                        <Paperclip size={14} className="text-muted shrink-0" />
-                      ) : (
-                        <Link2 size={14} className="text-muted shrink-0" />
-                      )}
-                      <span className="flex-1 truncate text-ink-2">{a.name}</span>
-                      <button
-                        type="button"
-                        onClick={() => setAttachments((list) => list.filter((_, j) => j !== i))}
-                        className="text-muted hover:text-[#c53030] shrink-0"
-                        title="Убрать"
-                      >
-                        <X size={13} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="flex items-center gap-2">
-                <input
-                  value={linkUrl}
-                  onChange={(e) => setLinkUrl(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault()
-                      addLink()
-                    }
-                  }}
-                  className={inputCls}
-                  placeholder="Вставьте ссылку…"
-                />
-                <button type="button" onClick={addLink} className="mini-btn h-10 shrink-0">
-                  <Link2 size={14} /> Ссылка
-                </button>
+            <Field
+              label="Вложения"
+              hint={attachments.length ? `${attachments.length} шт.` : 'необязательно'}
+            >
+              <div className="flex flex-col gap-2">
+                {/* Зона файлов: клик или перетаскивание */}
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  className="mini-btn h-10 shrink-0"
+                  onDragOver={(e) => {
+                    e.preventDefault()
+                    setDragging(true)
+                  }}
+                  onDragLeave={() => setDragging(false)}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    setDragging(false)
+                    addFiles(e.dataTransfer.files)
+                  }}
+                  className={`w-full rounded-xl border-2 border-dashed px-4 py-5 flex flex-col items-center gap-1 transition-colors ${
+                    dragging
+                      ? 'border-green-light bg-[#e2f2ef]'
+                      : 'border-line-2 bg-white hover:border-green-light hover:bg-[#e2f2ef]/40'
+                  }`}
                 >
-                  <Upload size={14} /> Файл
+                  <Upload size={18} className="text-green-d" />
+                  <span className="text-sm font-medium text-ink-2">Перетащите файлы сюда</span>
+                  <span className="text-[11px] text-muted-2">или нажмите, чтобы выбрать</span>
                 </button>
+
+                {/* Ссылка — отдельным полем, а не третьей кнопкой в ряд */}
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1 min-w-0">
+                    <Link2
+                      size={14}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none"
+                    />
+                    <input
+                      value={linkUrl}
+                      onChange={(e) => setLinkUrl(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          addLink()
+                        }
+                      }}
+                      className={`${inputCls} pl-9`}
+                      placeholder="Вставьте ссылку…"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addLink}
+                    disabled={!linkUrl.trim()}
+                    className="shrink-0 h-[42px] px-4 rounded-lg border border-line-2 bg-white text-sm font-semibold text-ink-2 hover:bg-chip transition-colors disabled:opacity-50 disabled:hover:bg-white"
+                  >
+                    Добавить
+                  </button>
+                </div>
+
+                {/* Что уже прикреплено */}
+                {attachments.map((a, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2.5 rounded-lg border border-line bg-white px-3 py-2"
+                  >
+                    <span className="w-8 h-8 rounded-lg bg-chip grid place-items-center shrink-0 text-muted">
+                      {a.kind === 'file' ? <Paperclip size={14} /> : <Link2 size={14} />}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm text-ink truncate">{a.name}</div>
+                      <div className="text-[11px] text-muted-2">
+                        {a.kind === 'file' ? fileSize(a.file.size) : 'Ссылка'}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setAttachments((list) => list.filter((_, j) => j !== i))}
+                      className="w-7 h-7 grid place-items-center rounded-md text-muted hover:text-[#c53030] hover:bg-chip transition-colors shrink-0"
+                      title="Убрать"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
               </div>
               <input
                 ref={fileRef}
                 type="file"
+                multiple
                 hidden
                 onChange={(e) => {
-                  const f = e.target.files?.[0]
-                  if (f) setAttachments((a) => [...a, { kind: 'file', name: f.name, file: f }])
+                  addFiles(e.target.files)
                   e.target.value = ''
                 }}
               />
