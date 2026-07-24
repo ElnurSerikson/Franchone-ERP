@@ -5,95 +5,26 @@ import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
 import Select from '@/components/ui/Select'
 import { useData } from '@/lib/useData'
-import { LEAD_WEIGHT, CPL_WEIGHT } from '@/lib/kpi'
-import { REPORT_MONTH_FALLBACK } from '@/lib/constants'
+import { DEFAULT_WEIGHTS } from '@/lib/kpi'
+import type { Id } from '../../convex/_generated/dataModel'
 import { kzt, pct } from '@/lib/format'
 
 const th = 'text-left text-[11px] font-semibold text-green-d uppercase tracking-wide px-3 py-2'
 const td = 'px-3 py-2.5 text-sm text-ink-2 border-t border-line'
+const cellCls =
+  'w-16 h-8 px-2 rounded-lg border border-line-2 text-sm text-right tabular-nums focus:outline-none focus:border-green-light'
 
 export default function Settings() {
-  const { smmMetrics, campaigns, employees } = useData()
+  const registry = useQuery(api.campaigns.registry, {})
   return (
     <>
       <PageHeader title="Настройки" subtitle="Веса KPI, оклады и справочники системы" />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {/* Веса SMM */}
-        <div className="card p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Sliders size={18} className="text-green" />
-            <h3 className="sec-title">Веса KPI · SMM</h3>
-          </div>
-          <table className="w-full">
-            <thead>
-              <tr className="bg-[#e2f2ef]">
-                <th className={th}>Аккаунт · Формат</th>
-                <th className={th}>Вес</th>
-              </tr>
-            </thead>
-            <tbody>
-              {smmMetrics.map((m) => (
-                <tr key={m.id}>
-                  <td className={td}>
-                    <span className="font-medium text-ink">{m.account}</span> · {m.format}
-                  </td>
-                  <td className={td}>
-                    <input
-                      defaultValue={m.weight}
-                      className="w-20 h-8 px-2 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Веса таргетолога + оклады */}
+        <SmmPlanCard />
         <div className="flex flex-col gap-5">
-          <div className="card p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Sliders size={18} className="text-green" />
-              <h3 className="sec-title">Веса KPI · Таргетолог</h3>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="rounded-2xl border border-line p-4">
-                <div className="text-sm text-muted mb-1">Вес заявок</div>
-                <input
-                  defaultValue={LEAD_WEIGHT}
-                  className="w-full h-9 px-2 rounded-lg border border-line-2 text-lg font-bold focus:outline-none focus:border-green-light"
-                />
-              </div>
-              <div className="rounded-2xl border border-line p-4">
-                <div className="text-sm text-muted mb-1">Вес CPL</div>
-                <input
-                  defaultValue={CPL_WEIGHT}
-                  className="w-full h-9 px-2 rounded-lg border border-line-2 text-lg font-bold focus:outline-none focus:border-green-light"
-                />
-              </div>
-            </div>
-            <p className="text-[11px] text-muted-2 mt-3">
-              Сумма весов = {pct(LEAD_WEIGHT + CPL_WEIGHT)}. Применяется во всех расчётах KPI таргетолога.
-            </p>
-          </div>
-
-          <div className="card p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <Wallet size={18} className="text-green" />
-              <h3 className="sec-title">Оклады</h3>
-            </div>
-            <div className="flex flex-col divide-y divide-line">
-              {employees
-                .filter((e) => e.salary > 0)
-                .map((e) => (
-                  <div key={e.id} className="flex items-center justify-between py-2.5 first:pt-0 last:pb-0">
-                    <span className="text-sm text-ink-2">{e.name}</span>
-                    <span className="text-sm font-semibold text-ink">{kzt(e.salary)}</span>
-                  </div>
-                ))}
-            </div>
-          </div>
+          <TargetologWeightsCard />
+          <SalaryCard />
         </div>
       </div>
 
@@ -113,7 +44,7 @@ export default function Settings() {
             <Row label="Аккаунты" value="FRANCHONE · ANUAR" />
             <Row label="Источники денег" value="FRANCHONE · Партнёр" />
             <Row label="Отделы" value="Руководство · Маркетинг · Продажи · Производство" />
-            <Row label="Кампаний в реестре" value={`${campaigns.length}`} />
+            <Row label="Кампаний в реестре" value={`${registry?.length ?? 0}`} />
             <Row label="Правило недель" value="ROUNDUP(день/7), максимум 5" />
           </div>
         </div>
@@ -131,6 +62,271 @@ export default function Settings() {
         </div>
       </div>
     </>
+  )
+}
+
+// ——— Недельные планы и веса SMM (лист «Недельные планы» в KPI_SMM.xlsx) ———
+function SmmPlanCard() {
+  const { smmMetrics } = useData()
+  const setPlan = useMutation(api.smm.setPlan)
+  const [draft, setDraft] = useState<Record<string, { weight: number; weekPlans: number[] }>>({})
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const rowOf = (m: (typeof smmMetrics)[number]) =>
+    draft[m.id] ?? { weight: m.weight, weekPlans: m.weekPlans }
+  const edit = (id: string, patch: Partial<{ weight: number; weekPlans: number[] }>) => {
+    const base = smmMetrics.find((m) => m.id === id)!
+    setDraft((d) => ({ ...d, [id]: { ...(d[id] ?? { weight: base.weight, weekPlans: base.weekPlans }), ...patch } }))
+    setSaved(false)
+  }
+
+  const weightSum = smmMetrics.reduce((s, m) => s + rowOf(m).weight, 0)
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      for (const [id, val] of Object.entries(draft)) {
+        await setPlan({ id: id as Id<'smmMetrics'>, weight: val.weight, weekPlans: val.weekPlans })
+      }
+      setDraft({})
+      setSaved(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Sliders size={18} className="text-green" />
+        <h3 className="sec-title flex-1">Планы и веса KPI · SMM</h3>
+        {Object.keys(draft).length > 0 && (
+          <button onClick={save} disabled={saving} className="btn btn-green h-8 px-3 text-xs disabled:opacity-60">
+            Сохранить
+          </button>
+        )}
+        {saved && (
+          <span className="chip bg-[#e2f2ef] text-green-d">
+            <Check size={12} /> Сохранено
+          </span>
+        )}
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px]">
+          <thead>
+            <tr className="bg-[#e2f2ef]">
+              <th className={th}>Аккаунт · Формат</th>
+              <th className={th}>Вес</th>
+              {[1, 2, 3, 4, 5].map((w) => (
+                <th key={w} className={th}>
+                  Н{w}
+                </th>
+              ))}
+              <th className={th}>Мес.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {smmMetrics.map((m) => {
+              const r = rowOf(m)
+              return (
+                <tr key={m.id}>
+                  <td className={td}>
+                    <span className="font-medium text-ink">{m.account}</span> · {m.format}
+                  </td>
+                  <td className={td}>
+                    <input
+                      type="number"
+                      step="0.05"
+                      min={0}
+                      value={r.weight}
+                      onChange={(e) => edit(m.id, { weight: Number(e.target.value) || 0 })}
+                      className={cellCls}
+                    />
+                  </td>
+                  {r.weekPlans.map((p, i) => (
+                    <td key={i} className={td}>
+                      <input
+                        type="number"
+                        min={0}
+                        value={p}
+                        onChange={(e) => {
+                          const next = [...r.weekPlans]
+                          next[i] = Number(e.target.value) || 0
+                          edit(m.id, { weekPlans: next })
+                        }}
+                        className={cellCls}
+                      />
+                    </td>
+                  ))}
+                  <td className={`${td} font-semibold text-ink tabular-nums`}>
+                    {r.weekPlans.reduce((s, x) => s + x, 0)}
+                  </td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className={`text-[11px] mt-3 ${Math.abs(weightSum - 1) < 0.001 ? 'text-muted-2' : 'text-[#c53030]'}`}>
+        Сумма весов = {pct(weightSum)}. В модели KPI она должна быть 100%.
+      </p>
+    </div>
+  )
+}
+
+// ——— Веса KPI таргетолога (B6/B7 дашборда KPI_TARGETOLOG.xlsx) ———
+function TargetologWeightsCard() {
+  const settings = useQuery(api.settings.get, {})
+  const update = useMutation(api.settings.update)
+  const [draft, setDraft] = useState<{ leadWeight: number; cplWeight: number } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const cur = draft ?? {
+    leadWeight: settings?.leadWeight ?? DEFAULT_WEIGHTS.leadWeight,
+    cplWeight: settings?.cplWeight ?? DEFAULT_WEIGHTS.cplWeight,
+  }
+  const sum = cur.leadWeight + cur.cplWeight
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await update(cur)
+      setDraft(null)
+      setSaved(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Sliders size={18} className="text-green" />
+        <h3 className="sec-title flex-1">Веса KPI · Таргетолог</h3>
+        {draft && (
+          <button onClick={save} disabled={saving} className="btn btn-green h-8 px-3 text-xs disabled:opacity-60">
+            Сохранить
+          </button>
+        )}
+        {saved && (
+          <span className="chip bg-[#e2f2ef] text-green-d">
+            <Check size={12} /> Сохранено
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        {(
+          [
+            ['leadWeight', 'Вес заявок'],
+            ['cplWeight', 'Вес CPL'],
+          ] as const
+        ).map(([key, label]) => (
+          <div key={key} className="rounded-2xl border border-line p-4">
+            <div className="text-sm text-muted mb-1">{label}</div>
+            <input
+              type="number"
+              step="0.05"
+              min={0}
+              max={1}
+              value={cur[key]}
+              onChange={(e) => {
+                setDraft({ ...cur, [key]: Number(e.target.value) || 0 })
+                setSaved(false)
+              }}
+              className="w-full h-9 px-2 rounded-lg border border-line-2 text-lg font-bold focus:outline-none focus:border-green-light"
+            />
+          </div>
+        ))}
+      </div>
+      <p className={`text-[11px] mt-3 ${Math.abs(sum - 1) < 0.001 ? 'text-muted-2' : 'text-[#c53030]'}`}>
+        Сумма весов = {pct(sum)}. Применяется во всех расчётах KPI таргетолога.
+      </p>
+    </div>
+  )
+}
+
+// ——— Оклады: база выплаты по должности («Оклад» на дашбордах) ———
+function SalaryCard() {
+  const { employees } = useData()
+  const settings = useQuery(api.settings.get, {})
+  const update = useMutation(api.settings.update)
+  const [draft, setDraft] = useState<{ salarySmm: number; salaryTargetolog: number } | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
+
+  const cur = draft ?? {
+    salarySmm: settings?.salarySmm ?? 0,
+    salaryTargetolog: settings?.salaryTargetolog ?? 0,
+  }
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      await update(cur)
+      setDraft(null)
+      setSaved(true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const paid = employees.filter((e) => e.salary > 0)
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Wallet size={18} className="text-green" />
+        <h3 className="sec-title flex-1">Оклады</h3>
+        {draft && (
+          <button onClick={save} disabled={saving} className="btn btn-green h-8 px-3 text-xs disabled:opacity-60">
+            Сохранить
+          </button>
+        )}
+        {saved && (
+          <span className="chip bg-[#e2f2ef] text-green-d">
+            <Check size={12} /> Сохранено
+          </span>
+        )}
+      </div>
+      <div className="flex flex-col gap-3">
+        {(
+          [
+            ['salarySmm', 'SMM-специалист'],
+            ['salaryTargetolog', 'Таргетолог'],
+          ] as const
+        ).map(([key, label]) => (
+          <div key={key} className="flex items-center justify-between gap-3">
+            <span className="text-sm text-ink-2">{label}</span>
+            <input
+              type="number"
+              min={0}
+              step={10000}
+              value={cur[key]}
+              onChange={(e) => {
+                setDraft({ ...cur, [key]: Number(e.target.value) || 0 })
+                setSaved(false)
+              }}
+              className="w-36 h-9 px-2 rounded-lg border border-line-2 text-sm font-semibold text-right focus:outline-none focus:border-green-light"
+            />
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-2 mt-3">
+        База выплаты по должности: выплата = оклад × итоговый KPI.
+      </p>
+      {paid.length > 0 && (
+        <div className="flex flex-col divide-y divide-line mt-3 pt-3 border-t border-line">
+          {paid.map((e) => (
+            <div key={e.id} className="flex items-center justify-between py-2 first:pt-0 last:pb-0">
+              <span className="text-sm text-muted">{e.name}</span>
+              <span className="text-sm text-ink-2">{kzt(e.salary)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -155,12 +351,8 @@ function ReportDeadlineCard() {
   const save = async () => {
     setSaving(true)
     try {
-      await update({
-        leadWeight: settings?.leadWeight ?? LEAD_WEIGHT,
-        cplWeight: settings?.cplWeight ?? CPL_WEIGHT,
-        reportMonth: settings?.reportMonth ?? REPORT_MONTH_FALLBACK,
-        reportDeadlineTime: current,
-      })
+      // Мутация патчит только переданные поля — соседние настройки не трогаем.
+      await update({ reportDeadlineTime: current })
       setSaved(true)
     } finally {
       setSaving(false)

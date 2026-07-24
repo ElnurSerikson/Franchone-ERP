@@ -37,13 +37,16 @@ export default defineSchema({
     .index('by_email', ['email']),
 
   // KPI SMM — по одной строке на аккаунт×формат для сотрудника-SMM
+  // Строка плана SMM «аккаунт × формат» на месяц (лист «Недельные планы»).
+  // employeeId необязателен: план задан на должность, а не на человека —
+  // факт собирается из отчётов всех SMM за месяц, см. smm.list.
   smmMetrics: defineTable({
-    employeeId: v.id('employees'),
+    employeeId: v.optional(v.id('employees')),
     account: v.union(v.literal('FRANCHONE'), v.literal('ANUAR')),
     format: v.union(v.literal('Рилсы'), v.literal('Сторис'), v.literal('Карусели')),
     weight: v.number(),
     weekPlans: v.array(v.number()), // 5 недель
-    weekFacts: v.array(v.number()), // 5 недель
+    weekFacts: v.array(v.number()), // 5 недель, производные — не источник правды
     month: v.optional(v.string()), // месяц данных, YYYY-MM
   }).index('by_employee', ['employeeId']),
 
@@ -201,6 +204,10 @@ export default defineSchema({
     key: v.string(),
     leadWeight: v.number(), // вес заявок (0.7)
     cplWeight: v.number(), // вес CPL (0.3)
+    // Базы выплат — ячейка «Оклад» на дашбордах KPI_SMM / KPI_TARGETOLOG.
+    // Оклад привязан к должности, а не к человеку: KPI считается по отделу.
+    salarySmm: v.optional(v.number()),
+    salaryTargetolog: v.optional(v.number()),
     reportMonth: v.string(),
     reportDeadlineTime: v.optional(v.string()), // дедлайн дневного отчёта, «HH:MM» (Алматы)
   }).index('by_key', ['key']),

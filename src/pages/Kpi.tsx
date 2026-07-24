@@ -12,9 +12,8 @@ import { computeSmm, computeTargetolog, spendBySource } from '@/lib/kpi'
 import { mapSmm, mapCampaign } from '@/lib/mappers'
 import { kzt, num, pct } from '@/lib/format'
 
-// Базы выплат (KPI_SMM / KPI_TARGETOLOG). Выплата = база × Итоговый KPI.
-const SMM_BASE = 600000
-const TARGETOLOG_BASE = 200000
+// Базы выплат и веса берутся из настроек (ячейки «Оклад» и B6/B7 на дашбордах
+// KPI_SMM / KPI_TARGETOLOG). Выплата = оклад × Итоговый KPI.
 
 const MONTHS = [
   'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
@@ -139,7 +138,8 @@ function Loading() {
 // ——— SMM: контент-KPI (FRANCHONE + ANUAR) ———
 function SmmKpi({ month }: { month: string }) {
   const raw = useQuery(api.smm.list, { month })
-  if (raw === undefined) return <Loading />
+  const settings = useQuery(api.settings.get, {})
+  if (raw === undefined || settings === undefined) return <Loading />
   const smmMetrics = raw.map(mapSmm)
   if (smmMetrics.length === 0)
     return (
@@ -151,7 +151,7 @@ function SmmKpi({ month }: { month: string }) {
     )
 
   const smm = computeSmm(smmMetrics)
-  const payoutVal = Math.round(SMM_BASE * smm.totalKpi)
+  const payoutVal = Math.round(settings.salarySmm * smm.totalKpi)
 
   const rows = smm.rows.map((r) => ({
     id: r.metric.id,
@@ -206,12 +206,16 @@ function SmmKpi({ month }: { month: string }) {
 // ——— Таргетолог: KPI по рекламным кампаниям ———
 function TargetologKpi({ month }: { month: string }) {
   const raw = useQuery(api.campaigns.list, { month })
-  if (raw === undefined) return <Loading />
+  const settings = useQuery(api.settings.get, {})
+  if (raw === undefined || settings === undefined) return <Loading />
   const campaigns = raw.map(mapCampaign)
 
-  const tg = computeTargetolog(campaigns)
+  const tg = computeTargetolog(campaigns, {
+    leadWeight: settings.leadWeight,
+    cplWeight: settings.cplWeight,
+  })
   const src = spendBySource(campaigns)
-  const payoutVal = Math.round(TARGETOLOG_BASE * tg.totalKpi)
+  const payoutVal = Math.round(settings.salaryTargetolog * tg.totalKpi)
 
   return (
     <>

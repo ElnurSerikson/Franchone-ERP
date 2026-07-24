@@ -339,6 +339,116 @@ export const seedSmmReports = mutation({
   },
 })
 
+// ——— Перенос настроек из KPI_SMM.xlsx и KPI_TARGETOLOG.xlsx ———
+// Всё числовое из двух книг: оклады и веса с дашбордов, недельные планы SMM,
+// реестр кампаний и их веса в KPI. Идемпотентно — можно гонять повторно.
+//
+// Планы бюджета и заявок по кампаниям в книге пустые (ячейки H/I = 0), поэтому
+// заводим нули: их заполняет владелец. Пока они нулевые, кампания не попадает
+// в итоговый KPI таргетолога — так же, как в самом файле.
+const WB_MONTH = '2026-07' // «Отчетный месяц» B4 на обоих дашбордах
+
+const WB_SMM = [
+  { account: 'FRANCHONE' as const, format: 'Рилсы' as const, weight: 0.2, weekPlans: [4, 4, 4, 4, 0] },
+  { account: 'FRANCHONE' as const, format: 'Сторис' as const, weight: 0.1, weekPlans: [24, 24, 24, 24, 0] },
+  { account: 'FRANCHONE' as const, format: 'Карусели' as const, weight: 0.1, weekPlans: [1, 1, 1, 1, 0] },
+  { account: 'ANUAR' as const, format: 'Рилсы' as const, weight: 0.3, weekPlans: [15, 15, 15, 15, 0] },
+  { account: 'ANUAR' as const, format: 'Сторис' as const, weight: 0.2, weekPlans: [35, 35, 35, 35, 0] },
+  { account: 'ANUAR' as const, format: 'Карусели' as const, weight: 0.1, weekPlans: [2, 2, 2, 2, 0] },
+]
+
+const WB_CAMPAIGNS = [
+  { code: 'FR-001', account: 'FRANCHONE', brand: 'Подбор франшизы', campaign: 'Подбор франшизы' },
+  { code: 'FR-002', account: 'FRANCHONE', brand: 'Брокеридж', campaign: 'Брокеридж' },
+  { code: 'FR-003', account: 'FRANCHONE', brand: 'Invite', campaign: 'Invite' },
+  { code: 'AN-001', account: 'ANUAR', brand: 'Упаковка франшизы', campaign: 'Упаковка франшизы' },
+  { code: 'AN-002', account: 'ANUAR', brand: 'Настройка продаж', campaign: 'Настройка продаж' },
+  { code: 'AN-003', account: 'ANUAR', brand: 'Консультации', campaign: 'Консультации' },
+]
+
+export const applyKpiWorkbooks = mutation({
+  args: {},
+  handler: async (ctx) => {
+    // 1. Дашборды: оклады и веса KPI таргетолога.
+    const s = await ctx.db
+      .query('settings')
+      .withIndex('by_key', (q) => q.eq('key', 'global'))
+      .first()
+    const values = {
+      leadWeight: 0.7,
+      cplWeight: 0.3,
+      salarySmm: 600000,
+      salaryTargetolog: 200000,
+    }
+    if (s) await ctx.db.patch(s._id, values)
+    else
+      await ctx.db.insert('settings', {
+        key: 'global',
+        reportMonth: 'Июль 2026',
+        reportDeadlineTime: '20:00',
+        ...values,
+      })
+
+    // 2. Оклад в карточке сотрудника — чтобы «Оклады» в настройках не пустовали.
+    for (const e of await ctx.db.query('employees').collect()) {
+      if (e.position === 'smm') await ctx.db.patch(e._id, { salary: values.salarySmm })
+      if (e.position === 'targetolog')
+        await ctx.db.patch(e._id, { salary: values.salaryTargetolog })
+    }
+
+    // 3. Недельные планы и веса SMM.
+    const existingSmm = await ctx.db.query('smmMetrics').collect()
+    for (const row of WB_SMM) {
+      const hit = existingSmm.find(
+        (m) => m.month === WB_MONTH && m.account === row.account && m.format === row.format,
+      )
+      const doc = { ...row, month: WB_MONTH, weekFacts: [0, 0, 0, 0, 0] }
+      if (hit) await ctx.db.patch(hit._id, doc)
+      else await ctx.db.insert('smmMetrics', doc)
+    }
+
+    // 4. Реестр кампаний и их веса в KPI: 6 кампаний, вес поровну (1/6).
+    const weight = 1 / WB_CAMPAIGNS.length
+    for (const c of WB_CAMPAIGNS) {
+      let row = await ctx.db
+        .query('campaigns')
+        .withIndex('by_code', (q) => q.eq('code', c.code))
+        .first()
+      const card = {
+        ...c,
+        category: 'Свои услуги',
+        moneySource: 'FRANCHONE' as const,
+        status: 'Активна' as const,
+      }
+      if (row) await ctx.db.patch(row._id, card)
+      else row = (await ctx.db.get(await ctx.db.insert('campaigns', card)))!
+
+      const plans = await ctx.db
+        .query('campaignPlans')
+        .withIndex('by_campaign', (q) => q.eq('campaignId', row!._id))
+        .collect()
+      const plan = plans.find((p) => p.month === WB_MONTH)
+      if (plan) await ctx.db.patch(plan._id, { weight })
+      else
+        await ctx.db.insert('campaignPlans', {
+          campaignId: row._id,
+          month: WB_MONTH,
+          planBudget: 0,
+          planLeads: 0,
+          weight,
+        })
+    }
+
+    return {
+      month: WB_MONTH,
+      smmRows: WB_SMM.length,
+      campaigns: WB_CAMPAIGNS.length,
+      salarySmm: values.salarySmm,
+      salaryTargetolog: values.salaryTargetolog,
+    }
+  },
+})
+
 export const clearSmmReports = mutation({
   args: {},
   handler: async (ctx) => {

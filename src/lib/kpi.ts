@@ -75,8 +75,13 @@ export function computeSmm(metrics: SmmMetric[]): SmmResult {
 // Таргетолог
 // ————————————————————————————————————————————————
 
-export const LEAD_WEIGHT = 0.7 // Вес заявок
-export const CPL_WEIGHT = 0.3 // Вес CPL
+// Веса с дашборда KPI_TARGETOLOG (B6/B7). Значения хранятся в настройках —
+// это лишь запасной вариант на время загрузки запроса.
+export interface KpiWeights {
+  leadWeight: number
+  cplWeight: number
+}
+export const DEFAULT_WEIGHTS: KpiWeights = { leadWeight: 0.7, cplWeight: 0.3 }
 
 export interface CampaignResult {
   campaign: Campaign
@@ -98,14 +103,17 @@ export interface TargetologResult {
   avgCpl: number
 }
 
-export function computeTargetolog(campaigns: Campaign[]): TargetologResult {
+export function computeTargetolog(
+  campaigns: Campaign[],
+  weights: KpiWeights = DEFAULT_WEIGHTS,
+): TargetologResult {
   const rows: CampaignResult[] = campaigns.map((c) => {
     const planCpl = c.planLeads === 0 ? 0 : c.planBudget / c.planLeads
     const factCpl = c.factLeads === 0 ? 0 : c.factBudget / c.factLeads
     const budgetPct = c.planBudget === 0 ? 0 : c.factBudget / c.planBudget
     const leadsPct = c.planLeads === 0 ? 0 : clamp01(c.factLeads / c.planLeads)
     const cplEff = planCpl === 0 || factCpl === 0 ? 0 : clamp01(planCpl / factCpl)
-    const kpi = leadsPct * LEAD_WEIGHT + cplEff * CPL_WEIGHT
+    const kpi = leadsPct * weights.leadWeight + cplEff * weights.cplWeight
     const counts = c.planBudget > 0 && c.planLeads > 0
     return {
       campaign: c,
