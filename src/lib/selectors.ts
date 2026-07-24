@@ -28,6 +28,36 @@ export function employeeKpi(
 
 export const isOverdue = (t: Task) => t.status !== 'done' && t.deadline < TODAY
 
+// Срок наступает в ближайшие `days` дней (не считая просроченных и сегодняшних).
+export function isDueSoon(t: Task, days: number): boolean {
+  if (t.status === 'done') return false
+  const limit = new Date(Date.parse(`${TODAY}T00:00:00Z`) + days * 86400000)
+    .toISOString()
+    .slice(0, 10)
+  return t.deadline > TODAY && t.deadline <= limit
+}
+
+export const isDueToday = (t: Task) => t.status !== 'done' && t.deadline === TODAY
+
+// Успеваемость за месяц (§4 ТЗ): считаем по задачам, завершённым в этом месяце.
+// Активные и просроченные — это состояние «сейчас», их месяцем не ограничиваем.
+export function monthTaskStats(tasks: Task[], month: string) {
+  const done = tasks.filter(
+    (t) =>
+      t.status === 'done' &&
+      t.completedAt != null &&
+      new Date(t.completedAt).toISOString().slice(0, 7) === month,
+  )
+  const onTime = done.filter((t) => t.completedOnTime).length
+  const late = done.filter((t) => t.completedOnTime === false).length
+  return {
+    done: done.length,
+    onTime,
+    late,
+    onTimePct: done.length ? onTime / done.length : 0,
+  }
+}
+
 export function taskCounts(list: Task[]) {
   return {
     total: list.length,

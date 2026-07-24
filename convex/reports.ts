@@ -1,6 +1,7 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
+import type { Doc } from './_generated/dataModel'
 import { currentEmployee, isManager, requireEmployee } from './lib'
 
 // Бизнес-часовой пояс компании — Asia/Almaty (UTC+5, без перехода на летнее время).
@@ -134,7 +135,83 @@ export const submit = mutation({
   },
 })
 
-// Сетка дисциплины отчётности для руководителя: сотрудники × последние N дней.
+// Строка дисциплины одного сотрудника за окно дат. Общая для сводки
+// руководителя и личного дашборда — правило пропуска должно быть одно.
+async function disciplineRow(
+  ctx: QueryCtx,
+  e: Doc<'employees'>,
+  dates: string[],
+  today: string,
+  deadlinePassedToday: boolean,
+) {
+  const reps = await ctx.db
+    .query('dailyReports')
+    .withIndex('by_employee', (q) => q.eq('employeeId', e._id))
+    .collect()
+  const byDate = new Map(reps.map((r) => [r.date, r]))
+
+  let onTime = 0
+  let late = 0
+  let missed = 0
+  const cells = dates.map((d) => {
+    // До даты найма сотрудника в компании не было — отчёта не могло быть
+    // в принципе. Такие дни не пропуск и в знаменатель заполняемости
+    // не идут, иначе новичок стартует со 100% нарушений.
+    if (d < e.hiredAt) return { date: d, status: 'na' as const }
+    const r = byDate.get(d)
+    if (r) {
+      if (r.onTime) onTime++
+      else late++
+      return {
+        date: d,
+        status: r.onTime ? ('onTime' as const) : ('late' as const),
+        submittedAt: r.submittedAt,
+        edited: (r.editCount ?? 0) > 0,
+      }
+    }
+    if (d < today || (d === today && deadlinePassedToday)) {
+      missed++
+      return { date: d, status: 'missed' as const }
+    }
+    return { date: d, status: 'pending' as const }
+  })
+
+  const required = onTime + late + missed
+  return {
+    cells,
+    onTime,
+    late,
+    missed,
+    fillRate: required ? (onTime + late) / required : 0,
+  }
+}
+
+// Окно дат для сетки: N дней по сегодняшний включительно.
+function windowDates(today: string, n: number): string[] {
+  const dates: string[] = []
+  for (let i = n - 1; i >= 0; i--) dates.push(addDays(today, -i))
+  return dates
+}
+
+// Личная дисциплина отчётности — для дашборда сотрудника (§4 ТЗ).
+// Возвращает пустое окно тем, кто отчёты не сдаёт: владельцу и должностям
+// без формы отчётности.
+export const myDiscipline = query({
+  args: { days: v.optional(v.number()) },
+  handler: async (ctx, { days }) => {
+    const time = await deadlineTime(ctx)
+    const today = businessToday()
+    const me = await currentEmployee(ctx)
+    const empty = { today, deadlineTime: time, dates: [], cells: [], onTime: 0, late: 0, missed: 0, fillRate: 0, reporting: false }
+    if (!me) return empty
+    if (me.role === 'owner' || !REPORTING.has(me.position)) return empty
+
+    const dates = windowDates(today, days ?? 14)
+    const row = await disciplineRow(ctx, me, dates, today, Date.now() > deadlineMs(today, time))
+    return { today, deadlineTime: time, dates, ...row, reporting: true }
+  },
+})
+
 export const discipline = query({
   args: { days: v.optional(v.number()) },
   handler: async (ctx, { days }) => {
@@ -145,11 +222,8 @@ export const discipline = query({
     // спрятан роутером, но сам запрос доступен любому авторизованному.
     const viewer = await currentEmployee(ctx)
     if (!isManager(viewer)) return { today, deadlineTime: time, dates: [], rows: [] }
-    const now = Date.now()
-    const deadlinePassedToday = now > deadlineMs(today, time)
-
-    const dates: string[] = []
-    for (let i = N - 1; i >= 0; i--) dates.push(addDays(today, -i))
+    const deadlinePassedToday = Date.now() > deadlineMs(today, time)
+    const dates = windowDates(today, N)
 
     const emps = (
       await ctx.db
@@ -160,39 +234,13 @@ export const discipline = query({
 
     const rows = []
     for (const e of emps) {
-      const reps = await ctx.db
-        .query('dailyReports')
-        .withIndex('by_employee', (q) => q.eq('employeeId', e._id))
-        .collect()
-      const byDate = new Map(reps.map((r) => [r.date, r]))
-
-      let onTime = 0
-      let late = 0
-      let missed = 0
-      const cells = dates.map((d) => {
-        // До даты найма сотрудника в компании не было — отчёта не могло быть
-        // в принципе. Такие дни не пропуск и в знаменатель заполняемости
-        // не идут, иначе новичок стартует со 100% нарушений.
-        if (d < e.hiredAt) return { date: d, status: 'na' as const }
-        const r = byDate.get(d)
-        if (r) {
-          if (r.onTime) onTime++
-          else late++
-          return {
-            date: d,
-            status: r.onTime ? ('onTime' as const) : ('late' as const),
-            submittedAt: r.submittedAt,
-            edited: (r.editCount ?? 0) > 0,
-          }
-        }
-        if (d < today || (d === today && deadlinePassedToday)) {
-          missed++
-          return { date: d, status: 'missed' as const }
-        }
-        return { date: d, status: 'pending' as const }
-      })
-
-      const required = onTime + late + missed
+      const { cells, onTime, late, missed, fillRate } = await disciplineRow(
+        ctx,
+        e,
+        dates,
+        today,
+        deadlinePassedToday,
+      )
       rows.push({
         employeeId: e._id,
         name: e.name,
@@ -204,7 +252,7 @@ export const discipline = query({
         onTime,
         late,
         missed,
-        fillRate: required ? (onTime + late) / required : 0,
+        fillRate,
       })
     }
 

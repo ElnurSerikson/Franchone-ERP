@@ -5,12 +5,15 @@ import { useQuery } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import { mapCampaign, mapEmployee, mapSmm, mapTask } from './mappers'
 import { REPORT_MONTH_FALLBACK } from './constants'
+import { CURRENT_MONTH } from './month'
 
 export function useData() {
   const employeesRaw = useQuery(api.employees.list, {})
   const tasksRaw = useQuery(api.tasks.list, {})
-  const campaignsRaw = useQuery(api.campaigns.list, {})
-  const smmRaw = useQuery(api.smm.list, {})
+  // Месяц обязателен: без него campaigns.list отдаёт пустой список, а smm.list —
+  // сохранённые нули вместо факта, собранного из ежедневных отчётов.
+  const campaignsRaw = useQuery(api.campaigns.list, { month: CURRENT_MONTH })
+  const smmRaw = useQuery(api.smm.list, { month: CURRENT_MONTH })
   const settings = useQuery(api.settings.get, {})
 
   const loading =
