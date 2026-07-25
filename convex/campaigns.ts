@@ -1,6 +1,6 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
-import { requireEmployee } from './lib'
+import { requireEmployee, hiddenEmployeeIds } from './lib'
 
 const MONEY = v.union(v.literal('FRANCHONE'), v.literal('Партнёр'))
 const STATUS = v.union(v.literal('Активна'), v.literal('Пауза'), v.literal('Завершена'))
@@ -125,8 +125,10 @@ export const factsForPeriod = query({
   args: { from: v.string(), to: v.string() },
   handler: async (ctx, { from, to }) => {
     const registry = (await ctx.db.query('campaigns').collect()).filter((c) => !c.archived)
+    const hidden = await hiddenEmployeeIds(ctx)
     const facts = new Map<string, { budget: number; leads: number; days: Set<string> }>()
     for (const r of await ctx.db.query('dailyReports').collect()) {
+      if (hidden.has(r.employeeId)) continue // тестовый/скрытый не в KPI
       if (r.position !== 'targetolog' || !r.targetolog) continue
       if (r.date < from || r.date > to) continue
       for (const line of r.targetolog) {
@@ -175,8 +177,10 @@ export const list = query({
       .collect()
     if (monthPlans.length === 0) return []
 
+    const hidden = await hiddenEmployeeIds(ctx)
     const facts = new Map<string, { budget: number; leads: number }>()
     for (const r of await ctx.db.query('dailyReports').collect()) {
+      if (hidden.has(r.employeeId)) continue // тестовый/скрытый не в KPI
       if (r.position !== 'targetolog' || !r.targetolog) continue
       if (r.date.slice(0, 7) !== month) continue
       for (const line of r.targetolog) {

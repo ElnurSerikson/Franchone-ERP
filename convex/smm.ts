@@ -1,6 +1,6 @@
 import { query, mutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
-import { requireManager } from './lib'
+import { requireManager, hiddenEmployeeIds } from './lib'
 
 // Оси модели SMM — те же, что в KPI_SMM.xlsx.
 const ACCOUNT = v.union(v.literal('FRANCHONE'), v.literal('ANUAR'))
@@ -25,9 +25,11 @@ export const list = query({
     // числом сразу отражалась в KPI и не могло возникнуть рассинхрона.
     // План задан на роль (строка «аккаунт × формат»), а не на человека, поэтому
     // суммируем отчёты всех сотрудников с должностью smm за этот месяц.
+    const hidden = await hiddenEmployeeIds(ctx)
     const reports = await ctx.db.query('dailyReports').collect()
     const facts = new Map<string, number[]>()
     for (const r of reports) {
+      if (hidden.has(r.employeeId)) continue // тестовый/скрытый не в KPI
       if (r.position !== 'smm' || !r.smm) continue
       if (r.date.slice(0, 7) !== month) continue
       const w = weekIndex(r.date)

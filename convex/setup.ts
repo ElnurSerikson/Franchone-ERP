@@ -840,6 +840,24 @@ export const addHiddenEmployee = mutation({
   },
 })
 
+// Переключить видимость сотрудника. hidden=false — показать в Команде/KPI/
+// Дисциплине и включить его отчёты в общий факт (для сквозного теста);
+// hidden=true — снова спрятать и исключить из KPI. Запуск:
+// npx convex run setup:setEmployeeHidden '{"email":"almnurken@gmail.com","hidden":false}'
+export const setEmployeeHidden = mutation({
+  args: { email: v.string(), hidden: v.boolean() },
+  handler: async (ctx, { email, hidden }) => {
+    const low = email.toLowerCase().trim()
+    const e = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (!e) throw new Error(`Сотрудник не найден: ${low}`)
+    await ctx.db.patch(e._id, { hidden })
+    return { email: low, hidden, name: e.name }
+  },
+})
+
 // Одноразово: привести position каждого отчёта к фактическому разделу данных
 // (smm/targetolog/sales). Чинит старые отчёты, где position «застрял» от
 // прежней должности сотрудника, из-за чего форма рисовалась пустой.

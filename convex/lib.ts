@@ -1,7 +1,17 @@
 import { getAuthUserId } from '@convex-dev/auth/server'
 import { ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
-import type { Doc } from './_generated/dataModel'
+import type { Doc, Id } from './_generated/dataModel'
+
+// id скрытых служебных аккаунтов (напр. тестовый сотрудник). Их ежедневные
+// отчёты НЕ должны попадать в общий факт роли и искажать реальный KPI команды:
+// hidden = невидим во всех списках И исключён из подсчёта показателей.
+export async function hiddenEmployeeIds(
+  ctx: QueryCtx | MutationCtx,
+): Promise<Set<Id<'employees'>>> {
+  const all = await ctx.db.query('employees').collect()
+  return new Set(all.filter((e) => e.hidden).map((e) => e._id))
+}
 
 // Сотрудник, соответствующий вошедшему пользователю (матчинг по email).
 export async function currentEmployee(

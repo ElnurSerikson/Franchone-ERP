@@ -1,7 +1,7 @@
 import { query, mutation, internalMutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
-import { currentEmployee, isManager, requireEmployee } from './lib'
+import { currentEmployee, isManager, requireEmployee, hiddenEmployeeIds } from './lib'
 import {
   computeSmmMath,
   computeTargetologMath,
@@ -44,8 +44,11 @@ async function computeMonth(ctx: QueryCtx | MutationCtx, month: string) {
     cplWeight: s?.cplWeight ?? DEFAULT_WEIGHTS.cplWeight,
   }
 
+  // Скрытые аккаунты (тестовые) не участвуют в KPI/начислениях: их отчёты не
+  // должны попадать в общий факт роли.
+  const hidden = await hiddenEmployeeIds(ctx)
   const reports = (await ctx.db.query('dailyReports').collect()).filter(
-    (r) => r.date.slice(0, 7) === month,
+    (r) => r.date.slice(0, 7) === month && !hidden.has(r.employeeId),
   )
 
   // SMM: факт из ежедневных отчётов, разложенный по неделям — как SUMIFS в Excel.
