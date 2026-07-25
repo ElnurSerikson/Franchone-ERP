@@ -2,6 +2,7 @@ import { query, mutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import type { Doc } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, isManager, isOnTime } from './lib'
+import { can, requireCan, inScope } from './permissions'
 
 const statusV = v.union(v.literal('assigned'), v.literal('in_progress'), v.literal('done'))
 const priorityV = v.union(
@@ -24,10 +25,20 @@ export const list = query({
   handler: async (ctx) => {
     const me = await currentEmployee(ctx)
     if (!me) return []
+    if (!(await can(ctx, 'tasks', 'view'))) return []
     const rows = await ctx.db.query('tasks').collect()
-    // Фильтруем на сервере: доска, счётчик в меню и дашборд берут этот запрос,
-    // и прятать чужое только в UI означало бы отдавать его в открытую.
-    return isManager(me) ? rows : rows.filter((t) => isOwnTask(t, me))
+    // Скоуп: владелец — все; руководитель — свой отдел (по исполнителю) + свои;
+    // сотрудник — только свои. Фильтруем на сервере, не только в UI.
+    if (me.role === 'owner') return rows
+    if (me.role === 'head') {
+      const dept = new Set(
+        (await ctx.db.query('employees').collect())
+          .filter((e) => e.department === me.department)
+          .map((e) => e._id),
+      )
+      return rows.filter((t) => dept.has(t.assigneeId) || t.reporterId === me._id)
+    }
+    return rows.filter((t) => isOwnTask(t, me))
   },
 })
 
@@ -118,7 +129,12 @@ export const create = mutation({
     kpiRef: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const me = await requireEmployee(ctx)
+    const me = await requireCan(ctx, 'tasks', 'create')
+    // Ставить задачи можно только в своём скоупе (руководитель — своему отделу).
+    const assignee = await ctx.db.get(args.assigneeId)
+    if (!assignee || !inScope(me, assignee)) {
+      throw new ConvexError('Можно ставить задачи только сотрудникам в вашем доступе')
+    }
     const id = await ctx.db.insert('tasks', {
       title: args.title,
       description: args.description,
@@ -144,6 +160,14 @@ export const setStatus = mutation({
     const me = await requireEmployee(ctx)
     const task = await ctx.db.get(id)
     if (!task) throw new Error('Задача не найдена')
+    // Свою задачу двигает исполнитель; чужую — только с правом на редактирование
+    // задач и если она в его скоупе.
+    if (task.assigneeId !== me._id) {
+      const assignee = await ctx.db.get(task.assigneeId)
+      if (!(await can(ctx, 'tasks', 'edit')) || !assignee || !inScope(me, assignee)) {
+        throw new ConvexError('Недостаточно прав, чтобы менять статус этой задачи')
+      }
+    }
     if (task.status === status) return
 
     if (status === 'done') {
@@ -180,10 +204,23 @@ export const update = mutation({
     }),
   },
   handler: async (ctx, { id, patch }) => {
-    const me = await requireEmployee(ctx)
+    const me = await requireCan(ctx, 'tasks', 'edit')
     const task = await ctx.db.get(id)
     if (!task) throw new Error('Задача не найдена')
+    // Задача должна быть в скоупе (руководитель — свой отдел).
+    const assignee = await ctx.db.get(task.assigneeId)
+    if (!assignee || !inScope(me, assignee)) {
+      throw new ConvexError('Недостаточно прав для этой задачи')
+    }
+    // Переназначение — только в пределах своего скоупа и с правом «назначение».
     if (patch.assigneeId && patch.assigneeId !== task.assigneeId) {
+      if (!(await can(ctx, 'tasks', 'assign'))) {
+        throw new ConvexError('Нет права переназначать задачи')
+      }
+      const next = await ctx.db.get(patch.assigneeId)
+      if (!next || !inScope(me, next)) {
+        throw new ConvexError('Переназначить можно только сотруднику в вашем доступе')
+      }
       await ctx.db.insert('taskEvents', { taskId: id, type: 'assignee', byId: me._id })
     }
     await ctx.db.patch(id, patch)
@@ -194,11 +231,14 @@ export const remove = mutation({
   args: { id: v.id('tasks') },
   handler: async (ctx, { id }) => {
     // Удаление безвозвратное — вместе с комментариями, историей и файлами.
-    // Поэтому только владелец: остальным доступна смена статуса.
-    const me = await requireEmployee(ctx)
-    if (me.role !== 'owner') throw new ConvexError('Удалить задачу может только владелец')
+    // Право «удаление задач» + задача в скоупе (по умолчанию — только владелец).
+    const me = await requireCan(ctx, 'tasks', 'delete')
     const task = await ctx.db.get(id)
     if (!task) throw new ConvexError('Задача не найдена')
+    const assignee = await ctx.db.get(task.assigneeId)
+    if (assignee && !inScope(me, assignee)) {
+      throw new ConvexError('Можно удалять только задачи в вашем доступе')
+    }
 
     const comments = await ctx.db
       .query('taskComments')

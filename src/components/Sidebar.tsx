@@ -15,8 +15,8 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useAuthActions } from '@convex-dev/auth/react'
-import type { Role } from '@/types'
-import { useApp, useCurrentUser, roleLabel } from '@/store'
+import { useCurrentUser, roleLabel } from '@/store'
+import { usePerms } from '@/lib/usePerms'
 import { useData } from '@/lib/useData'
 import { useIsPhone, useIsDesktop } from '@/lib/useMediaQuery'
 import Avatar from './ui/Avatar'
@@ -25,21 +25,23 @@ interface NavItem {
   to: string
   label: string
   icon: LucideIcon
-  roles: Role[]
+  // Право на раздел: undefined — всегда виден; 'owner' — только владелец;
+  // иначе «section:action» из матрицы прав (§9).
+  perm?: string
   badge?: number
 }
 
 const menu: NavItem[] = [
-  { to: '/', label: 'Дашборд', icon: LayoutDashboard, roles: ['owner', 'head', 'employee'] },
-  { to: '/tasks', label: 'Задачи', icon: CheckSquare, roles: ['owner', 'head', 'employee'] },
-  { to: '/reports', label: 'Отчёты', icon: ClipboardList, roles: ['owner', 'head', 'employee'] },
-  { to: '/kpi', label: 'KPI', icon: Target, roles: ['owner', 'head', 'employee'] },
+  { to: '/', label: 'Дашборд', icon: LayoutDashboard },
+  { to: '/tasks', label: 'Задачи', icon: CheckSquare, perm: 'tasks:view' },
+  { to: '/reports', label: 'Отчёты', icon: ClipboardList },
+  { to: '/kpi', label: 'KPI', icon: Target, perm: 'kpi:view' },
 ]
 
 const manage: NavItem[] = [
-  { to: '/team', label: 'Команда', icon: Users, roles: ['owner', 'head'] },
-  { to: '/activity', label: 'Активность', icon: Activity, roles: ['owner', 'head'] },
-  { to: '/settings', label: 'Настройки', icon: Settings, roles: ['owner'] },
+  { to: '/team', label: 'Команда', icon: Users, perm: 'team:view' },
+  { to: '/activity', label: 'Активность', icon: Activity, perm: 'activity:view' },
+  { to: '/settings', label: 'Настройки', icon: Settings, perm: 'owner' },
 ]
 
 function Item({
@@ -103,7 +105,6 @@ export default function Sidebar({
   drawerOpen: boolean
   onClose: () => void
 }) {
-  const { role } = useApp()
   const user = useCurrentUser()
   const { signOut } = useAuthActions()
   const { tasks } = useData()
@@ -126,7 +127,15 @@ export default function Sidebar({
     localStorage.setItem('sidebar-collapsed', next ? '1' : '0')
   }
 
-  const visible = (items: NavItem[]) => items.filter((i) => i.roles.includes(role))
+  // Видимость раздела — по матрице прав (§9). Владелец видит всё.
+  const { can, isOwner } = usePerms()
+  const visible = (items: NavItem[]) =>
+    items.filter((i) => {
+      if (!i.perm) return true
+      if (i.perm === 'owner') return isOwner
+      const [section, action] = i.perm.split(':')
+      return can(section, action)
+    })
   // whitespace-nowrap + overflow-hidden: в свёрнутом рейле заголовок прячется через
   // invisible, но продолжает резервировать ровно одну строку — иконки разделов
   // остаются на той же высоте, что и в развёрнутом сайдбаре.

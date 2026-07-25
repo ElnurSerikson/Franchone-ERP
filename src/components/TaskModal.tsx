@@ -13,7 +13,7 @@ import DatePicker from './ui/DatePicker'
 import Select from './ui/Select'
 import { PRIORITY_OPTS } from './TaskCreateModal'
 import ConfirmDialog from './ConfirmDialog'
-import { useApp } from '@/store'
+import { usePerms } from '@/lib/usePerms'
 import { errMessage } from '@/lib/errors'
 import { statusMeta } from './ui/StatusChip'
 
@@ -59,9 +59,9 @@ export default function TaskModal({
   const [delError, setDelError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  // Удаление безвозвратное, поэтому только владелец — то же правило на бэкенде.
-  const { role } = useApp()
-  const isOwner = role === 'owner'
+  // Удаление — по праву «Задачи: удаление» (то же правило на сервере).
+  const { can } = usePerms()
+  const canDelete = can('tasks', 'delete')
 
   const reporter = employees.find((e) => e.id === task.reporterId)
   const overdue = isOverdue(task)
@@ -106,7 +106,7 @@ export default function TaskModal({
               </button>
             ))}
           </div>
-          {isOwner && (
+          {canDelete && (
             <button
               onClick={() => setConfirmDel(true)}
               className="ico-btn w-9 h-9 text-muted hover:text-[#c53030]"

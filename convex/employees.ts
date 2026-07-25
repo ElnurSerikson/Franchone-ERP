@@ -3,7 +3,8 @@ import { v, ConvexError } from 'convex/values'
 import { internal } from './_generated/api'
 import { Resend as ResendAPI } from 'resend'
 import { inviteEmail } from './emails'
-import { currentEmployee, requireEmployee, requireManager } from './lib'
+import { currentEmployee } from './lib'
+import { requireCan, inScope } from './permissions'
 
 // Палитра аватаров — цвет назначается детерминированно по имени (без random,
 // т.к. мутации Convex должны быть детерминированными).
@@ -27,10 +28,13 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     const me = await currentEmployee(ctx)
-    const privileged = me?.role === 'owner' || me?.role === 'head'
     const rows = (await ctx.db.query('employees').collect()).filter((e) => !e.hidden)
-    if (privileged) return rows
-    return rows.map((e) => ({ ...e, salary: 0, email: '', phone: '' }))
+    const strip = (e: (typeof rows)[number]) => ({ ...e, salary: 0, email: '', phone: '' })
+    // Владелец — всё; руководитель — оклады/контакты только своего отдела;
+    // сотрудник — без чувствительных полей (нужны только имена/аватары).
+    if (me?.role === 'owner') return rows
+    if (me?.role === 'head') return rows.map((e) => (e.department === me.department ? e : strip(e)))
+    return rows.map(strip)
   },
 })
 
@@ -49,7 +53,7 @@ export const create = mutation({
     hiredAt: v.string(),
   },
   handler: async (ctx, args) => {
-    const me = await requireManager(ctx)
+    const me = await requireCan(ctx, 'team', 'create')
     // Владельца может назначить только владелец: иначе руководитель отдела
     // выписал бы себе полный доступ через создание второго аккаунта.
     if (args.role === 'owner' && me.role !== 'owner') {
@@ -75,17 +79,19 @@ export const update = mutation({
     }),
   },
   handler: async (ctx, { id, patch }) => {
-    const me = await requireManager(ctx)
-    // Роль и оклад — только владелец. Без этого любой авторизованный мог
-    // пропатчить собственную запись и стать владельцем.
+    const me = await requireCan(ctx, 'team', 'edit')
+    const target = await ctx.db.get(id)
+    if (!target) throw new ConvexError('Сотрудник не найден')
+    if (!inScope(me, target)) {
+      throw new ConvexError('Можно менять только сотрудников в вашем доступе')
+    }
+    // Инвариант: роль и оклад — только владелец (матрица их не переопределяет).
     if (patch.role !== undefined && me.role !== 'owner') {
       throw new ConvexError('Роль меняет только владелец')
     }
     if (patch.salary !== undefined && me.role !== 'owner') {
       throw new ConvexError('Оклад меняет только владелец')
     }
-    const target = await ctx.db.get(id)
-    if (!target) throw new ConvexError('Сотрудник не найден')
     if (patch.role !== undefined && target.role === 'owner' && me._id !== id) {
       throw new ConvexError('Нельзя менять роль владельца')
     }
@@ -96,11 +102,12 @@ export const update = mutation({
 export const archive = mutation({
   args: { id: v.id('employees') },
   handler: async (ctx, { id }) => {
-    const me = await requireManager(ctx)
+    const me = await requireCan(ctx, 'team', 'delete')
     if (me._id === id) throw new ConvexError('Нельзя архивировать самого себя')
     const target = await ctx.db.get(id)
     if (!target) throw new ConvexError('Сотрудник не найден')
     if (target.role === 'owner') throw new ConvexError('Нельзя архивировать владельца')
+    if (!inScope(me, target)) throw new ConvexError('Можно архивировать только сотрудников в вашем доступе')
     await ctx.db.patch(id, { status: 'archived' })
   },
 })
@@ -122,12 +129,12 @@ export const updateMember = mutation({
     department: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const me = await requireEmployee(ctx)
-    if (me.role !== 'owner' && me.role !== 'head') {
-      throw new ConvexError('Недостаточно прав для редактирования сотрудников')
-    }
+    const me = await requireCan(ctx, 'team', 'edit')
     const target = await ctx.db.get(args.id)
     if (!target) throw new ConvexError('Сотрудник не найден')
+    if (!inScope(me, target)) {
+      throw new ConvexError('Можно редактировать только сотрудников в вашем доступе')
+    }
 
     const firstName = args.firstName.trim()
     const lastName = args.lastName.trim()
@@ -172,16 +179,14 @@ export const updateMember = mutation({
 export const setActive = mutation({
   args: { id: v.id('employees'), active: v.boolean() },
   handler: async (ctx, { id, active }) => {
-    const me = await requireEmployee(ctx)
-    if (me.role !== 'owner' && me.role !== 'head') {
-      throw new ConvexError('Недостаточно прав')
-    }
+    const me = await requireCan(ctx, 'team', 'delete')
     if (me._id === id) throw new ConvexError('Нельзя деактивировать самого себя')
     const target = await ctx.db.get(id)
     if (!target) throw new ConvexError('Сотрудник не найден')
     if (!active && target.role === 'owner') {
       throw new ConvexError('Нельзя деактивировать владельца')
     }
+    if (!inScope(me, target)) throw new ConvexError('Можно менять только сотрудников в вашем доступе')
     await ctx.db.patch(id, { status: active ? 'active' : 'archived' })
   },
 })
@@ -203,9 +208,10 @@ export const invite = mutation({
     hiredAt: v.string(),
   },
   handler: async (ctx, args) => {
-    const me = await requireEmployee(ctx)
-    if (me.role !== 'owner' && me.role !== 'head') {
-      throw new ConvexError('Недостаточно прав для приглашения сотрудников')
+    const me = await requireCan(ctx, 'team', 'create')
+    // Руководитель приглашает только в свой отдел.
+    if (me.role === 'head' && args.department !== me.department) {
+      throw new ConvexError('Можно приглашать только в свой отдел')
     }
 
     const firstName = args.firstName.trim()

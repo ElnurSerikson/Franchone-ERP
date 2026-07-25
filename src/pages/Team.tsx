@@ -7,6 +7,7 @@ import type { Employee } from '@/types'
 import PageHeader from '@/components/PageHeader'
 import Avatar from '@/components/ui/Avatar'
 import TeamMemberDrawer from '@/components/TeamMemberDrawer'
+import { usePerms } from '@/lib/usePerms'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { useData } from '@/lib/useData'
 import { errMessage } from '@/lib/errors'
@@ -19,6 +20,8 @@ export default function Team() {
   const { employees } = useData()
   const me = useCurrentUser()
   const setActive = useMutation(api.employees.setActive)
+  const { can } = usePerms()
+  const canInvite = can('team', 'create')
 
   const departments = Array.from(new Set(employees.map((e) => e.department)))
 
@@ -53,9 +56,11 @@ export default function Team() {
           ` · ${departments.length} ${plural(departments.length, 'отдел', 'отдела', 'отделов')}`
         }
         actions={
-          <button className="btn btn-green" onClick={() => setCreating(true)}>
-            <UserPlus size={16} /> Добавить сотрудника
-          </button>
+          canInvite ? (
+            <button className="btn btn-green" onClick={() => setCreating(true)}>
+              <UserPlus size={16} /> Добавить сотрудника
+            </button>
+          ) : undefined
         }
       />
 

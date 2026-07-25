@@ -1,6 +1,7 @@
 import { query, mutation } from './_generated/server'
-import { v } from 'convex/values'
-import { currentEmployee, isManager, requireManager, hiddenEmployeeIds } from './lib'
+import { v, ConvexError } from 'convex/values'
+import { currentEmployee, isManager, hiddenEmployeeIds } from './lib'
+import { requireCan, inScope } from './permissions'
 
 // Текущий месяц в часовом поясе Алматы (YYYY-MM).
 function businessMonth(): string {
@@ -50,7 +51,9 @@ export const summary = query({
 export const setPlan = mutation({
   args: { employeeId: v.id('employees'), month: v.string(), planRevenue: v.number() },
   handler: async (ctx, { employeeId, month, planRevenue }) => {
-    await requireManager(ctx)
+    const me = await requireCan(ctx, 'kpi', 'edit')
+    const emp = await ctx.db.get(employeeId)
+    if (emp && !inScope(me, emp)) throw new ConvexError('Можно менять планы только в вашем доступе')
     const row = (
       await ctx.db
         .query('salesPlans')

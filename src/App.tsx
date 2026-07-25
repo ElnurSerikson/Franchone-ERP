@@ -1,8 +1,8 @@
 import { Authenticated, Unauthenticated, AuthLoading } from 'convex/react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
-import { AppProvider, useApp, useAccessState } from './store'
-import type { Role } from './types'
+import { AppProvider, useAccessState } from './store'
+import { usePerms } from './lib/usePerms'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import AccessRevoked from './pages/AccessRevoked'
@@ -14,9 +14,13 @@ import Team from './pages/Team'
 import Activity from './pages/Activity'
 import Settings from './pages/Settings'
 
-function Guard({ allow, children }: { allow: Role[]; children: JSX.Element }) {
-  const { role } = useApp()
-  return allow.includes(role) ? children : <Navigate to="/" replace />
+// Гейт маршрута по матрице прав (§9). perm — 'owner' или «section:action».
+function Guard({ perm, children }: { perm: string; children: JSX.Element }) {
+  const { ready, isOwner, can } = usePerms()
+  if (!ready) return <FullScreenLoader />
+  const [section, action] = perm.split(':')
+  const ok = perm === 'owner' ? isOwner : can(section, action)
+  return ok ? children : <Navigate to="/" replace />
 }
 
 function FullScreenLoader() {
@@ -40,33 +44,12 @@ function AuthedApp() {
         <Routes>
           <Route element={<Layout />}>
             <Route index element={<Dashboard />} />
-            <Route path="tasks" element={<Tasks />} />
+            <Route path="tasks" element={<Guard perm="tasks:view"><Tasks /></Guard>} />
             <Route path="reports" element={<Reports />} />
-            <Route path="kpi" element={<Kpi />} />
-            <Route
-              path="team"
-              element={
-                <Guard allow={['owner', 'head']}>
-                  <Team />
-                </Guard>
-              }
-            />
-            <Route
-              path="activity"
-              element={
-                <Guard allow={['owner', 'head']}>
-                  <Activity />
-                </Guard>
-              }
-            />
-            <Route
-              path="settings"
-              element={
-                <Guard allow={['owner']}>
-                  <Settings />
-                </Guard>
-              }
-            />
+            <Route path="kpi" element={<Guard perm="kpi:view"><Kpi /></Guard>} />
+            <Route path="team" element={<Guard perm="team:view"><Team /></Guard>} />
+            <Route path="activity" element={<Guard perm="activity:view"><Activity /></Guard>} />
+            <Route path="settings" element={<Guard perm="owner"><Settings /></Guard>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

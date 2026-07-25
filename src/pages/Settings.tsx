@@ -11,6 +11,7 @@ import { pct } from '@/lib/format'
 import { CURRENT_MONTH } from '@/lib/month'
 import { errMessage } from '@/lib/errors'
 import { th, td, theadRow } from '@/lib/table'
+import { PERM_SECTIONS, ACTION_LABEL, permKey } from '../../convex/permModel'
 
 const cellCls =
   'w-16 h-8 px-2 rounded-lg border border-line-2 text-sm text-right tabular-nums focus:outline-none focus:border-green-light'
@@ -58,6 +59,11 @@ export default function Settings() {
         <ReportDeadlineCard />
       </div>
 
+      {/* Матрица прав (§9) */}
+      <div className="mt-5">
+        <PermissionsCard />
+      </div>
+
       {/* Справочники отделов и должностей (§11) */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 mt-5">
         <CatalogCard kind="departments" />
@@ -92,6 +98,93 @@ export default function Settings() {
         </div>
       </div>
     </>
+  )
+}
+
+// ——— Матрица прав (§9) ———
+// Владелец включает/выключает действия для ролей «Руководитель» и «Сотрудник».
+// Владелец всегда имеет всё; роли/оклады/сама матрица — только владелец (вне
+// матрицы). Руководитель действует в рамках своего отдела, сотрудник — только
+// над своими данными (скоуп применяется на сервере).
+function PermissionsCard() {
+  const data = useQuery(api.permissions.matrix)
+  const setMatrix = useMutation(api.permissions.setMatrix)
+  const [tab, setTab] = useState<'head' | 'employee'>('head')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  if (data === undefined) return null
+  if (data === null) return null // не владелец
+
+  const allowed = new Set(tab === 'head' ? data.head : data.employee)
+  const toggle = async (key: string) => {
+    const next = new Set(allowed)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    setBusy(true)
+    setError('')
+    try {
+      await setMatrix({ role: tab, allowed: [...next] })
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось сохранить.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 mb-1 flex-wrap">
+        <Users2 size={18} className="text-green" />
+        <h3 className="sec-title flex-1">Матрица прав</h3>
+        <div className="flex items-center gap-1 p-1 bg-chip rounded-xl">
+          {(['head', 'employee'] as const).map((r) => (
+            <button
+              key={r}
+              onClick={() => setTab(r)}
+              className={`h-8 px-3 rounded-lg text-sm font-semibold transition-colors ${
+                tab === r ? 'bg-white text-ink shadow-card' : 'text-ink-2/70 hover:text-ink'
+              }`}
+            >
+              {r === 'head' ? 'Руководитель' : 'Сотрудник'}
+            </button>
+          ))}
+        </div>
+      </div>
+      <p className="text-[11px] text-muted-2 mb-4">
+        Владелец всегда имеет полный доступ. Роли, оклады и сама матрица меняются только
+        владельцем. Руководитель действует в своём отделе, сотрудник — только над своими данными.
+      </p>
+      {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
+
+      <div className="flex flex-col divide-y divide-line">
+        {PERM_SECTIONS.map((s) => (
+          <div key={s.key} className="flex items-center gap-3 py-3 first:pt-0 flex-wrap">
+            <div className="w-28 shrink-0 text-sm font-medium text-ink">{s.label}</div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {s.actions.map((a) => {
+                const key = permKey(s.key, a)
+                const on = allowed.has(key)
+                return (
+                  <button
+                    key={a}
+                    onClick={() => toggle(key)}
+                    disabled={busy}
+                    className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 ${
+                      on
+                        ? 'bg-[#e2f2ef] text-green-d border-green-light'
+                        : 'bg-white text-muted border-line-2 hover:bg-chip'
+                    }`}
+                  >
+                    {ACTION_LABEL[a]}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 

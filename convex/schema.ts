@@ -38,6 +38,13 @@ export default defineSchema({
     name: v.string(),
   }),
 
+  // Матрица прав (§9): что разрешено роли head/employee. Владелец не хранится —
+  // у него всегда всё. Нет строки для роли — действуют дефолты из permModel.
+  rolePermissions: defineTable({
+    role: v.union(v.literal('head'), v.literal('employee')),
+    allowed: v.array(v.string()), // ключи «section:action»
+  }).index('by_role', ['role']),
+
   // Справочник должностей (§11: «управлять должностями»). slug кладётся в
   // employees.position; kpiModel определяет формулу KPI. У новых должностей
   // модели нет ('none') — её добавляют кодом. Встроенные (smm/targetolog/sales)

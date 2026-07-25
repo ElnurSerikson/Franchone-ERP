@@ -1,6 +1,8 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
 import { requireEmployee, hiddenEmployeeIds } from './lib'
+import { requireCan, inScope } from './permissions'
+import { ConvexError } from 'convex/values'
 
 const MONEY = v.union(v.literal('FRANCHONE'), v.literal('Партнёр'))
 const STATUS = v.union(v.literal('Активна'), v.literal('Пауза'), v.literal('Завершена'))
@@ -11,13 +13,6 @@ async function requireRegistryAccess(ctx: Parameters<typeof requireEmployee>[0])
   const me = await requireEmployee(ctx)
   const ok = me.role === 'owner' || me.role === 'head' || me.position === 'targetolog'
   if (!ok) throw new Error('Нет доступа к реестру кампаний')
-  return me
-}
-
-// Планы и веса — только руководство: это «жёлтые ячейки» из Excel.
-async function requirePlanAccess(ctx: Parameters<typeof requireEmployee>[0]) {
-  const me = await requireEmployee(ctx)
-  if (me.role !== 'owner' && me.role !== 'head') throw new Error('Планы задаёт руководитель')
   return me
 }
 
@@ -109,7 +104,11 @@ export const setPlan = mutation({
     weight: v.number(),
   },
   handler: async (ctx, { employeeId, campaignId, month, ...vals }) => {
-    await requirePlanAccess(ctx)
+    const me = await requireCan(ctx, 'kpi', 'edit')
+    if (employeeId) {
+      const emp = await ctx.db.get(employeeId)
+      if (emp && !inScope(me, emp)) throw new ConvexError('Можно менять планы только в вашем доступе')
+    }
     const existing = await ctx.db
       .query('campaignPlans')
       .withIndex('by_campaign', (q) => q.eq('campaignId', campaignId))

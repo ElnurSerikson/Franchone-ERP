@@ -1,6 +1,7 @@
 import { query, mutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
-import { requireManager, hiddenEmployeeIds } from './lib'
+import { hiddenEmployeeIds } from './lib'
+import { requireCan, inScope } from './permissions'
 
 // Оси модели SMM — те же, что в KPI_SMM.xlsx.
 const ACCOUNT = v.union(v.literal('FRANCHONE'), v.literal('ANUAR'))
@@ -57,8 +58,13 @@ export const setPlan = mutation({
     weight: v.number(),
   },
   handler: async (ctx, { id, weekPlans, weight }) => {
-    // План и вес напрямую задают чужую выплату — правит только руководство.
-    await requireManager(ctx)
+    // План и вес задают чужую выплату — право «KPI: редактирование» + скоуп.
+    const me = await requireCan(ctx, 'kpi', 'edit')
+    const metric = await ctx.db.get(id)
+    if (metric?.employeeId) {
+      const emp = await ctx.db.get(metric.employeeId)
+      if (emp && !inScope(me, emp)) throw new ConvexError('Можно менять планы только в вашем доступе')
+    }
     await ctx.db.patch(id, { weekPlans, weight })
   },
 })
@@ -78,13 +84,15 @@ export const addMetric = mutation({
     weight: v.number(),
   },
   handler: async (ctx, { employeeId, month, account, format, weight }) => {
-    await requireManager(ctx)
+    const me = await requireCan(ctx, 'kpi', 'edit')
     const ownerId =
       employeeId ??
       (await ctx.db.query('employees').collect()).find(
         (e) => e.position === 'smm' && !e.hidden && e.status === 'active' && e.role !== 'owner',
       )?._id
     if (!ownerId) throw new ConvexError('Нет действующего SMM-специалиста для плана')
+    const owner = await ctx.db.get(ownerId)
+    if (owner && !inScope(me, owner)) throw new ConvexError('Можно менять планы только в вашем доступе')
     // Набор строк персональный: одна пара «аккаунт × формат» на сотрудника в месяц.
     const existing = (await ctx.db.query('smmMetrics').collect()).find(
       (m) => m.employeeId === ownerId && m.month === month && m.account === account && m.format === format,
@@ -105,7 +113,12 @@ export const addMetric = mutation({
 export const removeMetric = mutation({
   args: { id: v.id('smmMetrics') },
   handler: async (ctx, { id }) => {
-    await requireManager(ctx)
+    const me = await requireCan(ctx, 'kpi', 'edit')
+    const metric = await ctx.db.get(id)
+    if (metric?.employeeId) {
+      const emp = await ctx.db.get(metric.employeeId)
+      if (emp && !inScope(me, emp)) throw new ConvexError('Можно менять планы только в вашем доступе')
+    }
     // Факт метрики живёт в ежедневных отчётах и никуда не денется: убираем
     // строку только из расчёта текущего месяца.
     await ctx.db.delete(id)

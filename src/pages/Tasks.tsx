@@ -23,6 +23,7 @@ import { ProgressBar } from '@/components/ui/Progress'
 import { PriorityChip, statusMeta } from '@/components/ui/StatusChip'
 import TaskModal from '@/components/TaskModal'
 import TaskCreateModal from '@/components/TaskCreateModal'
+import { usePerms } from '@/lib/usePerms'
 import { useData } from '@/lib/useData'
 import { isOverdue, taskStatsByEmployee } from '@/lib/selectors'
 import { shortDate, pct } from '@/lib/format'
@@ -120,7 +121,7 @@ function Column({
 }: {
   col: TaskStatus
   count: number
-  onAdd: () => void
+  onAdd?: () => void
   children: ReactNode
 }) {
   const meta = statusMeta[col]
@@ -133,9 +134,11 @@ function Column({
           <span className="text-sm font-semibold text-ink">{meta.label}</span>
           <span className="text-xs text-muted bg-chip px-1.5 py-0.5 rounded-md">{count}</span>
         </div>
-        <button className="text-muted hover:text-ink p-1 -m-1" title="Добавить" onClick={onAdd}>
-          <Plus size={16} />
-        </button>
+        {onAdd && (
+          <button className="text-muted hover:text-ink p-1 -m-1" title="Добавить" onClick={onAdd}>
+            <Plus size={16} />
+          </button>
+        )}
       </div>
       <div
         ref={setNodeRef}
@@ -157,6 +160,8 @@ export default function Tasks() {
   const [creating, setCreating] = useState(false)
   const [view, setView] = useState<'board' | 'stats'>('board')
   const suppressClick = useRef(false)
+  const { can } = usePerms()
+  const canCreateTask = can('tasks', 'create')
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
@@ -211,7 +216,9 @@ export default function Tasks() {
                 <BarChart3 size={15} /> Статистика
               </button>
             </div>
-            <button className="btn btn-green" onClick={() => setCreating(true)}><Plus size={16} /> Добавить задачу</button>
+            {canCreateTask && (
+              <button className="btn btn-green" onClick={() => setCreating(true)}><Plus size={16} /> Добавить задачу</button>
+            )}
           </>
         }
       />
@@ -229,7 +236,7 @@ export default function Tasks() {
             {columns.map((col) => {
               const list = tasks.filter((t) => t.status === col)
               return (
-                <Column key={col} col={col} count={list.length} onAdd={() => setCreating(true)}>
+                <Column key={col} col={col} count={list.length} onAdd={canCreateTask ? () => setCreating(true) : undefined}>
                   {list.map((t) => (
                     <DraggableCard
                       key={t.id}

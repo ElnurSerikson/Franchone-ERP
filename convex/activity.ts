@@ -1,6 +1,7 @@
 import { query } from './_generated/server'
 import { v } from 'convex/values'
 import { currentEmployee, isManager } from './lib'
+import { can } from './permissions'
 import { LOGIN_WINDOW_MS } from './auth'
 
 // Схлопывает всплески: события внутри окна визита — это один вход.
@@ -37,12 +38,19 @@ export const overview = query({
   args: {},
   handler: async (ctx) => {
     const me = await currentEmployee(ctx)
-    if (!isManager(me)) return []
+    // Раздел «Активность» — по праву просмотра. Скоуп: владелец — все,
+    // руководитель — свой отдел.
+    if (!me || !(await can(ctx, 'activity', 'view'))) return []
 
     const emps = await ctx.db.query('employees').collect()
     const now = Date.now()
     const D = 24 * 60 * 60 * 1000
-    const active = emps.filter((e) => e.status === 'active' && !e.hidden)
+    const active = emps.filter(
+      (e) =>
+        e.status === 'active' &&
+        !e.hidden &&
+        (me.role === 'owner' || e.department === me.department),
+    )
 
     return Promise.all(
       active.map(async (e) => {

@@ -2,7 +2,7 @@ import { query, mutation, internalMutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc } from './_generated/dataModel'
-import { currentEmployee, isManager, requireEmployee, hiddenEmployeeIds } from './lib'
+import { currentEmployee, requireEmployee, hiddenEmployeeIds } from './lib'
 import {
   computeSmmMath,
   computeTargetologMath,
@@ -208,8 +208,18 @@ export const month = query({
         }))
       : await computeMonth(ctx, ym)
 
-    // Сотрудник видит только свою строку: чужие оклады его не касаются.
-    const visible = isManager(me) ? rows : rows.filter((r) => r.employeeId === me._id)
+    // Скоуп: владелец — все; руководитель — свой отдел; сотрудник — только своя.
+    let visible = rows
+    if (me.role === 'head') {
+      const deptIds = new Set(
+        (await ctx.db.query('employees').collect())
+          .filter((e) => e.department === me.department)
+          .map((e) => e._id),
+      )
+      visible = rows.filter((r) => deptIds.has(r.employeeId))
+    } else if (me.role !== 'owner') {
+      visible = rows.filter((r) => r.employeeId === me._id)
+    }
 
     return {
       month: ym,

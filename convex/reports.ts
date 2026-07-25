@@ -2,8 +2,9 @@ import { query, mutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc } from './_generated/dataModel'
-import { currentEmployee, isManager, requireEmployee } from './lib'
+import { currentEmployee, requireEmployee } from './lib'
 import { isMonthClosed } from './payroll'
+import { can, requireCan, inScope } from './permissions'
 
 // Бизнес-часовой пояс компании — Asia/Almaty (UTC+5, без перехода на летнее время).
 const TZ = '+05:00'
@@ -312,10 +313,13 @@ export const discipline = query({
     const N = days ?? 14
     const time = await deadlineTime(ctx)
     const today = businessToday()
-    // Надзорная сводка по всей команде — только руководству. Экран и так
-    // спрятан роутером, но сам запрос доступен любому авторизованному.
+    // Надзорная сводка — по праву «Отчёты: просмотр». Скоуп: владелец — вся
+    // команда, руководитель — свой отдел. Сам запрос доступен любому
+    // авторизованному, поэтому фильтруем на сервере.
     const viewer = await currentEmployee(ctx)
-    if (!isManager(viewer)) return { today, deadlineTime: time, dates: [], rows: [] }
+    if (!viewer || !(await can(ctx, 'reports', 'view'))) {
+      return { today, deadlineTime: time, dates: [], rows: [] }
+    }
     const deadlinePassedToday = Date.now() > deadlineMs(today, time)
     const dates = windowDates(today, N)
 
@@ -324,7 +328,13 @@ export const discipline = query({
         .query('employees')
         .withIndex('by_status', (q) => q.eq('status', 'active'))
         .collect()
-    ).filter((e) => !e.hidden && e.role !== 'owner' && REPORTING.has(e.position))
+    ).filter(
+      (e) =>
+        !e.hidden &&
+        e.role !== 'owner' &&
+        REPORTING.has(e.position) &&
+        (viewer.role === 'owner' || e.department === viewer.department),
+    )
 
     const rows = []
     for (const e of emps) {
@@ -359,12 +369,17 @@ export const discipline = query({
 export const reportFor = query({
   args: { employeeId: v.id('employees'), date: v.string() },
   handler: async (ctx, { employeeId, date }) => {
-    // Чужой отчёт открывает только руководство; свой — сам сотрудник.
+    // Свой отчёт открывает сам сотрудник; чужой — по праву «Отчёты: просмотр»
+    // и только в своём скоупе (руководитель — свой отдел).
     const viewer = await currentEmployee(ctx)
     if (!viewer) return null
-    if (!isManager(viewer) && viewer._id !== employeeId) return null
-
     const emp = await ctx.db.get(employeeId)
+    const isSelf = viewer._id === employeeId
+    const mayView =
+      isSelf ||
+      viewer.role === 'owner' ||
+      (!!emp && inScope(viewer, emp) && (await can(ctx, 'reports', 'view')))
+    if (!mayView) return null
     const report = await ctx.db
       .query('dailyReports')
       .withIndex('by_employee_date', (q) =>
@@ -388,22 +403,24 @@ export const reportFor = query({
       : []
 
     const closed = await isMonthClosed(ctx, date.slice(0, 7))
-    const isOwner = viewer.role === 'owner'
     const reopened = isReopened(report)
     const reporting = !!emp && emp.role !== 'owner' && REPORTING.has(emp.position)
     // Отчёт с содержимым: не переоткрытая пустышка. Такой можно править и удалять.
     const hasContent = !!report && !reopened
+    // Права правки/удаления — по матрице и в скоупе, только в открытом месяце.
+    const scoped = !!emp && inScope(viewer, emp)
+    const mayEdit = scoped && !closed && (await can(ctx, 'reports', 'edit'))
+    const mayDelete = scoped && !closed && (await can(ctx, 'reports', 'delete'))
 
     return {
       report,
       history,
       reopened,
       position: emp?.position ?? null,
-      // После дедлайна правит и удаляет только владелец и только в открытом
-      // месяце. Пропущенный/переоткрытый день владелец вносит заново.
-      canEdit: isOwner && !closed && hasContent,
-      canDelete: isOwner && !closed && hasContent,
-      canCreate: isOwner && !closed && reporting && !hasContent,
+      canEdit: mayEdit && hasContent,
+      canDelete: mayDelete && hasContent,
+      // Пропущенный/переоткрытый день вносит заново тот, кто может править.
+      canCreate: mayEdit && reporting && !hasContent,
     }
   },
 })
@@ -422,12 +439,12 @@ export const ownerSet = mutation({
     sales: v.optional(salesPayload),
   },
   handler: async (ctx, args) => {
-    const me = await requireEmployee(ctx)
-    if (me.role !== 'owner') {
-      throw new ConvexError('Править отчёты после дедлайна может только владелец')
-    }
+    const me = await requireCan(ctx, 'reports', 'edit')
     const emp = await ctx.db.get(args.employeeId)
     if (!emp) throw new ConvexError('Сотрудник не найден')
+    if (!inScope(me, emp)) {
+      throw new ConvexError('Можно править отчёты только сотрудников в вашем доступе')
+    }
     if (emp.role === 'owner' || !REPORTING.has(emp.position)) {
       throw new ConvexError('Для этой должности отчётность не предусмотрена')
     }
@@ -504,12 +521,13 @@ export const ownerSet = mutation({
 export const remove = mutation({
   args: { reportId: v.id('dailyReports') },
   handler: async (ctx, { reportId }) => {
-    const me = await requireEmployee(ctx)
-    if (me.role !== 'owner') {
-      throw new ConvexError('Удалять отчёты может только владелец')
-    }
+    const me = await requireCan(ctx, 'reports', 'delete')
     const report = await ctx.db.get(reportId)
     if (!report) throw new ConvexError('Отчёт не найден')
+    const author = await ctx.db.get(report.employeeId)
+    if (author && !inScope(me, author)) {
+      throw new ConvexError('Можно удалять отчёты только сотрудников в вашем доступе')
+    }
     if (await isMonthClosed(ctx, report.date.slice(0, 7))) {
       throw new ConvexError('Месяц закрыт — отчёты за него удалять нельзя')
     }
