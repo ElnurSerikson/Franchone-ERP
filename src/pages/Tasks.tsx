@@ -72,7 +72,7 @@ function TaskCard({ task, assignee }: { task: Task; assignee?: Employee }) {
         <div className="flex items-center gap-3 text-muted">
           {assignee && <Avatar initials={assignee.initials} color={assignee.avatarColor} size={26} />}
           <span className={`text-[11px] ${over ? 'text-[#c53030] font-semibold' : ''}`}>
-            {over ? 'Просрочено ' : ''}{shortDate(task.deadline)}
+            {task.deadline ? `${over ? 'Просрочено ' : ''}${shortDate(task.deadline)}` : 'Без срока'}
           </span>
         </div>
         <div className="flex items-center gap-3 text-muted text-[11px]">

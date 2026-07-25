@@ -66,7 +66,7 @@ export interface Task {
   priority: Priority
   assigneeId: string
   reporterId: string
-  deadline: string
+  deadline?: string // срок необязателен
   completedAt?: number
   completedOnTime?: boolean
   tags: string[]

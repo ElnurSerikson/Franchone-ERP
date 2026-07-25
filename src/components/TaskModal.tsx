@@ -145,7 +145,7 @@ export default function TaskModal({
               </span>
             ) : overdue ? (
               <span className="chip mt-2 bg-[#fdeaea] text-[#c53030]">
-                <Clock size={12} /> Просрочено · срок {shortDate(task.deadline)}
+                <Clock size={12} /> Просрочено · срок {task.deadline ? shortDate(task.deadline) : '—'}
               </span>
             ) : null}
           </div>

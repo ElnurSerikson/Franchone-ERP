@@ -99,7 +99,7 @@ export default defineSchema({
     ),
     assigneeId: v.id('employees'),
     reporterId: v.id('employees'),
-    deadline: v.string(), // срок (YYYY-MM-DD)
+    deadline: v.optional(v.string()), // срок (YYYY-MM-DD); может отсутствовать
     completedAt: v.optional(v.number()), // фактическая дата завершения
     completedOnTime: v.optional(v.boolean()), // в срок / с опозданием
     tags: v.array(v.string()),

@@ -113,7 +113,7 @@ export const create = mutation({
     description: v.optional(v.string()),
     assigneeId: v.id('employees'),
     priority: priorityV,
-    deadline: v.string(),
+    deadline: v.optional(v.string()), // срок необязателен: хватает названия и исполнителя
     tags: v.optional(v.array(v.string())),
     kpiRef: v.optional(v.string()),
   },
@@ -151,7 +151,8 @@ export const setStatus = mutation({
       await ctx.db.patch(id, {
         status,
         completedAt: now,
-        completedOnTime: isOnTime(now, task.deadline),
+        // Без срока задача не может быть «с опозданием» — оставляем поле пустым.
+        completedOnTime: task.deadline ? isOnTime(now, task.deadline) : undefined,
       })
     } else {
       await ctx.db.patch(id, { status, completedAt: undefined, completedOnTime: undefined })

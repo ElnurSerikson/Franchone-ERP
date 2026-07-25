@@ -82,9 +82,9 @@ export default function TaskCreateModal({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Обязательно всё, кроме меток и вложений.
-  const canSubmit =
-    title.trim() && description.trim() && assigneeId && priority && deadline && !loading
+  // Достаточно названия и исполнителя. Остальное — по желанию: описание и срок
+  // необязательны, а приоритет по умолчанию «средний».
+  const canSubmit = title.trim() && assigneeId && !loading
 
   const addLink = () => {
     let url = linkUrl.trim()
@@ -111,10 +111,10 @@ export default function TaskCreateModal({
     try {
       const taskId = await create({
         title: title.trim(),
-        description: description.trim(),
+        description: description.trim() || undefined,
         assigneeId: assigneeId as Id<'employees'>,
-        priority: priority as Priority,
-        deadline,
+        priority: (priority || 'medium') as Priority,
+        deadline: deadline || undefined,
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
       })
 
@@ -179,14 +179,13 @@ export default function TaskCreateModal({
                 required
               />
             </Field>
-            <Field label="Описание">
+            <Field label="Описание" hint="необязательно">
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 rows={3}
                 className={`${inputCls} resize-y`}
                 placeholder="Детали задачи…"
-                required
               />
             </Field>
             <Field label="Исполнитель">
@@ -197,7 +196,7 @@ export default function TaskCreateModal({
                 options={assignable.map((e) => ({ value: e.id, label: e.name, dot: e.avatarColor }))}
               />
             </Field>
-            <Field label="Приоритет">
+            <Field label="Приоритет" hint="по умолчанию средний">
               <Select
                 value={priority}
                 onChange={(v) => setPriority(v as Priority)}
@@ -205,7 +204,7 @@ export default function TaskCreateModal({
                 options={PRIORITY_OPTS}
               />
             </Field>
-            <Field label="Срок">
+            <Field label="Срок" hint="необязательно">
               <DatePicker value={deadline} onChange={setDeadline} />
             </Field>
 

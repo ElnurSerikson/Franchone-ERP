@@ -729,7 +729,7 @@ function OverdueList({
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium text-ink truncate">{t.title}</div>
                   <div className="text-[11px] text-[#c53030] font-semibold">
-                    Просрочено · {shortDate(t.deadline)}
+                    Просрочено · {t.deadline ? shortDate(t.deadline) : '—'}
                   </div>
                 </div>
                 <PriorityChip priority={t.priority} />

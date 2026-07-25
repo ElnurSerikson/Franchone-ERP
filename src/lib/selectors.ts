@@ -26,11 +26,13 @@ export function employeeKpi(
   return { employee: emp, kpi: null, payout: null }
 }
 
-export const isOverdue = (t: Task) => t.status !== 'done' && t.deadline < TODAY
+// Задача без срока не бывает просроченной, срочной или «на сегодня» —
+// её просто не по чему сравнивать с датой.
+export const isOverdue = (t: Task) => t.status !== 'done' && !!t.deadline && t.deadline < TODAY
 
 // Срок наступает в ближайшие `days` дней (не считая просроченных и сегодняшних).
 export function isDueSoon(t: Task, days: number): boolean {
-  if (t.status === 'done') return false
+  if (t.status === 'done' || !t.deadline) return false
   const limit = new Date(Date.parse(`${TODAY}T00:00:00Z`) + days * 86400000)
     .toISOString()
     .slice(0, 10)
@@ -44,7 +46,8 @@ export const isDueToday = (t: Task) => t.status !== 'done' && t.deadline === TOD
 // Общий знаменатель важен: иначе «поставлено» и «выполнено» считались бы по
 // разным множествам и процент выполнения ничего бы не значил.
 export function monthTaskStats(tasks: Task[], month: string) {
-  const scope = tasks.filter((t) => t.deadline.slice(0, 7) === month)
+  // Задачи без срока в набор месяца не попадают — их не с чем соотнести.
+  const scope = tasks.filter((t) => t.deadline?.slice(0, 7) === month)
   const done = scope.filter((t) => t.status === 'done')
   const onTime = done.filter((t) => t.completedOnTime).length
   const late = done.filter((t) => t.completedOnTime === false).length
