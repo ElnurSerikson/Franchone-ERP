@@ -7,8 +7,28 @@ import { isMonthClosed } from './payroll'
 
 // Бизнес-часовой пояс компании — Asia/Almaty (UTC+5, без перехода на летнее время).
 const TZ = '+05:00'
-const DEFAULT_DEADLINE = '20:00'
+const DEFAULT_DEADLINE = '23:50'
 const REPORTING = new Set(['smm', 'targetolog', 'sales'])
+
+// Отчёт «переоткрыт»: владелец удалил его, день ждёт повторной сдачи. Цифры
+// очищены, а повторная отправка пойдёт «с опозданием».
+function isReopened(r: Doc<'dailyReports'> | null | undefined): boolean {
+  return r?.reopened === true
+}
+
+// Может ли сотрудник (автор) сам править отчёт за дату прямо сейчас.
+// Правило: до дедлайна своего дня (23:50) — да; после — лок, дальше только
+// владелец. Исключение — владелец переоткрыл день удалением: тогда сотрудник
+// дозаполняет заново, и отметка будет «с опозданием».
+function authorCanEdit(
+  r: Doc<'dailyReports'> | null,
+  date: string,
+  nowMs: number,
+  time: string,
+): boolean {
+  if (isReopened(r)) return true
+  return nowMs <= deadlineMs(date, time)
+}
 
 // Сегодняшняя календарная дата в часовом поясе Алматы.
 function businessToday(): string {
@@ -78,13 +98,28 @@ export const mine = query({
       .collect()
     all.sort((a, b) => (a.date < b.date ? 1 : -1)) // по дате, свежие сверху
 
+    const report = all.find((r) => r.date === target) ?? null
+    const reporting = me.role !== 'owner' && REPORTING.has(me.position)
+    const closed = await isMonthClosed(ctx, target.slice(0, 7))
+    const editable =
+      reporting && !closed && authorCanEdit(report, target, Date.now(), time)
+    // Почему поле закрыто — чтобы форма показала верное сообщение.
+    const lockReason = editable
+      ? null
+      : closed
+        ? ('closed' as const)
+        : ('past' as const)
+
     return {
       today,
       date: target,
       earliestDate: earliestReportDate(me, today),
       deadlineTime: time,
       position: me.position,
-      report: all.find((r) => r.date === target) ?? null,
+      report,
+      reopened: isReopened(report),
+      editable,
+      lockReason,
       history: all.slice(0, 21),
     }
   },
@@ -107,24 +142,14 @@ export const submit = mutation({
     const position = me.position as 'smm' | 'targetolog' | 'sales'
     const today = businessToday()
     const date = args.date ?? today
-    // Дозаполнить прошлый день можно, выдумать будущий — нет. Нижняя граница —
-    // начало месяца: KPI и выплата считаются по месяцу, и задним числом
-    // переписывать уже посчитанный период нельзя.
+    const time = await deadlineTime(ctx)
+    const now = Date.now()
+
     if (date > today) throw new ConvexError('Отчёт за будущую дату сдать нельзя')
-    if (date < earliestReportDate(me, today)) {
-      throw new ConvexError('Отчёт за эту дату уже нельзя изменить')
-    }
     // Закрытый месяц — это уже начисленная зарплата. Иначе правку можно было бы
     // протащить в переоткрытый месяц и разойтись со снапшотом.
     if (await isMonthClosed(ctx, date.slice(0, 7))) {
       throw new ConvexError('Месяц закрыт — отчёты за него больше не принимаются')
-    }
-    const now = Date.now()
-    const payload = {
-      smm: args.smm,
-      targetolog: args.targetolog,
-      sales: args.sales,
-      note: args.note,
     }
 
     const existing = await ctx.db
@@ -134,25 +159,50 @@ export const submit = mutation({
       )
       .first()
 
+    const reopened = isReopened(existing)
+    // Своё окно правки — до 23:50 своего дня. После дедлайна отчёт трогает
+    // только владелец; исключение — день, переоткрытый удалением: его сотрудник
+    // дозаполняет заново, но уже «с опозданием».
+    if (!reopened && now > deadlineMs(date, time)) {
+      throw new ConvexError(
+        'Дедлайн прошёл — отчёт за этот день может изменить только владелец',
+      )
+    }
+
+    const payload = {
+      smm: args.smm,
+      targetolog: args.targetolog,
+      sales: args.sales,
+      note: args.note,
+    }
+
     if (existing) {
       await ctx.db.patch(existing._id, {
         ...payload,
+        // Переоткрытый день закрываем повторной сдачей: снимаем флаг и метки
+        // удаления, статус фиксируем «с опозданием».
+        ...(reopened
+          ? { onTime: false, reopened: false, deletedAt: undefined, deletedById: undefined }
+          : {}),
         editedAt: now,
         editedById: me._id,
         editCount: existing.editCount + 1,
-        history: [...existing.history, { at: now, byId: me._id, action: 'edited' as const }],
+        history: [
+          ...existing.history,
+          { at: now, byId: me._id, action: reopened ? ('submitted' as const) : ('edited' as const) },
+        ],
       })
       return existing._id
     }
 
-    const time = await deadlineTime(ctx)
-    const onTime = now <= deadlineMs(date, time)
+    // Свежая отправка сюда попадает только в пределах дедлайна (иначе отсекли
+    // выше), значит она всегда «в срок».
     return await ctx.db.insert('dailyReports', {
       employeeId: me._id,
       position,
       date,
       submittedAt: now,
-      onTime,
+      onTime: true,
       editCount: 0,
       history: [{ at: now, byId: me._id, action: 'submitted' as const }],
       ...payload,
@@ -185,6 +235,12 @@ async function disciplineRow(
     if (d < e.hiredAt) return { date: d, status: 'na' as const }
     const r = byDate.get(d)
     if (r) {
+      // Переоткрытый день — отчёт удалён владельцем и ещё не пересдан: цифр
+      // нет, засчитываем как пропуск, пока сотрудник (или владелец) не заполнит.
+      if (isReopened(r)) {
+        missed++
+        return { date: d, status: 'missed' as const, reopened: true }
+      }
       if (r.onTime) onTime++
       else late++
       return {
@@ -295,42 +351,58 @@ export const reportFor = query({
     if (!viewer) return null
     if (!isManager(viewer) && viewer._id !== employeeId) return null
 
+    const emp = await ctx.db.get(employeeId)
     const report = await ctx.db
       .query('dailyReports')
       .withIndex('by_employee_date', (q) =>
         q.eq('employeeId', employeeId).eq('date', date),
       )
       .first()
-    if (!report) return null
 
-    const history = await Promise.all(
-      report.history.map(async (h) => {
-        const by = await ctx.db.get(h.byId)
-        return {
-          at: h.at,
-          action: h.action,
-          byName: by?.name ?? 'Сотрудник',
-          byInitials: by?.initials ?? '—',
-          byColor: by?.avatarColor ?? '#9498a1',
-        }
-      }),
-    )
+    const history = report
+      ? await Promise.all(
+          report.history.map(async (h) => {
+            const by = await ctx.db.get(h.byId)
+            return {
+              at: h.at,
+              action: h.action,
+              byName: by?.name ?? 'Сотрудник',
+              byInitials: by?.initials ?? '—',
+              byColor: by?.avatarColor ?? '#9498a1',
+            }
+          }),
+        )
+      : []
 
-    // Править может автор или руководство, и только пока месяц не закрыт.
-    const canEdit =
-      (isManager(viewer) || viewer._id === employeeId) &&
-      !(await isMonthClosed(ctx, date.slice(0, 7)))
+    const closed = await isMonthClosed(ctx, date.slice(0, 7))
+    const isOwner = viewer.role === 'owner'
+    const reopened = isReopened(report)
+    const reporting = !!emp && emp.role !== 'owner' && REPORTING.has(emp.position)
+    // Отчёт с содержимым: не переоткрытая пустышка. Такой можно править и удалять.
+    const hasContent = !!report && !reopened
 
-    return { report, history, canEdit }
+    return {
+      report,
+      history,
+      reopened,
+      position: emp?.position ?? null,
+      // После дедлайна правит и удаляет только владелец и только в открытом
+      // месяце. Пропущенный/переоткрытый день владелец вносит заново.
+      canEdit: isOwner && !closed && hasContent,
+      canDelete: isOwner && !closed && hasContent,
+      canCreate: isOwner && !closed && reporting && !hasContent,
+    }
   },
 })
 
-// Правка чужого/своего отчёта (§3: изменения фиксируются с автором и временем).
-// В отличие от submit не создаёт отчёт и не меняет статус «в срок/опоздал» —
-// он определяется первой отправкой и правкой не сдвигается.
-export const edit = mutation({
+// Владелец вносит или правит цифры отчёта после дедлайна (§3: правки
+// фиксируются с автором и временем). Правка НЕ меняет «в срок» — сданный
+// вовремя отчёт остаётся зелёным. Внесённый за пропущенный день — «с
+// опозданием» (жёлтый). Только владелец и только в открытом месяце.
+export const ownerSet = mutation({
   args: {
-    reportId: v.id('dailyReports'),
+    employeeId: v.id('employees'),
+    date: v.string(),
     note: v.optional(v.string()),
     smm: v.optional(smmRows),
     targetolog: v.optional(targetologRows),
@@ -338,28 +410,104 @@ export const edit = mutation({
   },
   handler: async (ctx, args) => {
     const me = await requireEmployee(ctx)
-    const report = await ctx.db.get(args.reportId)
-    if (!report) throw new ConvexError('Отчёт не найден')
-
-    if (!isManager(me) && me._id !== report.employeeId) {
-      throw new ConvexError('Отчёт может править его автор или руководитель')
+    if (me.role !== 'owner') {
+      throw new ConvexError('Править отчёты после дедлайна может только владелец')
     }
-    if (await isMonthClosed(ctx, report.date.slice(0, 7))) {
+    const emp = await ctx.db.get(args.employeeId)
+    if (!emp) throw new ConvexError('Сотрудник не найден')
+    if (emp.role === 'owner' || !REPORTING.has(emp.position)) {
+      throw new ConvexError('Для этой должности отчётность не предусмотрена')
+    }
+    if (args.date > businessToday()) {
+      throw new ConvexError('Отчёт за будущую дату внести нельзя')
+    }
+    if (await isMonthClosed(ctx, args.date.slice(0, 7))) {
       throw new ConvexError('Месяц закрыт — отчёты за него больше не изменяются')
     }
 
     const now = Date.now()
-    await ctx.db.patch(args.reportId, {
-      // Меняем только присланный раздел, чужие поля не трогаем.
-      ...(args.smm !== undefined ? { smm: args.smm } : {}),
-      ...(args.targetolog !== undefined ? { targetolog: args.targetolog } : {}),
-      ...(args.sales !== undefined ? { sales: args.sales } : {}),
-      ...(args.note !== undefined ? { note: args.note } : {}),
+    const existing = await ctx.db
+      .query('dailyReports')
+      .withIndex('by_employee_date', (q) =>
+        q.eq('employeeId', args.employeeId).eq('date', args.date),
+      )
+      .first()
+
+    if (existing) {
+      const reopened = isReopened(existing)
+      await ctx.db.patch(existing._id, {
+        // Меняем только присланный раздел, чужие поля не трогаем.
+        ...(args.smm !== undefined ? { smm: args.smm } : {}),
+        ...(args.targetolog !== undefined ? { targetolog: args.targetolog } : {}),
+        ...(args.sales !== undefined ? { sales: args.sales } : {}),
+        ...(args.note !== undefined ? { note: args.note } : {}),
+        // Правка в срок не сдвигает статус. Дозаполнение переоткрытого дня —
+        // «с опозданием», флаг снимаем.
+        ...(reopened
+          ? { onTime: false, reopened: false, deletedAt: undefined, deletedById: undefined }
+          : {}),
+        editedAt: now,
+        editedById: me._id,
+        editCount: existing.editCount + 1,
+        history: [
+          ...existing.history,
+          { at: now, byId: me._id, action: reopened ? ('created' as const) : ('edited' as const) },
+        ],
+      })
+      return existing._id
+    }
+
+    // Пропущенный день: отчёта не было, владелец вносит за сотрудника —
+    // всегда «с опозданием».
+    return await ctx.db.insert('dailyReports', {
+      employeeId: args.employeeId,
+      position: emp.position as 'smm' | 'targetolog' | 'sales',
+      date: args.date,
+      submittedAt: now,
+      onTime: false,
+      editedAt: now,
+      editedById: me._id,
+      editCount: 0,
+      history: [{ at: now, byId: me._id, action: 'created' as const }],
+      smm: args.smm,
+      targetolog: args.targetolog,
+      sales: args.sales,
+      note: args.note,
+    })
+  },
+})
+
+// Владелец удаляет отчёт за любую дату (открытый месяц). Мягкое удаление:
+// цифры очищаем, день переоткрываем сотруднику, но в истории остаётся, что
+// владелец удалил отчёт. Повторная сдача пойдёт «с опозданием».
+export const remove = mutation({
+  args: { reportId: v.id('dailyReports') },
+  handler: async (ctx, { reportId }) => {
+    const me = await requireEmployee(ctx)
+    if (me.role !== 'owner') {
+      throw new ConvexError('Удалять отчёты может только владелец')
+    }
+    const report = await ctx.db.get(reportId)
+    if (!report) throw new ConvexError('Отчёт не найден')
+    if (await isMonthClosed(ctx, report.date.slice(0, 7))) {
+      throw new ConvexError('Месяц закрыт — отчёты за него удалять нельзя')
+    }
+
+    const now = Date.now()
+    await ctx.db.patch(reportId, {
+      smm: undefined,
+      targetolog: undefined,
+      sales: undefined,
+      note: undefined,
+      onTime: false,
+      reopened: true,
+      deletedAt: now,
+      deletedById: me._id,
       editedAt: now,
       editedById: me._id,
       editCount: report.editCount + 1,
-      history: [...report.history, { at: now, byId: me._id, action: 'edited' as const }],
+      history: [...report.history, { at: now, byId: me._id, action: 'deleted' as const }],
     })
-    return args.reportId
+    return reportId
   },
 })

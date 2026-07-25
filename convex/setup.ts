@@ -789,3 +789,18 @@ export const seedActivity = mutation({
     return { seeded: plan.length }
   },
 })
+
+// Одноразово: выставить дедлайн ежедневных отчётов на 23:50 (в БД мог остаться
+// старый 20:00, а он перекрывает умолчание). Запуск: npx convex run setup:setReportDeadline
+export const setReportDeadline = mutation({
+  args: { time: v.optional(v.string()) },
+  handler: async (ctx, { time }) => {
+    const value = time ?? '23:50'
+    const row = await ctx.db
+      .query('settings')
+      .withIndex('by_key', (q) => q.eq('key', 'global'))
+      .first()
+    if (row) await ctx.db.patch(row._id, { reportDeadlineTime: value })
+    return { reportDeadlineTime: value, existed: !!row }
+  },
+})

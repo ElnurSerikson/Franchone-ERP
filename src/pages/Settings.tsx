@@ -538,7 +538,7 @@ function ReportDeadlineCard() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  const current = picked ?? settings?.reportDeadlineTime ?? '20:00'
+  const current = picked ?? settings?.reportDeadlineTime ?? '23:50'
   const options = useMemo(() => {
     const o: { value: string; label: string }[] = []
     for (let h = 12; h <= 23; h++)
@@ -546,6 +546,8 @@ function ReportDeadlineCard() {
         const t = `${String(h).padStart(2, '0')}:${m}`
         o.push({ value: t, label: t })
       }
+    // Конец рабочего дня — стандартный дедлайн отчётности.
+    o.push({ value: '23:50', label: '23:50 (конец дня)' })
     return o
   }, [])
 

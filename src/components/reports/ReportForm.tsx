@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import { api } from '../../../convex/_generated/api'
 import type { Doc } from '../../../convex/_generated/dataModel'
-import { Loader2, Save, Check, Clock, PencilLine, History, ChevronDown } from 'lucide-react'
+import { Loader2, Save, Check, Clock, PencilLine, History, ChevronDown, Lock } from 'lucide-react'
 import type { SmmRow, TargetologRow } from '@/types'
 import { REPORTING_POSITIONS, REPORT_PAGES, CONTENT_TYPES } from '@/lib/constants'
 import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
@@ -26,11 +26,13 @@ function NumInput({
   onChange,
   className = numCls,
   placeholder = '0',
+  disabled = false,
 }: {
   value: string
   onChange: (v: string) => void
   className?: string
   placeholder?: string
+  disabled?: boolean
 }) {
   return (
     <input
@@ -39,9 +41,10 @@ function NumInput({
       inputMode="numeric"
       placeholder={placeholder}
       value={value}
+      disabled={disabled}
       onFocus={(e) => e.currentTarget.select()}
       onChange={(e) => onChange(e.target.value)}
-      className={className}
+      className={`${className} disabled:bg-chip disabled:text-muted disabled:cursor-not-allowed`}
     />
   )
 }
@@ -90,15 +93,17 @@ export default function ReportForm() {
           date={data.date}
           earliest={data.earliestDate}
           deadline={data.deadlineTime}
+          editable={data.editable}
+          reopened={data.reopened}
           onDate={(d) => setDate(d === data.today ? undefined : d)}
         />
         {/* key по дате: форму пересоздаём при переключении дня, иначе в полях
             останутся значения предыдущей даты — начальное состояние берётся
             из report один раз при монтировании. */}
         <div className="card p-5" key={data.date}>
-          {data.position === 'smm' && <SmmForm report={data.report} date={data.date} />}
-          {data.position === 'targetolog' && <TargetologForm report={data.report} date={data.date} />}
-          {data.position === 'sales' && <SalesForm report={data.report} date={data.date} />}
+          {data.position === 'smm' && <SmmForm report={data.report} date={data.date} readOnly={!data.editable} />}
+          {data.position === 'targetolog' && <TargetologForm report={data.report} date={data.date} readOnly={!data.editable} />}
+          {data.position === 'sales' && <SalesForm report={data.report} date={data.date} readOnly={!data.editable} />}
         </div>
       </div>
       <HistoryPanel history={data.history} />
@@ -113,6 +118,8 @@ function StatusBanner({
   date,
   earliest,
   deadline,
+  editable,
+  reopened,
   onDate,
 }: {
   report: Report | null
@@ -120,6 +127,8 @@ function StatusBanner({
   date: string
   earliest: string
   deadline: string
+  editable: boolean
+  reopened: boolean
   onDate: (d: string) => void
 }) {
   const past = date < today
@@ -136,24 +145,41 @@ function StatusBanner({
     </div>
   )
 
+  // Владелец удалил отчёт и переоткрыл день — форма снова открыта, но сдача
+  // пойдёт «с опозданием».
+  if (reopened) {
+    return (
+      <div className="card p-4 flex items-center gap-3 flex-wrap border-l-4" style={{ borderLeftColor: '#d69e2e' }}>
+        <span className="w-9 h-9 rounded-full grid place-items-center shrink-0" style={{ background: '#fff6e6', color: '#d69e2e' }}>
+          <Clock size={18} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-ink">Отчёт удалён владельцем — заполните заново</div>
+          <div className="text-sm text-muted">{longDate(date)} · будет отмечен как сданный с опозданием</div>
+        </div>
+        {picker}
+      </div>
+    )
+  }
+
   if (!report) {
-    // За прошлый день отчёт уже не может быть «в срок» — предупреждаем заранее,
-    // чтобы отметка «с опозданием» в сетке дисциплины не была сюрпризом.
-    const color = past ? '#c53030' : '#d69e2e'
+    // Пропущенный прошлый день сотруднику уже не отредактировать: после дедлайна
+    // его вносит только владелец. Сегодня до 23:50 — ещё можно сдать вовремя.
+    const color = editable ? '#d69e2e' : '#c53030'
     return (
       <div className="card p-4 flex items-center gap-3 flex-wrap border-l-4" style={{ borderLeftColor: color }}>
         <span
           className="w-9 h-9 rounded-full grid place-items-center shrink-0"
-          style={{ background: past ? '#fdeaea' : '#fff6e6', color }}
+          style={{ background: editable ? '#fff6e6' : '#fdeaea', color }}
         >
           <Clock size={18} />
         </span>
         <div className="min-w-0 flex-1">
           <div className="font-semibold text-ink">
-            {past ? 'Отчёт за этот день пропущен' : 'Отчёт за сегодня ещё не заполнен'}
+            {editable ? 'Отчёт за сегодня ещё не заполнен' : 'Отчёт за этот день пропущен'}
           </div>
           <div className="text-sm text-muted">
-            {longDate(date)} · {past ? 'будет отмечен как сданный с опозданием' : `дедлайн ${deadline}`}
+            {longDate(date)} · {editable ? `дедлайн ${deadline}` : 'дедлайн прошёл — заполнить может только владелец'}
           </div>
         </div>
         {picker}
@@ -195,6 +221,7 @@ function FormShell({
   edited,
   saving,
   saved,
+  readOnly = false,
   onSave,
   children,
 }: {
@@ -203,6 +230,7 @@ function FormShell({
   edited: boolean
   saving: boolean
   saved: boolean
+  readOnly?: boolean
   onSave: () => void
   children: ReactNode
 }) {
@@ -213,13 +241,24 @@ function FormShell({
           <h3 className="sec-title">{title}</h3>
           {hint && <p className="text-[11px] text-muted-2 mt-0.5">{hint}</p>}
         </div>
-        <button onClick={onSave} disabled={saving} className="btn btn-green disabled:opacity-60 shrink-0">
-          {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-          {edited ? 'Сохранить' : 'Отправить'}
-        </button>
+        {readOnly ? (
+          <span className="chip bg-chip text-muted-2 shrink-0">
+            <Lock size={12} /> Только просмотр
+          </span>
+        ) : (
+          <button onClick={onSave} disabled={saving} className="btn btn-green disabled:opacity-60 shrink-0">
+            {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+            {edited ? 'Сохранить' : 'Отправить'}
+          </button>
+        )}
       </div>
       {children}
-      {saved && (
+      {readOnly && (
+        <div className="text-[11px] text-muted-2 mt-3">
+          Дедлайн этого дня прошёл — правки вносит только владелец.
+        </div>
+      )}
+      {saved && !readOnly && (
         <div className="text-xs text-green-d mt-3 flex items-center gap-1">
           <Check size={13} /> Сохранено
         </div>
@@ -236,7 +275,7 @@ function FormShell({
 const SMM_CELLS = REPORT_PAGES.flatMap((page) => CONTENT_TYPES.map((type) => ({ page, type })))
 const cellKey = (page: string, type: string) => `${page}|${type}`
 
-function SmmForm({ report, date }: { report: Report | null; date: string }) {
+function SmmForm({ report, date, readOnly }: { report: Report | null; date: string; readOnly: boolean }) {
   const submit = useMutation(api.reports.submit)
   // Значения держим строками: number-поле со значением 0 нельзя очистить —
   // бэкспейс возвращает 0, и следующая цифра дописывается к нему («01», «10»).
@@ -257,6 +296,7 @@ function SmmForm({ report, date }: { report: Report | null; date: string }) {
   const total = SMM_CELLS.reduce((s, c) => s + numOf(c.page, c.type), 0)
 
   const save = async () => {
+    if (readOnly) return
     setSaving(true)
     try {
       const rows: SmmRow[] = SMM_CELLS.map((c) => ({
@@ -278,6 +318,7 @@ function SmmForm({ report, date }: { report: Report | null; date: string }) {
       edited={!!report}
       saving={saving}
       saved={saved}
+      readOnly={readOnly}
       onSave={save}
     >
       <div className="grid gap-4 sm:grid-cols-2">
@@ -294,6 +335,7 @@ function SmmForm({ report, date }: { report: Report | null; date: string }) {
                     className={`${numCls} w-24`}
                     value={get(page, type)}
                     onChange={(v) => setCount(page, type, v)}
+                    disabled={readOnly}
                   />
                 </div>
               ))}
@@ -305,9 +347,10 @@ function SmmForm({ report, date }: { report: Report | null; date: string }) {
       <div className="mt-4">
         <Lbl>Комментарий / ссылка</Lbl>
         <input
-          className={`${txtCls} mt-1.5`}
+          className={`${txtCls} mt-1.5 disabled:bg-chip disabled:text-muted`}
           placeholder="Ссылка на опубликованное или короткое пояснение"
           value={note}
+          disabled={readOnly}
           onChange={(e) => setNote(e.target.value)}
         />
       </div>
@@ -324,7 +367,7 @@ function SmmForm({ report, date }: { report: Report | null; date: string }) {
 // Строки не набираются руками: это все активные кампании из реестра, как в
 // KPI_TARGETOLOG.xlsx, где кампания выбирается по ID, а не пишется текстом.
 // Свободный текст невозможно сматчить с планом, и факт не дошёл бы до KPI.
-function TargetologForm({ report, date }: { report: Report | null; date: string }) {
+function TargetologForm({ report, date, readOnly }: { report: Report | null; date: string; readOnly: boolean }) {
   const submit = useMutation(api.reports.submit)
   const campaigns = useQuery(api.campaigns.registry, { activeOnly: true })
   // Строки, а не числа: иначе поле нельзя очистить, см. NumInput.
@@ -350,6 +393,7 @@ function TargetologForm({ report, date }: { report: Report | null; date: string 
   const sumL = list.reduce((s, c) => s + numOf(c.code).leads, 0)
 
   const save = async () => {
+    if (readOnly) return
     setSaving(true)
     try {
       const rows: TargetologRow[] = list.map((c) => ({ code: c.code, ...numOf(c.code) }))
@@ -379,6 +423,7 @@ function TargetologForm({ report, date }: { report: Report | null; date: string 
       edited={!!report}
       saving={saving}
       saved={saved}
+      readOnly={readOnly}
       onSave={save}
     >
       <div className="overflow-x-auto">
@@ -403,8 +448,8 @@ function TargetologForm({ report, date }: { report: Report | null; date: string 
                       {c.brand} · деньги: {c.moneySource}
                     </div>
                   </div>
-                  <NumInput value={val.budget} onChange={(v) => setVal(c.code, { budget: v })} />
-                  <NumInput value={val.leads} onChange={(v) => setVal(c.code, { leads: v })} />
+                  <NumInput value={val.budget} onChange={(v) => setVal(c.code, { budget: v })} disabled={readOnly} />
+                  <NumInput value={val.leads} onChange={(v) => setVal(c.code, { leads: v })} disabled={readOnly} />
                   <div className="h-[38px] flex items-center justify-end px-2 text-sm font-semibold text-ink-2 rounded-lg bg-chip">
                     {n.leads > 0 ? kzt(cpl(n.budget, n.leads)) : '—'}
                   </div>
@@ -424,7 +469,7 @@ function TargetologForm({ report, date }: { report: Report | null; date: string 
 }
 
 // ——— §3.3 Отдел продаж ———
-function SalesForm({ report, date }: { report: Report | null; date: string }) {
+function SalesForm({ report, date, readOnly }: { report: Report | null; date: string; readOnly: boolean }) {
   const submit = useMutation(api.reports.submit)
   // Числа держим строками — иначе поле не очистить, см. NumInput.
   const [f, setF] = useState({
@@ -441,6 +486,7 @@ function SalesForm({ report, date }: { report: Report | null; date: string }) {
     setF((p) => ({ ...p, [k]: v }))
 
   const save = async () => {
+    if (readOnly) return
     setSaving(true)
     try {
       await submit({
@@ -466,21 +512,23 @@ function SalesForm({ report, date }: { report: Report | null; date: string }) {
       edited={!!report}
       saving={saving}
       saved={saved}
+      readOnly={readOnly}
       onSave={save}
     >
       <div className="grid grid-cols-2 gap-3">
-        <NumField label="Обработано заявок" value={f.leads} onChange={(v) => setNum('leads', v)} />
-        <NumField label="Звонки / встречи" value={f.meetings} onChange={(v) => setNum('meetings', v)} />
-        <NumField label="Продаж, шт" value={f.sales} onChange={(v) => setNum('sales', v)} />
-        <NumField label="Сумма продаж, ₸" value={f.revenue} onChange={(v) => setNum('revenue', v)} />
+        <NumField label="Обработано заявок" value={f.leads} onChange={(v) => setNum('leads', v)} disabled={readOnly} />
+        <NumField label="Звонки / встречи" value={f.meetings} onChange={(v) => setNum('meetings', v)} disabled={readOnly} />
+        <NumField label="Продаж, шт" value={f.sales} onChange={(v) => setNum('sales', v)} disabled={readOnly} />
+        <NumField label="Сумма продаж, ₸" value={f.revenue} onChange={(v) => setNum('revenue', v)} disabled={readOnly} />
       </div>
       <div className="mt-3">
         <Lbl>Комментарий</Lbl>
         <textarea
           rows={2}
-          className={`${txtCls} h-auto py-2 resize-y mt-1`}
+          className={`${txtCls} h-auto py-2 resize-y mt-1 disabled:bg-chip disabled:text-muted`}
           placeholder="Необязательно"
           value={f.note ?? ''}
+          disabled={readOnly}
           onChange={(e) => setF((p) => ({ ...p, note: e.target.value }))}
         />
       </div>
@@ -568,16 +616,18 @@ function NumField({
   label,
   value,
   onChange,
+  disabled = false,
 }: {
   label: string
   value: string
   onChange: (v: string) => void
+  disabled?: boolean
 }) {
   return (
     <div>
       <Lbl>{label}</Lbl>
       <div className="mt-1">
-        <NumInput value={value} onChange={onChange} className={`${numCls} text-left`} />
+        <NumInput value={value} onChange={onChange} className={`${numCls} text-left`} disabled={disabled} />
       </div>
     </div>
   )

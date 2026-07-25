@@ -229,7 +229,7 @@ function ManagerView({ me }: { me: Employee }) {
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 mb-5">
         <div className="card p-5">
           <h3 className="sec-title mb-1">Не сдали отчёт сегодня</h3>
-          <p className="text-xs text-muted mb-4">дедлайн {disc?.deadlineTime ?? '20:00'}</p>
+          <p className="text-xs text-muted mb-4">дедлайн {disc?.deadlineTime ?? '23:50'}</p>
           {pendingRows.length === 0 ? (
             <p className="text-sm text-muted">
               {discRows.length ? 'Все отчёты за сегодня сданы.' : 'Никто не на ежедневной отчётности.'}

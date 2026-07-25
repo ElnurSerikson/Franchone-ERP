@@ -11,7 +11,7 @@ const DEFAULTS = {
   salarySales: 0,
   planRevenueSales: 0,
   reportMonth: 'Июль 2026',
-  reportDeadlineTime: '20:00',
+  reportDeadlineTime: '23:50',
 }
 
 export const get = query({

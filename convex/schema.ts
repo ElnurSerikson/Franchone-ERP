@@ -159,12 +159,22 @@ export default defineSchema({
     editedAt: v.optional(v.number()), // время последней правки после отправки
     editedById: v.optional(v.id('employees')),
     editCount: v.number(),
-    // Кто и когда: отправка + все правки
+    // Владелец удалил отчёт и переоткрыл день: цифры очищены, сотрудник
+    // дозаполняет заново — повторная сдача пойдёт «с опозданием».
+    reopened: v.optional(v.boolean()),
+    deletedAt: v.optional(v.number()),
+    deletedById: v.optional(v.id('employees')),
+    // Кто и когда: отправка, правки, создание владельцем, удаление
     history: v.array(
       v.object({
         at: v.number(),
         byId: v.id('employees'),
-        action: v.union(v.literal('submitted'), v.literal('edited')),
+        action: v.union(
+          v.literal('submitted'),
+          v.literal('edited'),
+          v.literal('created'), // владелец внёс за пропущенный день
+          v.literal('deleted'), // владелец удалил, день переоткрыт
+        ),
       }),
     ),
     // Свободный комментарий к отчёту: ссылка на опубликованное, пояснение.

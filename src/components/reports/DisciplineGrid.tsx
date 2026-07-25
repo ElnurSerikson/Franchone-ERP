@@ -8,6 +8,7 @@ import Avatar from '@/components/ui/Avatar'
 import { ProgressBar } from '@/components/ui/Progress'
 import { pct } from '@/lib/format'
 import { REPORT_STATUS, cellDate, reportTime, type ReportStatus } from '@/lib/reports'
+import { useApp } from '@/store'
 import ReportView from './ReportView'
 
 const th = 'text-[11px] font-semibold text-green-d uppercase tracking-wide px-3 py-2'
@@ -22,6 +23,10 @@ interface Sel {
 export default function DisciplineGrid() {
   const data = useQuery(api.reports.discipline, { days: 14 })
   const [sel, setSel] = useState<Sel | null>(null)
+  // Владелец может открыть и пропущенный/переоткрытый день — чтобы внести
+  // отчёт за сотрудника. Остальным доступны только заполненные ячейки.
+  const { role } = useApp()
+  const isOwner = role === 'owner'
 
   if (data === undefined)
     return (
@@ -87,10 +92,16 @@ export default function DisciplineGrid() {
                   </td>
                   {r.cells.map((c) => {
                     const st = REPORT_STATUS[c.status as ReportStatus]
-                    const clickable = c.status === 'onTime' || c.status === 'late'
-                    const title = clickable
+                    const filled = c.status === 'onTime' || c.status === 'late'
+                    // Владелец вносит и за пропущенный (в т.ч. переоткрытый) день.
+                    // «pending» — сегодня до дедлайна или будущее: это дело сотрудника.
+                    const ownerFillable = isOwner && c.status === 'missed'
+                    const clickable = filled || ownerFillable
+                    const title = filled
                       ? `${st.label} · ${reportTime((c as { submittedAt: number }).submittedAt)}`
-                      : st.label
+                      : ownerFillable
+                        ? `${st.label} · внести за сотрудника`
+                        : st.label
                     return (
                       <td key={c.date} className="border-t border-line text-center px-1.5 py-2.5">
                         <button
@@ -190,9 +201,9 @@ function CellModal({ sel, onClose }: { sel: Sel; onClose: () => void }) {
               <Loader2 className="animate-spin" size={20} />
             </div>
           ) : data ? (
-            <ReportView report={data.report} history={data.history} canEdit={data.canEdit} />
+            <ReportView data={data} employeeId={sel.employeeId} date={sel.date} onClose={onClose} />
           ) : (
-            <p className="text-sm text-muted">Отчёт за эту дату не найден.</p>
+            <p className="text-sm text-muted">Нет доступа к этому отчёту.</p>
           )}
         </div>
       </div>

@@ -2,24 +2,43 @@ import { useState } from 'react'
 import { useQuery, useMutation } from 'convex/react'
 import type { Doc, Id } from '../../../convex/_generated/dataModel'
 import { api } from '../../../convex/_generated/api'
-import { Clock, PencilLine, History, Loader2, Check } from 'lucide-react'
+import { Clock, PencilLine, History, Loader2, Check, Trash2, FilePlus2, AlertTriangle } from 'lucide-react'
 import { kzt, num } from '@/lib/format'
+import { REPORT_PAGES, CONTENT_TYPES } from '@/lib/constants'
 import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
 import { errMessage } from '@/lib/errors'
 
 type Report = Doc<'dailyReports'>
+type ReportAction = 'submitted' | 'edited' | 'created' | 'deleted'
 type NamedEvent = {
   at: number
-  action: 'submitted' | 'edited'
+  action: ReportAction
   byName: string
   byInitials: string
   byColor: string
+}
+type Position = 'smm' | 'targetolog' | 'sales'
+
+// Полный ответ reports.reportFor: сам отчёт может отсутствовать (пропущенный
+// день) или быть переоткрытым (владелец удалил — цифры очищены).
+export interface ReportData {
+  report: Report | null
+  history: NamedEvent[]
+  reopened: boolean
+  position: string | null // должность сотрудника (может быть не «отчётной»)
+  canEdit: boolean
+  canDelete: boolean
+  canCreate: boolean
 }
 
 const th = 'text-left text-[11px] font-semibold text-green-d uppercase tracking-wide px-3 py-2'
 const td = 'px-3 py-2 text-sm text-ink-2 border-t border-line'
 const numCls =
   'w-24 h-8 px-2 rounded-lg border border-line-2 text-sm text-right text-ink tabular-nums focus:outline-none focus:border-green-light'
+
+// Все шесть ячеек «страница × формат» — как в форме сотрудника и в KPI_SMM.
+const SMM_CELLS = REPORT_PAGES.flatMap((page) => CONTENT_TYPES.map((type) => ({ page, type })))
+const cellKey = (page: string, type: string) => `${page}|${type}`
 
 // Числовое поле правки: строка, чтобы можно было очистить (см. форму отчёта).
 function EditNum({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -37,48 +56,163 @@ function EditNum({ value, onChange }: { value: string; onChange: (v: string) => 
   )
 }
 
-// Отчёт: просмотр, правка (для автора и руководства) и история изменений.
+// Отчёт в модалке дисциплины. Просмотр — для руководства; правка, внесение за
+// пропущенный день и удаление — только для владельца (флаги приходят с сервера).
 export default function ReportView({
-  report,
-  history,
-  canEdit,
+  data,
+  employeeId,
+  date,
+  onClose,
 }: {
-  report: Report
-  history: NamedEvent[]
-  canEdit: boolean
+  data: ReportData
+  employeeId: Id<'employees'>
+  date: string
+  onClose: () => void
 }) {
-  const [editing, setEditing] = useState(false)
-  const st = REPORT_STATUS[report.onTime ? 'onTime' : 'late']
-  const registry = useQuery(api.campaigns.registry, report.targetolog ? {} : 'skip')
+  const { report, history, reopened, position, canEdit, canDelete, canCreate } = data
+  const [mode, setMode] = useState<'view' | 'edit'>('view')
+  const [confirmDel, setConfirmDel] = useState(false)
+  const [delBusy, setDelBusy] = useState(false)
+  const [delError, setDelError] = useState('')
+  const remove = useMutation(api.reports.remove)
+
+  const registry = useQuery(api.campaigns.registry, {})
   const byCode = new Map((registry ?? []).map((c) => [c.code, c]))
+
+  // Отчёт с содержимым: не пропуск и не переоткрытая пустышка.
+  const hasContent = !!report && !reopened
+
+  const del = async () => {
+    if (!report) return
+    setDelBusy(true)
+    setDelError('')
+    try {
+      await remove({ reportId: report._id as Id<'dailyReports'> })
+      onClose()
+    } catch (e) {
+      setDelError(errMessage(e, 'Не удалось удалить отчёт.'))
+      setDelBusy(false)
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className={`chip ${st.chip}`}>
-          <Clock size={12} /> {st.label}
-        </span>
-        <span className="text-sm text-muted">Отправлен: {reportTime(report.submittedAt)}</span>
-        {report.editCount > 0 && report.editedAt && (
-          <span className="chip bg-chip text-muted-2">
-            <PencilLine size={12} /> Изменён {report.editCount}×
-          </span>
-        )}
-        <div className="flex-1" />
-        {canEdit && !editing && (
-          <button onClick={() => setEditing(true)} className="mini-btn">
-            <PencilLine size={13} /> Редактировать
-          </button>
-        )}
-      </div>
+      {/* Шапка статуса + действия владельца */}
+      {hasContent && report ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <StatusChip report={report} />
+          <span className="text-sm text-muted">Отправлен: {reportTime(report.submittedAt)}</span>
+          {report.editCount > 0 && report.editedAt && (
+            <span className="chip bg-chip text-muted-2">
+              <PencilLine size={12} /> Изменён {report.editCount}×
+            </span>
+          )}
+          <div className="flex-1" />
+          {canEdit && mode === 'view' && (
+            <button onClick={() => setMode('edit')} className="mini-btn">
+              <PencilLine size={13} /> Редактировать
+            </button>
+          )}
+          {canDelete && mode === 'view' && !confirmDel && (
+            <button
+              onClick={() => setConfirmDel(true)}
+              className="mini-btn text-[#c53030] hover:bg-[#fdeaea]"
+            >
+              <Trash2 size={13} /> Удалить
+            </button>
+          )}
+        </div>
+      ) : null}
 
-      {editing ? (
-        <EditForm report={report} onDone={() => setEditing(false)} byCode={byCode} />
+      {/* Подтверждение удаления */}
+      {confirmDel && (
+        <div className="rounded-xl border border-[#f0b4b4] bg-[#fdeaea] p-3 flex flex-col gap-2">
+          <div className="text-sm text-[#7a1f1f]">
+            Удалить отчёт? Цифры будут стёрты, день снова откроется сотруднику для повторной сдачи —
+            она пойдёт «с опозданием». В истории останется, что отчёт удалили вы.
+          </div>
+          {delError && <div className="text-xs text-[#c53030]">{delError}</div>}
+          <div className="flex items-center gap-2">
+            <button onClick={del} disabled={delBusy} className="btn h-8 px-3 text-sm bg-[#c53030] text-white disabled:opacity-60">
+              {delBusy ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+              Удалить
+            </button>
+            <button onClick={() => setConfirmDel(false)} disabled={delBusy} className="btn btn-ghost h-8 px-3 text-sm">
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Тело: просмотр / правка / внесение за пропущенный день */}
+      {hasContent && report ? (
+        mode === 'edit' ? (
+          <OwnerEditor
+            employeeId={employeeId}
+            date={date}
+            position={report.position}
+            report={report}
+            onDone={() => setMode('view')}
+          />
+        ) : (
+          <ReadContent report={report} byCode={byCode} />
+        )
+      ) : canCreate && position ? (
+        <CreateBlock
+          employeeId={employeeId}
+          date={date}
+          position={position as Position}
+          reopened={reopened}
+        />
       ) : (
-        <ReadContent report={report} byCode={byCode} />
+        <div className="rounded-xl border border-line p-4 text-sm text-muted">
+          Отчёт за эту дату не сдан.
+        </div>
       )}
 
       {history.length > 0 && <HistoryBlock history={history} />}
+    </div>
+  )
+}
+
+function StatusChip({ report }: { report: Report }) {
+  const st = REPORT_STATUS[report.onTime ? 'onTime' : 'late']
+  return (
+    <span className={`chip ${st.chip}`}>
+      <Clock size={12} /> {st.label}
+    </span>
+  )
+}
+
+// ——— Блок «внести за пропущенный/переоткрытый день» ———
+function CreateBlock({
+  employeeId,
+  date,
+  position,
+  reopened,
+}: {
+  employeeId: Id<'employees'>
+  date: string
+  position: Position
+  reopened: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  if (open) {
+    return <OwnerEditor employeeId={employeeId} date={date} position={position} report={null} onDone={() => setOpen(false)} />
+  }
+  return (
+    <div className="rounded-xl border border-[#f3d9a4] bg-[#fff6e6] p-4 flex flex-col gap-3">
+      <div className="flex items-start gap-2.5">
+        <AlertTriangle size={18} className="text-[#b7791f] shrink-0 mt-0.5" />
+        <div className="text-sm text-[#8a5a12]">
+          {reopened
+            ? 'День переоткрыт: отчёт был удалён. Сотрудник может сдать заново, либо внесите цифры сами — отчёт будет отмечен «с опозданием».'
+            : 'Отчёт за этот день не сдан. Вы можете внести цифры за сотрудника — отчёт будет отмечен «с опозданием».'}
+        </div>
+      </div>
+      <button onClick={() => setOpen(true)} className="btn btn-green h-9 px-4 text-sm self-start">
+        <FilePlus2 size={14} /> Внести отчёт
+      </button>
     </div>
   )
 }
@@ -172,49 +306,79 @@ function ReadContent({
   )
 }
 
-// ——— Правка ———
-// Правим ровно тот набор строк, что был сдан: состав не меняем, только цифры.
-function EditForm({
+// ——— Правка / внесение (владелец) ———
+// Один редактор на оба случая: правим существующий отчёт или вносим новый за
+// пропущенный день. Состав строк фиксирован моделью: SMM — шесть ячеек,
+// таргет — активные кампании реестра (при правке — те, что были в отчёте).
+function OwnerEditor({
+  employeeId,
+  date,
+  position,
   report,
   onDone,
-  byCode,
 }: {
-  report: Report
+  employeeId: Id<'employees'>
+  date: string
+  position: Position
+  report: Report | null
   onDone: () => void
-  byCode: Map<string, { campaign: string; brand: string }>
 }) {
-  const edit = useMutation(api.reports.edit)
-  const [smm, setSmm] = useState(() => (report.smm ?? []).map((r) => ({ ...r, count: String(r.count) })))
-  const [tg, setTg] = useState(() =>
-    (report.targetolog ?? []).map((r) => ({ ...r, budget: String(r.budget), leads: String(r.leads) })),
+  const save = useMutation(api.reports.ownerSet)
+  // Активные кампании нужны только когда вносим таргет с нуля.
+  const activeCampaigns = useQuery(
+    api.campaigns.registry,
+    position === 'targetolog' && !report?.targetolog ? { activeOnly: true } : 'skip',
   )
-  const [sales, setSales] = useState(() =>
-    report.sales
-      ? {
-          leads: String(report.sales.leads),
-          meetings: String(report.sales.meetings),
-          sales: String(report.sales.sales),
-          revenue: String(report.sales.revenue),
-        }
-      : null,
-  )
-  const [note, setNote] = useState(report.note ?? '')
+  const registry = useQuery(api.campaigns.registry, position === 'targetolog' ? {} : 'skip')
+  const byCode = new Map((registry ?? []).map((c) => [c.code, c]))
+
+  const [smm, setSmm] = useState<Record<string, string>>(() => {
+    const from: Record<string, string> = {}
+    for (const r of report?.smm ?? []) from[cellKey(r.page, r.type)] = String(r.count)
+    return from
+  })
+  const [tg, setTg] = useState<Record<string, { budget: string; leads: string }>>(() => {
+    const from: Record<string, { budget: string; leads: string }> = {}
+    for (const r of report?.targetolog ?? []) from[r.code] = { budget: String(r.budget), leads: String(r.leads) }
+    return from
+  })
+  const [sales, setSales] = useState(() => ({
+    leads: report?.sales ? String(report.sales.leads) : '',
+    meetings: report?.sales ? String(report.sales.meetings) : '',
+    sales: report?.sales ? String(report.sales.sales) : '',
+    revenue: report?.sales ? String(report.sales.revenue) : '',
+  }))
+  const [note, setNote] = useState(report?.note ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
-  const save = async () => {
+  // Строки таргета: из отчёта (правка) либо активные кампании (внесение).
+  const tgCodes: string[] = report?.targetolog
+    ? report.targetolog.map((r) => r.code)
+    : (activeCampaigns ?? []).map((c) => c.code)
+
+  const doSave = async () => {
     setSaving(true)
     setError('')
     try {
-      await edit({
-        reportId: report._id as Id<'dailyReports'>,
+      await save({
+        employeeId,
+        date,
         note: note.trim() || undefined,
-        smm: report.smm ? smm.map((r) => ({ page: r.page, type: r.type, count: Number(r.count) || 0 })) : undefined,
-        targetolog: report.targetolog
-          ? tg.map((r) => ({ code: r.code, budget: Number(r.budget) || 0, leads: Number(r.leads) || 0 }))
-          : undefined,
+        smm:
+          position === 'smm'
+            ? SMM_CELLS.map((c) => ({ page: c.page, type: c.type, count: Number(smm[cellKey(c.page, c.type)]) || 0 }))
+            : undefined,
+        targetolog:
+          position === 'targetolog'
+            ? tgCodes.map((code) => ({
+                code,
+                budget: Number(tg[code]?.budget) || 0,
+                leads: Number(tg[code]?.leads) || 0,
+              }))
+            : undefined,
         sales:
-          report.sales && sales
+          position === 'sales'
             ? {
                 leads: Number(sales.leads) || 0,
                 meetings: Number(sales.meetings) || 0,
@@ -226,14 +390,16 @@ function EditForm({
       })
       onDone()
     } catch (e) {
-      setError(errMessage(e, 'Не удалось сохранить правку.'))
+      setError(errMessage(e, 'Не удалось сохранить.'))
       setSaving(false)
     }
   }
 
+  const canSaveTargetolog = position !== 'targetolog' || tgCodes.length > 0
+
   return (
     <div className="flex flex-col gap-4">
-      {report.smm && (
+      {position === 'smm' && (
         <table className="w-full">
           <thead>
             <tr className="bg-[#e2f2ef]">
@@ -243,35 +409,52 @@ function EditForm({
             </tr>
           </thead>
           <tbody>
-            {smm.map((r, i) => (
-              <tr key={i}>
-                <td className={td}>{r.page}</td>
-                <td className={td}>{r.type}</td>
-                <td className={`${td} text-right`}>
-                  <EditNum value={r.count} onChange={(v) => setSmm((s) => s.map((x, j) => (j === i ? { ...x, count: v } : x)))} />
-                </td>
-              </tr>
-            ))}
+            {SMM_CELLS.map((c) => {
+              const k = cellKey(c.page, c.type)
+              return (
+                <tr key={k}>
+                  <td className={td}>{c.page}</td>
+                  <td className={td}>{c.type}</td>
+                  <td className={`${td} text-right`}>
+                    <EditNum
+                      value={smm[k] ?? ''}
+                      onChange={(v) => setSmm((s) => ({ ...s, [k]: v }))}
+                    />
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       )}
 
-      {report.targetolog && (
-        <div className="flex flex-col gap-2">
-          {tg.map((r, i) => (
-            <div key={i} className="grid grid-cols-[1fr_104px_74px] gap-2 items-center">
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-ink truncate">{byCode.get(r.code)?.campaign ?? r.code}</div>
-                <div className="text-[11px] text-muted">{r.code}</div>
+      {position === 'targetolog' &&
+        (tgCodes.length === 0 ? (
+          <div className="rounded-xl border border-line p-4 text-sm text-muted">
+            В реестре нет активных кампаний — вносить нечего.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {tgCodes.map((code) => (
+              <div key={code} className="grid grid-cols-[1fr_104px_74px] gap-2 items-center">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-ink truncate">{byCode.get(code)?.campaign ?? code}</div>
+                  <div className="text-[11px] text-muted">{code}</div>
+                </div>
+                <EditNum
+                  value={tg[code]?.budget ?? ''}
+                  onChange={(v) => setTg((s) => ({ ...s, [code]: { ...(s[code] ?? { budget: '', leads: '' }), budget: v } }))}
+                />
+                <EditNum
+                  value={tg[code]?.leads ?? ''}
+                  onChange={(v) => setTg((s) => ({ ...s, [code]: { ...(s[code] ?? { budget: '', leads: '' }), leads: v } }))}
+                />
               </div>
-              <EditNum value={r.budget} onChange={(v) => setTg((s) => s.map((x, j) => (j === i ? { ...x, budget: v } : x)))} />
-              <EditNum value={r.leads} onChange={(v) => setTg((s) => s.map((x, j) => (j === i ? { ...x, leads: v } : x)))} />
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        ))}
 
-      {report.sales && sales && (
+      {position === 'sales' && (
         <div className="grid grid-cols-2 gap-3">
           {(
             [
@@ -290,7 +473,7 @@ function EditForm({
                 value={sales[k]}
                 placeholder="0"
                 onFocus={(e) => e.currentTarget.select()}
-                onChange={(e) => setSales((s) => (s ? { ...s, [k]: e.target.value } : s))}
+                onChange={(e) => setSales((s) => ({ ...s, [k]: e.target.value }))}
                 className="w-full h-9 px-2 rounded-lg border border-line-2 text-sm text-ink focus:outline-none focus:border-green-light"
               />
             </div>
@@ -311,7 +494,7 @@ function EditForm({
       {error && <p className="text-sm text-[#c53030]">{error}</p>}
 
       <div className="flex items-center gap-2">
-        <button onClick={save} disabled={saving} className="btn btn-green h-9 px-4 text-sm disabled:opacity-60">
+        <button onClick={doSave} disabled={saving || !canSaveTargetolog} className="btn btn-green h-9 px-4 text-sm disabled:opacity-60">
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
           Сохранить
         </button>
@@ -324,6 +507,13 @@ function EditForm({
 }
 
 // ——— История правок ———
+const ACTION_LABEL: Record<ReportAction, string> = {
+  submitted: 'отправил(а) отчёт',
+  edited: 'внёс(ла) правку',
+  created: 'внёс(ла) отчёт',
+  deleted: 'удалил(а) отчёт',
+}
+
 function HistoryBlock({ history }: { history: NamedEvent[] }) {
   // Свежие сверху.
   const items = [...history].reverse()
@@ -342,8 +532,7 @@ function HistoryBlock({ history }: { history: NamedEvent[] }) {
               {h.byInitials}
             </span>
             <span className="text-sm text-ink-2 flex-1 min-w-0 truncate">
-              <b className="font-medium text-ink">{h.byName}</b>{' '}
-              {h.action === 'submitted' ? 'отправил(а) отчёт' : 'внёс(ла) правку'}
+              <b className="font-medium text-ink">{h.byName}</b> {ACTION_LABEL[h.action]}
             </span>
             <span className="text-xs text-muted whitespace-nowrap">{reportTime(h.at)}</span>
           </div>
