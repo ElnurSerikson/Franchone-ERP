@@ -1,6 +1,7 @@
 import { query, mutation, internalMutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
+import type { Doc } from './_generated/dataModel'
 import { currentEmployee, isManager, requireEmployee, hiddenEmployeeIds } from './lib'
 import {
   computeSmmMath,
@@ -44,70 +45,34 @@ async function computeMonth(ctx: QueryCtx | MutationCtx, month: string) {
     cplWeight: s?.cplWeight ?? DEFAULT_WEIGHTS.cplWeight,
   }
 
-  // Скрытые аккаунты (тестовые) не участвуют в KPI/начислениях: их отчёты не
-  // должны попадать в общий факт роли.
+  // Скрытые аккаунты (тестовые) не участвуют в KPI/начислениях.
   const hidden = await hiddenEmployeeIds(ctx)
   const reports = (await ctx.db.query('dailyReports').collect()).filter(
     (r) => r.date.slice(0, 7) === month && !hidden.has(r.employeeId),
   )
-
-  // SMM: факт из ежедневных отчётов, разложенный по неделям — как SUMIFS в Excel.
-  const smmPlans = (await ctx.db.query('smmMetrics').collect()).filter((m) => m.month === month)
-  const facts = new Map<string, number[]>()
+  // Факт персональный — отчёты раскладываем по сотруднику.
+  const reportsByEmp = new Map<string, typeof reports>()
   for (const r of reports) {
-    if (r.position !== 'smm' || !r.smm) continue
-    const w = Math.min(5, Math.ceil(Number(r.date.slice(8, 10)) / 7)) - 1
-    for (const line of r.smm) {
-      const key = `${line.page}|${line.type}`
-      const arr = facts.get(key) ?? [0, 0, 0, 0, 0]
-      arr[w] += line.count
-      facts.set(key, arr)
-    }
+    const arr = reportsByEmp.get(r.employeeId) ?? []
+    arr.push(r)
+    reportsByEmp.set(r.employeeId, arr)
   }
-  const smm = computeSmmMath(
-    smmPlans.map((m) => ({
-      account: m.account,
-      format: m.format,
-      weight: m.weight,
-      weekPlans: m.weekPlans,
-      weekFacts: facts.get(`${m.account}|${m.format}`) ?? [0, 0, 0, 0, 0],
-    })),
-  )
 
-  // Таргетолог: план месяца по кампаниям + факт из отчётов.
-  const plans = await ctx.db
-    .query('campaignPlans')
-    .withIndex('by_month', (q) => q.eq('month', month))
-    .collect()
-  const adFacts = new Map<string, { budget: number; leads: number }>()
-  for (const r of reports) {
-    if (r.position !== 'targetolog' || !r.targetolog) continue
-    for (const line of r.targetolog) {
-      const acc = adFacts.get(line.code) ?? { budget: 0, leads: 0 }
-      acc.budget += line.budget
-      acc.leads += line.leads
-      adFacts.set(line.code, acc)
-    }
+  // Планы месяца, разложенные по сотруднику (KPI и оклад — на человека).
+  const smmByEmp = new Map<string, Doc<'smmMetrics'>[]>()
+  for (const m of (await ctx.db.query('smmMetrics').collect()).filter((m) => m.month === month)) {
+    if (!m.employeeId) continue
+    ;(smmByEmp.get(m.employeeId) ?? smmByEmp.set(m.employeeId, []).get(m.employeeId)!).push(m)
   }
-  const campaigns = []
-  for (const p of plans) {
-    const c = await ctx.db.get(p.campaignId)
-    if (!c || c.archived) continue
-    const f = adFacts.get(c.code) ?? { budget: 0, leads: 0 }
-    campaigns.push({
-      moneySource: c.moneySource,
-      weight: p.weight,
-      planBudget: p.planBudget,
-      planLeads: p.planLeads,
-      factBudget: f.budget,
-      factLeads: f.leads,
-    })
+  const campByEmp = new Map<string, Doc<'campaignPlans'>[]>()
+  for (const p of await ctx.db.query('campaignPlans').withIndex('by_month', (q) => q.eq('month', month)).collect()) {
+    if (!p.employeeId) continue
+    ;(campByEmp.get(p.employeeId) ?? campByEmp.set(p.employeeId, []).get(p.employeeId)!).push(p)
   }
-  const targetolog = computeTargetologMath(campaigns, weights)
-
-  // Продажи: KPI по выручке.
-  const revenue = reports.reduce((sum, r) => sum + (r.sales?.revenue ?? 0), 0)
-  const sales = computeSalesMath(revenue, s?.planRevenueSales ?? 0)
+  const salesPlanByEmp = new Map<string, number>()
+  for (const p of await ctx.db.query('salesPlans').withIndex('by_month', (q) => q.eq('month', month)).collect()) {
+    salesPlanByEmp.set(p.employeeId, p.planRevenue)
+  }
 
   const emps = (await ctx.db.query('employees').collect()).filter(
     (e) => !e.hidden && e.role !== 'owner',
@@ -115,27 +80,83 @@ async function computeMonth(ctx: QueryCtx | MutationCtx, month: string) {
 
   const rows = []
   for (const e of emps) {
+    const mine = reportsByEmp.get(e._id) ?? []
+    const salary = e.salary ?? 0
     let kpi: number | null = null
-    let salary = 0
     let planTotal: number | undefined
     let factTotal: number | undefined
-    if (e.position === 'smm' && smmPlans.length > 0) {
-      kpi = smm.totalKpi
-      salary = s?.salarySmm ?? 0
-      planTotal = smm.totalPlan
-      factTotal = smm.totalFact
-    } else if (e.position === 'targetolog' && campaigns.length > 0) {
-      kpi = targetolog.totalKpi
-      salary = s?.salaryTargetolog ?? 0
-      planTotal = campaigns.reduce((x, c) => x + c.planLeads, 0)
-      factTotal = targetolog.totalLeads
-    } else if (e.position === 'sales' && (s?.planRevenueSales ?? 0) > 0) {
-      kpi = sales.totalKpi
-      salary = s?.salarySales ?? 0
-      planTotal = sales.planRevenue
-      factTotal = sales.factRevenue
+
+    if (e.position === 'smm') {
+      const plans = smmByEmp.get(e._id) ?? []
+      if (plans.length > 0) {
+        const facts = new Map<string, number[]>()
+        for (const r of mine) {
+          if (!r.smm) continue
+          const w = Math.min(5, Math.ceil(Number(r.date.slice(8, 10)) / 7)) - 1
+          for (const line of r.smm) {
+            const key = `${line.page}|${line.type}`
+            const arr = facts.get(key) ?? [0, 0, 0, 0, 0]
+            arr[w] += line.count
+            facts.set(key, arr)
+          }
+        }
+        const smm = computeSmmMath(
+          plans.map((m) => ({
+            account: m.account,
+            format: m.format,
+            weight: m.weight,
+            weekPlans: m.weekPlans,
+            weekFacts: facts.get(`${m.account}|${m.format}`) ?? [0, 0, 0, 0, 0],
+          })),
+        )
+        kpi = smm.totalKpi
+        planTotal = smm.totalPlan
+        factTotal = smm.totalFact
+      }
+    } else if (e.position === 'targetolog') {
+      const plans = campByEmp.get(e._id) ?? []
+      const adFacts = new Map<string, { budget: number; leads: number }>()
+      for (const r of mine) {
+        if (!r.targetolog) continue
+        for (const line of r.targetolog) {
+          const acc = adFacts.get(line.code) ?? { budget: 0, leads: 0 }
+          acc.budget += line.budget
+          acc.leads += line.leads
+          adFacts.set(line.code, acc)
+        }
+      }
+      const campaigns = []
+      for (const p of plans) {
+        const c = await ctx.db.get(p.campaignId)
+        if (!c || c.archived) continue
+        const f = adFacts.get(c.code) ?? { budget: 0, leads: 0 }
+        campaigns.push({
+          moneySource: c.moneySource,
+          weight: p.weight,
+          planBudget: p.planBudget,
+          planLeads: p.planLeads,
+          factBudget: f.budget,
+          factLeads: f.leads,
+        })
+      }
+      if (campaigns.length > 0) {
+        const t = computeTargetologMath(campaigns, weights)
+        kpi = t.totalKpi
+        planTotal = campaigns.reduce((x, c) => x + c.planLeads, 0)
+        factTotal = t.totalLeads
+      }
+    } else if (e.position === 'sales') {
+      const plan = salesPlanByEmp.get(e._id) ?? 0
+      if (plan > 0) {
+        const revenue = mine.reduce((sum, r) => sum + (r.sales?.revenue ?? 0), 0)
+        const sales = computeSalesMath(revenue, plan)
+        kpi = sales.totalKpi
+        planTotal = sales.planRevenue
+        factTotal = sales.factRevenue
+      }
     }
-    if (kpi === null) continue // модели KPI для должности нет — начислять нечего
+
+    if (kpi === null) continue // нет модели/плана KPI — начислять нечего
     rows.push({
       employeeId: e._id,
       name: e.name,

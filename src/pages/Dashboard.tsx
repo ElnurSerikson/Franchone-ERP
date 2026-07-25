@@ -12,9 +12,9 @@ import { ProgressBar } from '@/components/ui/Progress'
 import { KpiChip, PriorityChip } from '@/components/ui/StatusChip'
 import { useApp, useCurrentUser } from '@/store'
 import { useData } from '@/lib/useData'
-import { computeSmm, computeTargetolog, DEFAULT_WEIGHTS } from '@/lib/kpi'
+import { computeTargetolog, DEFAULT_WEIGHTS } from '@/lib/kpi'
 import {
-  employeeKpi, taskCounts, isOverdue, isDueToday, isDueSoon, monthTaskStats,
+  taskCounts, isOverdue, isDueToday, isDueSoon, monthTaskStats,
 } from '@/lib/selectors'
 import { REPORT_STATUS, type ReportStatus } from '@/lib/reports'
 import { kzt, num, pct, plural, shortDate } from '@/lib/format'
@@ -37,9 +37,11 @@ export default function Dashboard() {
 // Личный дашборд сотрудника (§4)
 // ————————————————————————————————————————————————
 function PersonalView({ me }: { me: Employee }) {
-  const { tasks, smmMetrics, campaigns } = useData()
-  const settings = useQuery(api.settings.get, {})
+  const { tasks } = useData()
   const disc = useQuery(api.reports.myDiscipline, { days: 14 })
+  // KPI/оклад/план — из авторитетного персонального расчёта (сервер отдаёт
+  // сотруднику только его строку).
+  const pay = useQuery(api.payroll.month, { month: CURRENT_MONTH })
 
   // tasks уже приходят отфильтрованными по сотруднику — фильтрует сервер.
   const counts = taskCounts(tasks)
@@ -49,7 +51,7 @@ function PersonalView({ me }: { me: Employee }) {
   const stats = monthTaskStats(tasks, CURRENT_MONTH)
 
   // KPI и план — только для должностей с моделью. Остальным блоки не показываем.
-  const plan = planFor(me, smmMetrics, campaigns, settings)
+  const plan = personalPlan(me, pay?.rows?.[0])
 
   return (
     <>
@@ -160,9 +162,11 @@ function PersonalView({ me }: { me: Employee }) {
 // Управленческий дашборд: те же блоки, но по всей команде
 // ————————————————————————————————————————————————
 function ManagerView({ me }: { me: Employee }) {
-  const { activeEmployees, employees, tasks, smmMetrics, campaigns, reportMonth } = useData()
+  const { activeEmployees, employees, tasks, campaigns, reportMonth } = useData()
   const settings = useQuery(api.settings.get, {})
   const disc = useQuery(api.reports.discipline, { days: 14 })
+  // KPI/начисления — из авторитетного персонального расчёта.
+  const pay = useQuery(api.payroll.month, { month: CURRENT_MONTH })
 
   // Руководитель отдела видит только свой отдел; владелец — всю команду.
   const scoped =
@@ -170,14 +174,13 @@ function ManagerView({ me }: { me: Employee }) {
   const ids = new Set(scoped.map((e) => e.id))
   const scopedTasks = me.role === 'head' ? tasks.filter((t) => ids.has(t.assigneeId)) : tasks
 
-  // Владельца в списке KPI нет: у него нет ни плана, ни выплаты — строка
-  // всегда была бы прочерком. В начислениях он тоже не участвует.
-  const kpis = scoped
-    .filter((e) => e.role !== 'owner')
-    .map((e) => employeeKpi(e, smmMetrics, campaigns))
-  const withKpi = kpis.filter((k) => k.kpi !== null)
-  const teamKpi = withKpi.reduce((s, k) => s + (k.kpi ?? 0), 0) / (withKpi.length || 1)
-  const totalPayout = withKpi.reduce((s, k) => s + (k.payout ?? 0), 0)
+  // Владельца в списке KPI нет: у него нет ни плана, ни выплаты. KPI берём
+  // персональный, по строке начислений сотрудника.
+  const kpiById = new Map((pay?.rows ?? []).map((r) => [r.employeeId as string, r]))
+  const roster = scoped.filter((e) => e.role !== 'owner')
+  const withKpi = roster.map((e) => kpiById.get(e.id)).filter((r): r is NonNullable<typeof r> => !!r)
+  const teamKpi = withKpi.length ? withKpi.reduce((s, r) => s + r.kpi, 0) / withKpi.length : 0
+  const totalPayout = withKpi.reduce((s, r) => s + r.payout, 0)
 
   const tg = computeTargetolog(campaigns, {
     leadWeight: settings?.leadWeight ?? DEFAULT_WEIGHTS.leadWeight,
@@ -280,11 +283,13 @@ function ManagerView({ me }: { me: Employee }) {
             <h3 className="sec-title">KPI по сотрудникам</h3>
             <span className="text-xs text-muted">за {reportMonth}</span>
           </div>
-          {kpis.length === 0 ? (
+          {roster.length === 0 ? (
             <p className="text-sm text-muted py-4">В отделе пока нет сотрудников.</p>
           ) : (
             <div className="flex flex-col divide-y divide-line">
-              {kpis.map(({ employee: e, kpi }) => (
+              {roster.map((e) => {
+                const kpi = kpiById.get(e.id)?.kpi ?? null
+                return (
                 <div key={e.id} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex items-center gap-3 sm:gap-4">
                     <Avatar initials={e.initials} color={e.avatarColor} size={38} />
@@ -312,7 +317,8 @@ function ManagerView({ me }: { me: Employee }) {
                     {kpi !== null && <ProgressBar value={kpi} color={barColor(kpi)} />}
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -327,44 +333,32 @@ function ManagerView({ me }: { me: Employee }) {
 // Общие куски
 // ————————————————————————————————————————————————
 
-// План месяца по модели должности. null — модели нет, блоки не показываем.
-function planFor(
+// Личный план месяца из авторитетного расчёта начислений (одна строка
+// сотрудника). null — модели/плана KPI нет, блоки не показываем.
+function personalPlan(
   me: Employee,
-  smmMetrics: ReturnType<typeof useData>['smmMetrics'],
-  campaigns: ReturnType<typeof useData>['campaigns'],
-  settings: { salarySmm?: number; salaryTargetolog?: number; leadWeight?: number; cplWeight?: number } | undefined,
+  row?: { kpi: number; payout: number; salary: number; planTotal?: number; factTotal?: number },
 ) {
-  if (me.position === 'smm' && smmMetrics.length > 0) {
-    const r = computeSmm(smmMetrics)
-    const salary = settings?.salarySmm ?? 0
-    return {
-      kpi: r.totalKpi,
-      ratio: r.totalPlan ? Math.min(r.totalFact / r.totalPlan, 1) : 0,
-      fact: r.totalFact,
-      target: r.totalPlan,
-      caption: 'публикаций по плану месяца',
-      salary,
-      earned: Math.round(salary * r.totalKpi),
-    }
+  if (!row) return null
+  const target = row.planTotal ?? 0
+  const fact = row.factTotal ?? 0
+  const caption =
+    me.position === 'smm'
+      ? 'публикаций по плану месяца'
+      : me.position === 'targetolog'
+        ? 'заявок по плану месяца'
+        : me.position === 'sales'
+          ? 'выручка по плану месяца, ₸'
+          : 'план месяца'
+  return {
+    kpi: row.kpi,
+    ratio: target ? Math.min(fact / target, 1) : 0,
+    fact,
+    target,
+    caption,
+    salary: row.salary,
+    earned: row.payout,
   }
-  if (me.position === 'targetolog' && campaigns.length > 0) {
-    const r = computeTargetolog(campaigns, {
-      leadWeight: settings?.leadWeight ?? DEFAULT_WEIGHTS.leadWeight,
-      cplWeight: settings?.cplWeight ?? DEFAULT_WEIGHTS.cplWeight,
-    })
-    const planLeads = campaigns.reduce((s, c) => s + c.planLeads, 0)
-    const salary = settings?.salaryTargetolog ?? 0
-    return {
-      kpi: r.totalKpi,
-      ratio: planLeads ? Math.min(r.totalLeads / planLeads, 1) : 0,
-      fact: r.totalLeads,
-      target: planLeads,
-      caption: 'заявок по плану месяца',
-      salary,
-      earned: Math.round(salary * r.totalKpi),
-    }
-  }
-  return null
 }
 
 const barColor = (v: number) => (v >= 0.9 ? '#057269' : v >= 0.7 ? '#d69e2e' : '#c53030')

@@ -99,21 +99,24 @@ export const plans = query({
 
 export const setPlan = mutation({
   args: {
+    // План кампании персональный (у таргетолога). Пока таргетолога нет, план
+    // создаётся без владельца и будет привязан к нему при добавлении в команду.
+    employeeId: v.optional(v.id('employees')),
     campaignId: v.id('campaigns'),
     month: v.string(),
     planBudget: v.number(),
     planLeads: v.number(),
     weight: v.number(),
   },
-  handler: async (ctx, { campaignId, month, ...vals }) => {
+  handler: async (ctx, { employeeId, campaignId, month, ...vals }) => {
     await requirePlanAccess(ctx)
     const existing = await ctx.db
       .query('campaignPlans')
       .withIndex('by_campaign', (q) => q.eq('campaignId', campaignId))
       .collect()
-    const row = existing.find((p) => p.month === month)
+    const row = existing.find((p) => p.month === month && p.employeeId === employeeId)
     if (row) await ctx.db.patch(row._id, vals)
-    else await ctx.db.insert('campaignPlans', { campaignId, month, ...vals })
+    else await ctx.db.insert('campaignPlans', { employeeId, campaignId, month, ...vals })
   },
 })
 
@@ -168,13 +171,15 @@ export const factsForPeriod = query({
 // он собирается из ежедневных отчётов, как свод AI:AL на листе месяца в Excel.
 // Считаем на чтении, поэтому правка отчёта задним числом сразу видна в KPI.
 export const list = query({
-  args: { month: v.optional(v.string()) },
-  handler: async (ctx, { month }) => {
+  args: { month: v.optional(v.string()), employeeId: v.optional(v.id('employees')) },
+  handler: async (ctx, { month, employeeId }) => {
     if (!month) return []
-    const monthPlans = await ctx.db
+    let monthPlans = await ctx.db
       .query('campaignPlans')
       .withIndex('by_month', (q) => q.eq('month', month))
       .collect()
+    // KPI персональный: план кампании принадлежит таргетологу.
+    if (employeeId) monthPlans = monthPlans.filter((p) => p.employeeId === employeeId)
     if (monthPlans.length === 0) return []
 
     const hidden = await hiddenEmployeeIds(ctx)
@@ -183,6 +188,7 @@ export const list = query({
       if (hidden.has(r.employeeId)) continue // тестовый/скрытый не в KPI
       if (r.position !== 'targetolog' || !r.targetolog) continue
       if (r.date.slice(0, 7) !== month) continue
+      if (employeeId && r.employeeId !== employeeId) continue // только его факт
       for (const line of r.targetolog) {
         const acc = facts.get(line.code) ?? { budget: 0, leads: 0 }
         acc.budget += line.budget

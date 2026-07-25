@@ -74,13 +74,26 @@ export default defineSchema({
   // план заявок и вес в KPI. План CPL — производный, план/заявки.
   campaignPlans: defineTable({
     campaignId: v.id('campaigns'),
+    // Владелец кампании-плана: KPI персональный, план принадлежит таргетологу.
+    employeeId: v.optional(v.id('employees')),
     month: v.string(), // YYYY-MM
     planBudget: v.number(),
     planLeads: v.number(),
     weight: v.number(),
   })
     .index('by_month', ['month'])
-    .index('by_campaign', ['campaignId']),
+    .index('by_campaign', ['campaignId'])
+    .index('by_employee', ['employeeId']),
+
+  // План выручки отдела продаж — персональный, на сотрудника и месяц.
+  // KPI продаж = МИН(факт выручки / план; 1). Факт берётся из его отчётов.
+  salesPlans: defineTable({
+    employeeId: v.id('employees'),
+    month: v.string(), // YYYY-MM
+    planRevenue: v.number(),
+  })
+    .index('by_month', ['month'])
+    .index('by_employee', ['employeeId']),
 
   // Задачи (Kanban). Статусы по ТЗ: assigned / in_progress / done.
   tasks: defineTable({

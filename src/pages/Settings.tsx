@@ -163,10 +163,50 @@ function SaveBar({
 const SMM_ACCOUNTS = ['FRANCHONE', 'ANUAR'] as const
 const SMM_FORMATS = ['Рилсы', 'Сторис', 'Карусели'] as const
 
+// Выбор сотрудника, чей персональный план/оклад настраиваем. Один в команде —
+// показываем имя; несколько — выпадающий список.
+function EmployeePicker({
+  staff,
+  value,
+  onChange,
+}: {
+  staff: { id: string; name: string }[]
+  value: string
+  onChange: (v: string) => void
+}) {
+  if (staff.length <= 1) {
+    return (
+      <div className="text-sm text-muted">
+        Сотрудник: <span className="font-medium text-ink">{staff[0]?.name ?? '—'}</span>
+      </div>
+    )
+  }
+  return (
+    <div className="w-64">
+      <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1">Сотрудник</div>
+      <Select value={value} onChange={onChange} options={staff.map((e) => ({ value: e.id, label: e.name }))} />
+    </div>
+  )
+}
+
 function SmmKpiSetup() {
-  const { smmMetrics } = useData()
-  const settings = useQuery(api.settings.get, {})
-  const updateSettings = useMutation(api.settings.update)
+  const { activeEmployees } = useData()
+  const staff = activeEmployees.filter((e) => e.position === 'smm' && e.role !== 'owner')
+  const [empId, setEmpId] = useState('')
+  const selected = empId || staff[0]?.id || ''
+  const selectedEmp = staff.find((e) => e.id === selected)
+  const metricsRaw = useQuery(
+    api.smm.list,
+    selected ? { month: CURRENT_MONTH, employeeId: selected as Id<'employees'> } : 'skip',
+  )
+  const smmMetrics = (metricsRaw ?? []).map((m) => ({
+    id: m._id as string,
+    account: m.account,
+    format: m.format,
+    weight: m.weight,
+    weekPlans: m.weekPlans,
+  }))
+  const updateEmployee = useMutation(api.employees.update)
   const setPlan = useMutation(api.smm.setPlan)
   const addMetric = useMutation(api.smm.addMetric)
   const removeMetric = useMutation(api.smm.removeMetric)
@@ -189,7 +229,7 @@ function SmmKpiSetup() {
     setSaved(false)
   }
 
-  const curSalary = salary ?? settings?.salarySmm ?? 0
+  const curSalary = salary ?? selectedEmp?.salary ?? 0
   const weightSum = smmMetrics.reduce((s, m) => s + rowOf(m).weight, 0)
   const dirty = Object.keys(draft).length > 0 || salary !== null
 
@@ -207,7 +247,9 @@ function SmmKpiSetup() {
       for (const [id, val] of Object.entries(draft)) {
         await setPlan({ id: id as Id<'smmMetrics'>, weight: val.weight, weekPlans: val.weekPlans })
       }
-      if (salary !== null) await updateSettings({ salarySmm: salary })
+      if (salary !== null && selected) {
+        await updateEmployee({ id: selected as Id<'employees'>, patch: { salary } })
+      }
       setDraft({})
       setSalary(null)
       setSaved(true)
@@ -242,6 +284,23 @@ function SmmKpiSetup() {
 
       {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
 
+      {staff.length === 0 ? (
+        <p className="text-sm text-muted">Нет действующих SMM-специалистов.</p>
+      ) : (
+        <>
+      <div className="mb-4">
+        <EmployeePicker
+          staff={staff}
+          value={selected}
+          onChange={(v) => {
+            setEmpId(v)
+            setDraft({})
+            setSalary(null)
+            setSaved(false)
+          }}
+        />
+      </div>
+
       <div className="mb-4">
         <SalaryField
           value={curSalary}
@@ -249,7 +308,7 @@ function SmmKpiSetup() {
             setSalary(v)
             setSaved(false)
           }}
-          hint="база выплаты для должности"
+          hint="персональный оклад сотрудника"
         />
       </div>
 
@@ -343,6 +402,7 @@ function SmmKpiSetup() {
               onClick={() =>
                 run(async () => {
                   await addMetric({
+                    employeeId: selected as Id<'employees'>,
                     month: CURRENT_MONTH,
                     account: newPair.account as 'FRANCHONE' | 'ANUAR',
                     format: newPair.format as 'Рилсы' | 'Сторис' | 'Карусели',
@@ -371,6 +431,8 @@ function SmmKpiSetup() {
       <p className={`text-[11px] mt-3 ${Math.abs(weightSum - 1) < 0.001 ? 'text-muted-2' : 'text-[#c53030]'}`}>
         Сумма весов = {pct(weightSum)}. В модели KPI она должна быть 100%.
       </p>
+        </>
+      )}
     </div>
   )
 }
@@ -466,31 +528,45 @@ function TargetologKpiSetup() {
 
 // ——— Отдел продаж: план выручки ———
 function SalesKpiSetup() {
-  const settings = useQuery(api.settings.get, {})
-  const update = useMutation(api.settings.update)
-  const [draft, setDraft] = useState<{ salarySales: number; planRevenueSales: number } | null>(null)
+  const { activeEmployees } = useData()
+  const staff = activeEmployees.filter((e) => e.position === 'sales' && e.role !== 'owner')
+  const [empId, setEmpId] = useState('')
+  const selected = empId || staff[0]?.id || ''
+  const emp = staff.find((e) => e.id === selected)
+  const summary = useQuery(
+    api.sales.summary,
+    selected ? { month: CURRENT_MONTH, employeeId: selected as Id<'employees'> } : 'skip',
+  )
+  const updateEmployee = useMutation(api.employees.update)
+  const setSalesPlan = useMutation(api.sales.setPlan)
+
+  const [salary, setSalary] = useState<number | null>(null)
+  const [plan, setPlan] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
 
-  const cur = draft ?? {
-    salarySales: settings?.salarySales ?? 0,
-    planRevenueSales: settings?.planRevenueSales ?? 0,
-  }
+  const curSalary = salary ?? emp?.salary ?? 0
+  const curPlan = plan ?? summary?.planRevenue ?? 0
+  const dirty = salary !== null || plan !== null
 
   const save = async () => {
+    if (!selected) return
     setSaving(true)
+    setError('')
     try {
-      await update(cur)
-      setDraft(null)
+      if (salary !== null) await updateEmployee({ id: selected as Id<'employees'>, patch: { salary } })
+      if (plan !== null) {
+        await setSalesPlan({ employeeId: selected as Id<'employees'>, month: CURRENT_MONTH, planRevenue: plan })
+      }
+      setSalary(null)
+      setPlan(null)
       setSaved(true)
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось сохранить.'))
     } finally {
       setSaving(false)
     }
-  }
-
-  const set = (patch: Partial<typeof cur>) => {
-    setDraft({ ...cur, ...patch })
-    setSaved(false)
   }
 
   return (
@@ -498,7 +574,7 @@ function SalesKpiSetup() {
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Sliders size={18} className="text-green" />
         <h3 className="sec-title flex-1">KPI · Отдел продаж</h3>
-        <SaveBar dirty={!!draft} saving={saving} saved={saved} onSave={save} />
+        <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />
       </div>
 
       <FormulaNote>
@@ -506,26 +582,47 @@ function SalesKpiSetup() {
         собирается из ежедневных отчётов отдела продаж.
       </FormulaNote>
 
-      <div className="flex flex-col gap-4">
-        <SalaryField
-          value={cur.salarySales}
-          onChange={(v) => set({ salarySales: v })}
-          hint="база выплаты для должности"
-        />
-        <div className="pt-4 border-t border-line">
-          <SalaryField
-            label="План выручки, ₸"
-            value={cur.planRevenueSales}
-            onChange={(v) => set({ planRevenueSales: v })}
-            hint="цель месяца, с которой сравнивается факт"
-          />
-        </div>
-      </div>
+      {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
 
-      {cur.salarySales > 0 && cur.planRevenueSales === 0 && (
-        <p className="text-[11px] text-[#c53030] mt-3">
-          Без плана выручки KPI продаж не считается, и выплата останется нулевой.
-        </p>
+      {staff.length === 0 ? (
+        <p className="text-sm text-muted">Нет действующих менеджеров по продажам.</p>
+      ) : (
+        <div className="flex flex-col gap-4">
+          <EmployeePicker
+            staff={staff}
+            value={selected}
+            onChange={(v) => {
+              setEmpId(v)
+              setSalary(null)
+              setPlan(null)
+              setSaved(false)
+            }}
+          />
+          <SalaryField
+            value={curSalary}
+            onChange={(v) => {
+              setSalary(v)
+              setSaved(false)
+            }}
+            hint="персональный оклад сотрудника"
+          />
+          <div className="pt-4 border-t border-line">
+            <SalaryField
+              label="План выручки, ₸"
+              value={curPlan}
+              onChange={(v) => {
+                setPlan(v)
+                setSaved(false)
+              }}
+              hint="персональная цель месяца"
+            />
+          </div>
+          {curSalary > 0 && curPlan === 0 && (
+            <p className="text-[11px] text-[#c53030]">
+              Без плана выручки KPI продаж не считается, и выплата останется нулевой.
+            </p>
+          )}
+        </div>
       )}
     </div>
   )

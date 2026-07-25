@@ -14,24 +14,24 @@ function weekIndex(date: string): number {
 }
 
 export const list = query({
-  args: { month: v.optional(v.string()) },
-  handler: async (ctx, { month }) => {
-    const rows = await ctx.db.query('smmMetrics').collect()
-    const metrics = month ? rows.filter((r) => r.month === month) : rows
+  args: { month: v.optional(v.string()), employeeId: v.optional(v.id('employees')) },
+  handler: async (ctx, { month, employeeId }) => {
+    const all = await ctx.db.query('smmMetrics').collect()
+    let metrics = month ? all.filter((r) => r.month === month) : all
+    // KPI персональный: план принадлежит сотруднику. Если сотрудник задан —
+    // отдаём только его строки.
+    if (employeeId) metrics = metrics.filter((m) => m.employeeId === employeeId)
     if (!month) return metrics
 
-    // Факт берём не из таблицы, а собираем из ежедневных отчётов — в Excel это
-    // SUMIFS по номеру недели. Считаем на чтении, чтобы правка отчёта задним
-    // числом сразу отражалась в KPI и не могло возникнуть рассинхрона.
-    // План задан на роль (строка «аккаунт × формат»), а не на человека, поэтому
-    // суммируем отчёты всех сотрудников с должностью smm за этот месяц.
+    // Факт — из ежедневных отчётов сотрудника (SUMIFS по неделе, как в Excel).
+    // Считаем на чтении, чтобы правка отчёта сразу отражалась в KPI.
     const hidden = await hiddenEmployeeIds(ctx)
-    const reports = await ctx.db.query('dailyReports').collect()
     const facts = new Map<string, number[]>()
-    for (const r of reports) {
+    for (const r of await ctx.db.query('dailyReports').collect()) {
       if (hidden.has(r.employeeId)) continue // тестовый/скрытый не в KPI
       if (r.position !== 'smm' || !r.smm) continue
       if (r.date.slice(0, 7) !== month) continue
+      if (employeeId && r.employeeId !== employeeId) continue // только его факт
       const w = weekIndex(r.date)
       for (const line of r.smm) {
         const key = `${line.page}|${line.type}`
@@ -69,18 +69,29 @@ export const setPlan = mutation({
 
 export const addMetric = mutation({
   args: {
+    // Владелец плана. Если не передан — привязываем к единственному
+    // действующему SMM-специалисту (пока в команде один).
+    employeeId: v.optional(v.id('employees')),
     month: v.string(),
     account: ACCOUNT,
     format: FORMAT,
     weight: v.number(),
   },
-  handler: async (ctx, { month, account, format, weight }) => {
+  handler: async (ctx, { employeeId, month, account, format, weight }) => {
     await requireManager(ctx)
+    const ownerId =
+      employeeId ??
+      (await ctx.db.query('employees').collect()).find(
+        (e) => e.position === 'smm' && !e.hidden && e.status === 'active' && e.role !== 'owner',
+      )?._id
+    if (!ownerId) throw new ConvexError('Нет действующего SMM-специалиста для плана')
+    // Набор строк персональный: одна пара «аккаунт × формат» на сотрудника в месяц.
     const existing = (await ctx.db.query('smmMetrics').collect()).find(
-      (m) => m.month === month && m.account === account && m.format === format,
+      (m) => m.employeeId === ownerId && m.month === month && m.account === account && m.format === format,
     )
     if (existing) throw new ConvexError(`${account} · ${format} уже есть в наборе`)
     return await ctx.db.insert('smmMetrics', {
+      employeeId: ownerId,
       month,
       account,
       format,

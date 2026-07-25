@@ -125,8 +125,10 @@ function Loading() {
 // ——— SMM: контент-KPI (FRANCHONE + ANUAR) ———
 function SmmKpi({ month }: { month: string }) {
   const raw = useQuery(api.smm.list, { month })
-  const settings = useQuery(api.settings.get, {})
-  if (raw === undefined || settings === undefined) return <Loading />
+  // Выплата — из авторитетного персонального расчёта, а не оклад×KPI по настройкам
+  // (оклад теперь у каждого свой). Суммируем строки SMM за месяц.
+  const payroll = useQuery(api.payroll.month, { month })
+  if (raw === undefined || payroll === undefined) return <Loading />
   const smmMetrics = raw.map(mapSmm)
   if (smmMetrics.length === 0)
     return (
@@ -138,7 +140,9 @@ function SmmKpi({ month }: { month: string }) {
     )
 
   const smm = computeSmm(smmMetrics)
-  const payoutVal = Math.round(settings.salarySmm * smm.totalKpi)
+  const payoutVal = (payroll?.rows ?? [])
+    .filter((r) => r.position === 'smm')
+    .reduce((s, r) => s + r.payout, 0)
 
   const rows = smm.rows.map((r) => ({
     id: r.metric.id,
@@ -151,7 +155,7 @@ function SmmKpi({ month }: { month: string }) {
     <>
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
         <StatCard highlight label="Общий KPI" value={pct(smm.totalKpi, 1)} foot="FRANCHONE + ANUAR" icon={TrendingUp} />
-        <StatCard label="К выплате" value={kzt(payoutVal)} foot="600 000 × KPI" icon={Wallet} />
+        <StatCard label="К выплате" value={kzt(payoutVal)} foot="оклад × KPI" icon={Wallet} />
         <StatCard label="KPI FRANCHONE" value={pct(smm.kpiFranchone, 1)} foot="Аккаунт компании" icon={Building2} />
         <StatCard label="KPI ANUAR" value={pct(smm.kpiAnuar, 1)} foot="Личный аккаунт" icon={User} />
       </div>
@@ -194,7 +198,8 @@ function SmmKpi({ month }: { month: string }) {
 function TargetologKpi({ month }: { month: string }) {
   const raw = useQuery(api.campaigns.list, { month })
   const settings = useQuery(api.settings.get, {})
-  if (raw === undefined || settings === undefined) return <Loading />
+  const payroll = useQuery(api.payroll.month, { month })
+  if (raw === undefined || settings === undefined || payroll === undefined) return <Loading />
   const campaigns = raw.map(mapCampaign)
 
   const tg = computeTargetolog(campaigns, {
@@ -202,7 +207,10 @@ function TargetologKpi({ month }: { month: string }) {
     cplWeight: settings.cplWeight,
   })
   const src = spendBySource(campaigns)
-  const payoutVal = Math.round(settings.salaryTargetolog * tg.totalKpi)
+  // Выплата — из авторитетного персонального расчёта (оклад у каждого свой).
+  const payoutVal = (payroll?.rows ?? [])
+    .filter((r) => r.position === 'targetolog')
+    .reduce((s, r) => s + r.payout, 0)
 
   return (
     <>

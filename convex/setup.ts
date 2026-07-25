@@ -840,6 +840,76 @@ export const addHiddenEmployee = mutation({
   },
 })
 
+// Миграция §5 на персональную модель KPI/оклада. Аккуратно с боевыми данными:
+// — SMM-планы (smmMetrics) привязываем к действующему SMM-специалисту (Нурай);
+// — план продаж (settings.planRevenueSales) переносим в salesPlans на менеджера
+//   (Асем) за текущий месяц;
+// — оклад на человека: из settings по должности, если у сотрудника ещё 0.
+// Факты не трогаем — они уже в ежедневных отчётах и привязаны к employeeId.
+// Идемпотентна: повторный запуск не дублирует.
+export const migrateToPerEmployeeKpi = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const emps = await ctx.db.query('employees').collect()
+    const s = await ctx.db
+      .query('settings')
+      .withIndex('by_key', (q) => q.eq('key', 'global'))
+      .first()
+    const SAL: Record<string, number> = {
+      smm: s?.salarySmm ?? 0,
+      targetolog: s?.salaryTargetolog ?? 0,
+      sales: s?.salarySales ?? 0,
+    }
+    const month = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 7)
+    const real = (pos: string) =>
+      emps.find((e) => e.position === pos && !e.hidden && e.status === 'active' && e.role !== 'owner')
+
+    const out = { month, salariesSet: [] as string[], smmReassigned: 0, salesPlan: null as null | string }
+
+    // 1. Оклад на человека.
+    for (const e of emps) {
+      if (e.hidden || e.role === 'owner') continue
+      const want = SAL[e.position] ?? 0
+      if ((e.salary ?? 0) === 0 && want > 0) {
+        await ctx.db.patch(e._id, { salary: want })
+        out.salariesSet.push(`${e.name}: ${want}`)
+      }
+    }
+
+    // 2. SMM-планы → действующему SMM-специалисту.
+    const smmEmp = real('smm')
+    if (smmEmp) {
+      for (const m of await ctx.db.query('smmMetrics').collect()) {
+        if (m.employeeId !== smmEmp._id) {
+          await ctx.db.patch(m._id, { employeeId: smmEmp._id })
+          out.smmReassigned++
+        }
+      }
+    }
+
+    // 3. План продаж → менеджеру, за текущий месяц (если ещё нет).
+    const salesEmp = real('sales')
+    if (salesEmp) {
+      const has = (
+        await ctx.db
+          .query('salesPlans')
+          .withIndex('by_employee', (q) => q.eq('employeeId', salesEmp._id))
+          .collect()
+      ).some((p) => p.month === month)
+      if (!has) {
+        await ctx.db.insert('salesPlans', {
+          employeeId: salesEmp._id,
+          month,
+          planRevenue: s?.planRevenueSales ?? 0,
+        })
+        out.salesPlan = `${salesEmp.name}: ${s?.planRevenueSales ?? 0} (${month})`
+      }
+    }
+
+    return out
+  },
+})
+
 // Переключить видимость сотрудника. hidden=false — показать в Команде/KPI/
 // Дисциплине и включить его отчёты в общий факт (для сквозного теста);
 // hidden=true — снова спрятать и исключить из KPI. Запуск:
