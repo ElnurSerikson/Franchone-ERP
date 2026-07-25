@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useMutation } from 'convex/react'
-import { UserPlus, Pencil, UserX, UserCheck, Mail, Phone } from 'lucide-react'
+import { UserPlus, Pencil, UserX, UserCheck, Mail, Phone, History } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
 import type { Employee } from '@/types'
 import PageHeader from '@/components/PageHeader'
 import Avatar from '@/components/ui/Avatar'
 import TeamMemberDrawer from '@/components/TeamMemberDrawer'
+import EmployeeHistoryDrawer from '@/components/EmployeeHistoryDrawer'
 import { usePerms } from '@/lib/usePerms'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { useData } from '@/lib/useData'
@@ -27,6 +28,7 @@ export default function Team() {
 
   const [creating, setCreating] = useState(false)
   const [editing, setEditing] = useState<Employee | null>(null)
+  const [viewing, setViewing] = useState<Employee | null>(null)
   const [target, setTarget] = useState<Employee | null>(null) // подтверждение статуса
   const [busy, setBusy] = useState(false)
   const [confirmError, setConfirmError] = useState<string | null>(null)
@@ -122,6 +124,13 @@ export default function Team() {
                     <td className={td}>
                       <div className="flex items-center justify-center gap-1.5">
                         <button
+                          onClick={() => setViewing(e)}
+                          className="ico-btn w-9 h-9"
+                          title="История сотрудника"
+                        >
+                          <History size={14} />
+                        </button>
+                        <button
                           onClick={() => setEditing(e)}
                           className="ico-btn w-9 h-9"
                           title="Редактировать"
@@ -154,6 +163,9 @@ export default function Team() {
         </div>
       </div>
 
+      {viewing && (
+        <EmployeeHistoryDrawer employeeId={viewing.id} onClose={() => setViewing(null)} />
+      )}
       {creating && <TeamMemberDrawer onClose={() => setCreating(false)} />}
       {editing && <TeamMemberDrawer employee={editing} onClose={() => setEditing(null)} />}
 

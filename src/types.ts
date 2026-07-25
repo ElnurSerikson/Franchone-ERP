@@ -20,6 +20,7 @@ export interface Employee {
   initials: string
   status: 'active' | 'archived'
   hiredAt: string
+  telegram?: string
 }
 
 // ——— SMM KPI ———

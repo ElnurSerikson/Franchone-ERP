@@ -24,6 +24,8 @@ export default defineSchema({
     initials: v.string(),
     status: v.union(v.literal('active'), v.literal('archived')),
     hiredAt: v.string(),
+    // Telegram для уведомлений (§11/§2). Пока хранится; заработает с модулем №2.
+    telegram: v.optional(v.string()),
     lastLoginAt: v.optional(v.number()), // время последнего входа
     // Скрытый служебный аккаунт (напр. разработчик): имеет доступ по роли,
     // но не показывается ни в одном списке фронта (Команда/KPI/Активность/…).

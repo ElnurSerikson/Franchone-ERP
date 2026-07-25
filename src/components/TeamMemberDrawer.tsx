@@ -5,6 +5,7 @@ import type { Id } from '../../convex/_generated/dataModel'
 import { UserPlus, Pencil, X, Loader2, CheckCircle2, Mail, Save } from 'lucide-react'
 import type { Employee } from '@/types'
 import { errMessage } from '@/lib/errors'
+import { usePerms } from '@/lib/usePerms'
 import Select from './ui/Select'
 
 const inputCls =
@@ -60,6 +61,16 @@ export default function TeamMemberDrawer({
   const isOwnerEdit = isEdit && employee!.role === 'owner'
   const [position, setPosition] = useState(employee?.position ?? '')
   const [department, setDepartment] = useState(employee?.department ?? '')
+  const [hiredAt, setHiredAt] = useState(employee?.hiredAt ?? today())
+  const [telegram, setTelegram] = useState(employee?.telegram ?? '')
+  const [salary, setSalary] = useState(employee?.salary ?? 0)
+  const [role, setRole] = useState<'head' | 'employee'>(
+    employee?.role === 'head' ? 'head' : 'employee',
+  )
+  // Оклад и роль показываем/шлём только владельцу (инвариант). Роль владельца
+  // не редактируем вовсе.
+  const { isOwner } = usePerms()
+  const canSetPayRole = isOwner && !isOwnerEdit
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -100,6 +111,10 @@ export default function TeamMemberDrawer({
           ...person,
           ...(posChanged ? { position, positionLabel: posMeta?.label ?? position } : {}),
           ...(deptChanged ? { department } : {}),
+          ...(hiredAt !== employee!.hiredAt ? { hiredAt } : {}),
+          ...(telegram.trim() !== (employee!.telegram ?? '') ? { telegram: telegram.trim() } : {}),
+          ...(canSetPayRole && salary !== employee!.salary ? { salary } : {}),
+          ...(canSetPayRole && role !== employee!.role ? { role } : {}),
         })
         close()
       } else {
@@ -109,9 +124,10 @@ export default function TeamMemberDrawer({
           position,
           positionLabel: posMeta?.label ?? position,
           department,
-          role: 'employee',
-          salary: 0,
-          hiredAt: today(),
+          role: isOwner ? role : 'employee',
+          salary: isOwner ? salary : 0,
+          hiredAt,
+          telegram: telegram.trim() || undefined,
         })
         setInvited({ name, email: person.email.toLowerCase() })
       }
@@ -134,6 +150,10 @@ export default function TeamMemberDrawer({
     setPhone('')
     setPosition(positions[0]?.slug ?? '')
     setDepartment(departments[0]?.name ?? '')
+    setHiredAt(today())
+    setTelegram('')
+    setSalary(0)
+    setRole('employee')
     setError(null)
     setInvited(null)
   }
@@ -237,6 +257,46 @@ export default function TeamMemberDrawer({
                   options={departments.map((d) => ({ value: d.name, label: d.name }))}
                 />
               </Field>
+              <Field label="Дата найма">
+                <input
+                  type="date"
+                  value={hiredAt}
+                  onChange={(e) => setHiredAt(e.target.value)}
+                  className={inputCls}
+                />
+              </Field>
+              <Field label="Telegram" hint="для уведомлений (заработает с модулем Telegram)">
+                <input
+                  value={telegram}
+                  onChange={(e) => setTelegram(e.target.value)}
+                  className={inputCls}
+                  placeholder="@username"
+                />
+              </Field>
+              {canSetPayRole && (
+                <>
+                  <Field label="Оклад, ₸">
+                    <input
+                      type="number"
+                      min={0}
+                      step={10000}
+                      value={salary}
+                      onChange={(e) => setSalary(Number(e.target.value) || 0)}
+                      className={inputCls}
+                    />
+                  </Field>
+                  <Field label="Роль (уровень доступа)">
+                    <Select
+                      value={role}
+                      onChange={(v) => setRole(v as 'head' | 'employee')}
+                      options={[
+                        { value: 'employee', label: 'Сотрудник' },
+                        { value: 'head', label: 'Руководитель отдела' },
+                      ]}
+                    />
+                  </Field>
+                </>
+              )}
             </div>
 
             {/* footer */}
@@ -303,11 +363,12 @@ function SuccessPanel({
   )
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div>
       <label className={labelCls}>{label}</label>
       {children}
+      {hint && <p className="text-[11px] text-muted-2 mt-1">{hint}</p>}
     </div>
   )
 }

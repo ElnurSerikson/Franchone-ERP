@@ -17,6 +17,7 @@ export const mapEmployee = (d: Doc<'employees'>): Employee => ({
   initials: d.initials,
   status: d.status,
   hiredAt: d.hiredAt,
+  telegram: d.telegram,
 })
 
 export const mapTask = (d: Doc<'tasks'>): Task => ({

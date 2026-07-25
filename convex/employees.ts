@@ -112,8 +112,9 @@ export const archive = mutation({
   },
 })
 
-// Редактирование участника команды — тот же набор полей, что и в приглашении.
-// Роль, оклад, дату найма и цвет аватара здесь намеренно не трогаем.
+// Редактирование участника команды (§11 админ-карточка). Имя/почта/телефон/
+// должность/отдел/дата/Telegram — по праву «Команда: редактирование» и в скоупе.
+// Оклад и роль — инвариант: только владелец (см. ниже).
 export const updateMember = mutation({
   args: {
     id: v.id('employees'),
@@ -127,6 +128,10 @@ export const updateMember = mutation({
     position: v.optional(v.string()),
     positionLabel: v.optional(v.string()),
     department: v.optional(v.string()),
+    hiredAt: v.optional(v.string()),
+    telegram: v.optional(v.string()),
+    salary: v.optional(v.number()), // только владелец
+    role: v.optional(v.union(v.literal('head'), v.literal('employee'))), // только владелец
   },
   handler: async (ctx, args) => {
     const me = await requireCan(ctx, 'team', 'edit')
@@ -134,6 +139,13 @@ export const updateMember = mutation({
     if (!target) throw new ConvexError('Сотрудник не найден')
     if (!inScope(me, target)) {
       throw new ConvexError('Можно редактировать только сотрудников в вашем доступе')
+    }
+    // Инвариант: оклад и роль меняет только владелец (матрица не переопределяет).
+    if (args.salary !== undefined && me.role !== 'owner') {
+      throw new ConvexError('Оклад меняет только владелец')
+    }
+    if (args.role !== undefined && me.role !== 'owner') {
+      throw new ConvexError('Роль меняет только владелец')
     }
 
     const firstName = args.firstName.trim()
@@ -170,6 +182,11 @@ export const updateMember = mutation({
       patch.positionLabel = args.positionLabel ?? target.positionLabel
     }
     if (args.department !== undefined) patch.department = args.department
+    if (args.hiredAt !== undefined) patch.hiredAt = args.hiredAt
+    if (args.telegram !== undefined) patch.telegram = args.telegram.trim()
+    if (args.salary !== undefined) patch.salary = args.salary
+    // Роль владельца не трогаем; себе роль тоже не меняем в этой форме.
+    if (args.role !== undefined && target.role !== 'owner') patch.role = args.role
     await ctx.db.patch(args.id, patch)
   },
 })
@@ -206,6 +223,7 @@ export const invite = mutation({
     role: v.union(v.literal('head'), v.literal('employee')),
     salary: v.number(),
     hiredAt: v.string(),
+    telegram: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const me = await requireCan(ctx, 'team', 'create')
@@ -244,11 +262,101 @@ export const invite = mutation({
       initials,
       status: 'active',
       hiredAt: args.hiredAt,
+      telegram: args.telegram?.trim() || undefined,
     })
 
     // Письмо-приглашение шлём фоновой action'ой (сеть недоступна из мутации).
     await ctx.scheduler.runAfter(0, internal.employees.sendInvite, { email, name })
     return id
+  },
+})
+
+// Сводная история сотрудника (§11): задачи, отчёты, входы — в одном месте.
+// KPI/начисления фронт берёт из payroll.month. Доступ: сам, владелец, либо
+// руководитель своего отдела.
+export const history = query({
+  args: { employeeId: v.id('employees') },
+  handler: async (ctx, { employeeId }) => {
+    const viewer = await currentEmployee(ctx)
+    if (!viewer) return null
+    const emp = await ctx.db.get(employeeId)
+    if (!emp) return null
+    const allowed =
+      viewer._id === employeeId ||
+      viewer.role === 'owner' ||
+      (viewer.role === 'head' && emp.department === viewer.department)
+    if (!allowed) return null
+
+    const now = Date.now()
+    const D = 24 * 60 * 60 * 1000
+    const today = new Date(now + 5 * D / 24).toISOString().slice(0, 10)
+
+    // Задачи (по исполнителю).
+    const mine = (await ctx.db.query('tasks').collect()).filter((t) => t.assigneeId === employeeId)
+    const done = mine.filter((t) => t.status === 'done')
+    const tasks = {
+      total: mine.length,
+      active: mine.filter((t) => t.status !== 'done').length,
+      done: done.length,
+      onTime: done.filter((t) => t.completedOnTime === true).length,
+      late: done.filter((t) => t.completedOnTime === false).length,
+      overdue: mine.filter((t) => t.status !== 'done' && !!t.deadline && t.deadline < today).length,
+    }
+
+    // Отчёты.
+    const reps = (
+      await ctx.db
+        .query('dailyReports')
+        .withIndex('by_employee', (q) => q.eq('employeeId', employeeId))
+        .collect()
+    ).sort((a, b) => (a.date < b.date ? 1 : -1))
+    const reports = {
+      total: reps.filter((r) => !r.reopened).length,
+      onTime: reps.filter((r) => r.onTime && !r.reopened).length,
+      late: reps.filter((r) => !r.onTime && !r.reopened).length,
+      recent: reps.slice(0, 14).map((r) => ({
+        date: r.date,
+        onTime: r.onTime,
+        reopened: r.reopened === true,
+        submittedAt: r.submittedAt,
+      })),
+    }
+
+    // Входы.
+    const times = (
+      await ctx.db
+        .query('loginEvents')
+        .withIndex('by_employee', (q) => q.eq('employeeId', employeeId))
+        .collect()
+    )
+      .map((l) => l.at)
+      .sort((a, b) => b - a)
+    const login = {
+      last: emp.lastLoginAt ?? times[0] ?? null,
+      count7d: times.filter((t) => now - t <= 7 * D).length,
+      count30d: times.filter((t) => now - t <= 30 * D).length,
+      recent: times.slice(0, 10),
+    }
+
+    return {
+      employee: {
+        id: emp._id,
+        name: emp.name,
+        positionLabel: emp.positionLabel,
+        department: emp.department,
+        initials: emp.initials,
+        avatarColor: emp.avatarColor,
+        status: emp.status,
+        hiredAt: emp.hiredAt,
+        email: emp.email,
+        phone: emp.phone,
+        telegram: emp.telegram ?? null,
+        role: emp.role,
+      },
+      tasks,
+      reports,
+      login,
+    }
   },
 })
 
