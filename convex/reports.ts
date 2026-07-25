@@ -285,18 +285,81 @@ export const discipline = query({
   },
 })
 
-// Конкретный отчёт (для модалки руководителя при клике по ячейке).
+// Конкретный отчёт + развёрнутая история правок (для модалки при клике по
+// ячейке). История хранит только id автора — имена резолвим здесь.
 export const reportFor = query({
   args: { employeeId: v.id('employees'), date: v.string() },
   handler: async (ctx, { employeeId, date }) => {
     // Чужой отчёт открывает только руководство; свой — сам сотрудник.
     const viewer = await currentEmployee(ctx)
-    if (!isManager(viewer) && viewer?._id !== employeeId) return null
-    return await ctx.db
+    if (!viewer) return null
+    if (!isManager(viewer) && viewer._id !== employeeId) return null
+
+    const report = await ctx.db
       .query('dailyReports')
       .withIndex('by_employee_date', (q) =>
         q.eq('employeeId', employeeId).eq('date', date),
       )
       .first()
+    if (!report) return null
+
+    const history = await Promise.all(
+      report.history.map(async (h) => {
+        const by = await ctx.db.get(h.byId)
+        return {
+          at: h.at,
+          action: h.action,
+          byName: by?.name ?? 'Сотрудник',
+          byInitials: by?.initials ?? '—',
+          byColor: by?.avatarColor ?? '#9498a1',
+        }
+      }),
+    )
+
+    // Править может автор или руководство, и только пока месяц не закрыт.
+    const canEdit =
+      (isManager(viewer) || viewer._id === employeeId) &&
+      !(await isMonthClosed(ctx, date.slice(0, 7)))
+
+    return { report, history, canEdit }
+  },
+})
+
+// Правка чужого/своего отчёта (§3: изменения фиксируются с автором и временем).
+// В отличие от submit не создаёт отчёт и не меняет статус «в срок/опоздал» —
+// он определяется первой отправкой и правкой не сдвигается.
+export const edit = mutation({
+  args: {
+    reportId: v.id('dailyReports'),
+    note: v.optional(v.string()),
+    smm: v.optional(smmRows),
+    targetolog: v.optional(targetologRows),
+    sales: v.optional(salesPayload),
+  },
+  handler: async (ctx, args) => {
+    const me = await requireEmployee(ctx)
+    const report = await ctx.db.get(args.reportId)
+    if (!report) throw new ConvexError('Отчёт не найден')
+
+    if (!isManager(me) && me._id !== report.employeeId) {
+      throw new ConvexError('Отчёт может править его автор или руководитель')
+    }
+    if (await isMonthClosed(ctx, report.date.slice(0, 7))) {
+      throw new ConvexError('Месяц закрыт — отчёты за него больше не изменяются')
+    }
+
+    const now = Date.now()
+    await ctx.db.patch(args.reportId, {
+      // Меняем только присланный раздел, чужие поля не трогаем.
+      ...(args.smm !== undefined ? { smm: args.smm } : {}),
+      ...(args.targetolog !== undefined ? { targetolog: args.targetolog } : {}),
+      ...(args.sales !== undefined ? { sales: args.sales } : {}),
+      ...(args.note !== undefined ? { note: args.note } : {}),
+      editedAt: now,
+      editedById: me._id,
+      editCount: report.editCount + 1,
+      history: [...report.history, { at: now, byId: me._id, action: 'edited' as const }],
+    })
+    return args.reportId
   },
 })

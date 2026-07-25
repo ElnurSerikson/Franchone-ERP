@@ -156,7 +156,7 @@ export default function DisciplineGrid() {
 }
 
 function CellModal({ sel, onClose }: { sel: Sel; onClose: () => void }) {
-  const report = useQuery(api.reports.reportFor, { employeeId: sel.employeeId, date: sel.date })
+  const data = useQuery(api.reports.reportFor, { employeeId: sel.employeeId, date: sel.date })
   const dateLabel = new Date(`${sel.date}T12:00:00+05:00`).toLocaleDateString('ru-RU', {
     day: 'numeric',
     month: 'long',
@@ -185,12 +185,12 @@ function CellModal({ sel, onClose }: { sel: Sel; onClose: () => void }) {
           </button>
         </div>
         <div className="p-6">
-          {report === undefined ? (
+          {data === undefined ? (
             <div className="grid place-items-center py-8 text-muted">
               <Loader2 className="animate-spin" size={20} />
             </div>
-          ) : report ? (
-            <ReportView report={report} />
+          ) : data ? (
+            <ReportView report={data.report} history={data.history} canEdit={data.canEdit} />
           ) : (
             <p className="text-sm text-muted">Отчёт за эту дату не найден.</p>
           )}
