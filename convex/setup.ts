@@ -928,6 +928,43 @@ export const setEmployeeHidden = mutation({
   },
 })
 
+// Заполнить справочники должностей и отделов из текущих данных (§11, Stage B).
+// Идемпотентна. Встроенные должности (smm/targetolog/sales) помечаем builtin —
+// на них завязан KPI, удалять нельзя.
+export const seedCatalogs = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const POSITIONS = [
+      { slug: 'smm', label: 'SMM-специалист', kpiModel: 'smm' as const, builtin: true },
+      { slug: 'targetolog', label: 'Таргетолог', kpiModel: 'targetolog' as const, builtin: true },
+      { slug: 'sales', label: 'Менеджер по продажам', kpiModel: 'sales' as const, builtin: true },
+      { slug: 'packer', label: 'Упаковщик / проект-менеджер', kpiModel: 'none' as const },
+      { slug: 'developer', label: 'AI разработчик', kpiModel: 'none' as const },
+    ]
+    const existingPos = await ctx.db.query('positions').collect()
+    let posAdded = 0
+    for (const p of POSITIONS) {
+      if (!existingPos.some((x) => x.slug === p.slug)) {
+        await ctx.db.insert('positions', p)
+        posAdded++
+      }
+    }
+
+    const emps = await ctx.db.query('employees').collect()
+    const names = new Set<string>(['Маркетинг', 'Продажи', 'Производство', 'Руководство', 'Разработка'])
+    for (const e of emps) if (e.department?.trim()) names.add(e.department.trim())
+    const existingDep = await ctx.db.query('departments').collect()
+    let depAdded = 0
+    for (const name of names) {
+      if (!existingDep.some((d) => d.name === name)) {
+        await ctx.db.insert('departments', { name })
+        depAdded++
+      }
+    }
+    return { posAdded, depAdded }
+  },
+})
+
 // Одноразово: привести position каждого отчёта к фактическому разделу данных
 // (smm/targetolog/sales). Чинит старые отчёты, где position «застрял» от
 // прежней должности сотрудника, из-за чего форма рисовалась пустой.

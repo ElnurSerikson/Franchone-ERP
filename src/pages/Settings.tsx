@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { Sliders, Users2, Building2, Timer, Check, Plus, Trash2 } from 'lucide-react'
+import { Sliders, Users2, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
 import Select from '@/components/ui/Select'
@@ -58,17 +58,22 @@ export default function Settings() {
         <ReportDeadlineCard />
       </div>
 
-      {/* Справочники */}
+      {/* Справочники отделов и должностей (§11) */}
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 mt-5">
+        <CatalogCard kind="departments" />
+        <CatalogCard kind="positions" />
+      </div>
+
+      {/* Справочная информация */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 mt-5">
         <div className="card p-5">
           <div className="flex items-center gap-2 mb-4">
             <Building2 size={18} className="text-green" />
-            <h3 className="sec-title">Справочники</h3>
+            <h3 className="sec-title">Справочная информация</h3>
           </div>
           <div className="flex flex-col gap-3 text-sm">
             <Row label="Аккаунты" value="FRANCHONE · ANUAR" />
             <Row label="Источники денег" value="FRANCHONE · Партнёр" />
-            <Row label="Отделы" value="Руководство · Маркетинг · Продажи · Производство" />
             <Row label="Кампаний в реестре" value={`${registry?.length ?? 0}`} />
             <Row label="Правило недель" value="ROUNDUP(день/7), максимум 5" />
           </div>
@@ -87,6 +92,148 @@ export default function Settings() {
         </div>
       </div>
     </>
+  )
+}
+
+// ——— Справочники: CRUD отделов и должностей (§11) ———
+// Один компонент на оба справочника: у отделов — name, у должностей — label +
+// slug + защита встроенных (с KPI). Владелец добавляет/переименовывает/удаляет.
+function CatalogCard({ kind }: { kind: 'departments' | 'positions' }) {
+  const isDep = kind === 'departments'
+  const items = useQuery(isDep ? api.departments.list : api.positions.list) ?? []
+  const createDep = useMutation(api.departments.create)
+  const renameDep = useMutation(api.departments.rename)
+  const removeDep = useMutation(api.departments.remove)
+  const createPos = useMutation(api.positions.create)
+  const renamePos = useMutation(api.positions.rename)
+  const removePos = useMutation(api.positions.remove)
+
+  const [draft, setDraft] = useState('')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editVal, setEditVal] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setError('')
+    setBusy(true)
+    try {
+      await fn()
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось сохранить.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const add = () => {
+    const v = draft.trim()
+    if (!v) return
+    run(async () => {
+      if (isDep) await createDep({ name: v })
+      else await createPos({ label: v })
+      setDraft('')
+    })
+  }
+  const saveEdit = (id: string) => {
+    const v = editVal.trim()
+    if (!v) return
+    run(async () => {
+      if (isDep) await renameDep({ id: id as Id<'departments'>, name: v })
+      else await renamePos({ id: id as Id<'positions'>, label: v })
+      setEditId(null)
+    })
+  }
+  const del = (id: string) =>
+    run(() => (isDep ? removeDep({ id: id as Id<'departments'> }) : removePos({ id: id as Id<'positions'> })))
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Building2 size={18} className="text-green" />
+        <h3 className="sec-title flex-1">{isDep ? 'Отделы' : 'Должности'}</h3>
+        <span className="text-xs text-muted">{items.length}</span>
+      </div>
+
+      {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
+
+      <div className="flex flex-col divide-y divide-line mb-3">
+        {items.map((it) => {
+          const id = it._id as string
+          const label = isDep ? (it as { name: string }).name : (it as { label: string }).label
+          const builtin = !isDep && (it as { builtin?: boolean }).builtin === true
+          const editing = editId === id
+          return (
+            <div key={id} className="flex items-center gap-2 py-2.5 first:pt-0">
+              {editing ? (
+                <>
+                  <input
+                    autoFocus
+                    value={editVal}
+                    onChange={(e) => setEditVal(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && saveEdit(id)}
+                    className="flex-1 h-9 px-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
+                  />
+                  <button onClick={() => saveEdit(id)} disabled={busy} className="ico-btn w-8 h-8 text-green-d" title="Сохранить">
+                    <Check size={15} />
+                  </button>
+                  <button onClick={() => setEditId(null)} className="ico-btn w-8 h-8" title="Отмена">
+                    <X size={15} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span className="flex-1 text-sm text-ink truncate">{label}</span>
+                  {builtin ? (
+                    <span className="chip bg-chip text-muted-2" title="Встроенная должность с моделью KPI">
+                      <Lock size={11} /> KPI
+                    </span>
+                  ) : null}
+                  <button
+                    onClick={() => {
+                      setEditId(id)
+                      setEditVal(label)
+                    }}
+                    className="ico-btn w-8 h-8 text-muted hover:text-ink"
+                    title="Переименовать"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => del(id)}
+                    disabled={busy || builtin}
+                    className="ico-btn w-8 h-8 text-muted hover:text-[#c53030] disabled:opacity-30 disabled:hover:text-muted"
+                    title={builtin ? 'Встроенную нельзя удалить' : 'Удалить'}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </>
+              )}
+            </div>
+          )
+        })}
+        {items.length === 0 && <p className="text-sm text-muted py-2">Пока пусто.</p>}
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && add()}
+          placeholder={isDep ? 'Новый отдел' : 'Новая должность'}
+          className="flex-1 h-9 px-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
+        />
+        <button onClick={add} disabled={busy || !draft.trim()} className="btn btn-green h-9 px-3 text-sm disabled:opacity-60">
+          <Plus size={15} /> Добавить
+        </button>
+      </div>
+      {!isDep && (
+        <p className="text-[11px] text-muted-2 mt-3">
+          У новой должности нет модели KPI — её добавляют кодом. Должности с KPI (SMM, таргетолог,
+          продажи) удалять нельзя.
+        </p>
+      )}
+    </div>
   )
 }
 

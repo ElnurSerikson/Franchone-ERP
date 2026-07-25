@@ -2,7 +2,9 @@
 
 export type Role = 'owner' | 'head' | 'employee'
 
-export type Position = 'smm' | 'targetolog' | 'sales' | 'packer' | 'developer'
+// Должность — slug из справочника (владелец заводит свои). KPI-модель
+// определяется по slug на сервере; известные с моделью — smm/targetolog/sales.
+export type Position = string
 
 export interface Employee {
   id: string

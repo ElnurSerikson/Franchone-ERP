@@ -12,15 +12,11 @@ export default defineSchema({
   employees: defineTable({
     name: v.string(),
     role: v.union(v.literal('owner'), v.literal('head'), v.literal('employee')),
-    position: v.union(
-      v.literal('smm'),
-      v.literal('targetolog'),
-      v.literal('sales'),
-      v.literal('packer'),
-      v.literal('developer'),
-    ),
+    // slug должности из справочника positions. Свободная строка (не union),
+    // т.к. владелец заводит свои должности; KPI-модель определяется по slug.
+    position: v.string(),
     positionLabel: v.string(),
-    department: v.string(),
+    department: v.string(), // название отдела из справочника departments
     salary: v.number(), // оклад, ₸
     email: v.string(), // хранится в нижнем регистре — это же логин (инвайт)
     phone: v.string(),
@@ -35,6 +31,28 @@ export default defineSchema({
   })
     .index('by_status', ['status'])
     .index('by_email', ['email']),
+
+  // Справочник отделов (§11: «управлять отделами»). Название — то, что
+  // хранится в employees.department. Владелец ведёт список в Настройках.
+  departments: defineTable({
+    name: v.string(),
+  }),
+
+  // Справочник должностей (§11: «управлять должностями»). slug кладётся в
+  // employees.position; kpiModel определяет формулу KPI. У новых должностей
+  // модели нет ('none') — её добавляют кодом. Встроенные (smm/targetolog/sales)
+  // защищены от удаления: на них завязан расчёт KPI.
+  positions: defineTable({
+    slug: v.string(),
+    label: v.string(),
+    kpiModel: v.union(
+      v.literal('smm'),
+      v.literal('targetolog'),
+      v.literal('sales'),
+      v.literal('none'),
+    ),
+    builtin: v.optional(v.boolean()),
+  }).index('by_slug', ['slug']),
 
   // KPI SMM — по одной строке на аккаунт×формат для сотрудника-SMM
   // Строка плана SMM «аккаунт × формат» на месяц (лист «Недельные планы»).

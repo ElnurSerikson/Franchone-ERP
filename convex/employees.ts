@@ -38,13 +38,7 @@ export const create = mutation({
   args: {
     name: v.string(),
     role: v.union(v.literal('owner'), v.literal('head'), v.literal('employee')),
-    position: v.union(
-      v.literal('smm'),
-      v.literal('targetolog'),
-      v.literal('sales'),
-      v.literal('packer'),
-      v.literal('developer'),
-    ),
+    position: v.string(), // slug из справочника должностей
     positionLabel: v.string(),
     department: v.string(),
     salary: v.number(),
@@ -123,14 +117,7 @@ export const updateMember = mutation({
     // Должность необязательна: если её не прислали — не трогаем. Так не
     // затирается кастомный титул (напр. «Руководитель отдела продаж»), когда
     // правят только имя или телефон.
-    position: v.optional(
-      v.union(
-        v.literal('smm'),
-        v.literal('targetolog'),
-        v.literal('sales'),
-        v.literal('packer'),
-      ),
-    ),
+    position: v.optional(v.string()),
     positionLabel: v.optional(v.string()),
     department: v.optional(v.string()),
   },
@@ -167,19 +154,16 @@ export const updateMember = mutation({
       phone: args.phone.trim(),
     }
 
-    // У владельца должность не редактируется: в поле position у него лежит
-    // техническое значение (модель KPI), а настоящий титул — в positionLabel
-    // («Владелец / основатель»). Пикер должностей его затёр бы.
+    // Отдел меняется у любого (включая владельца). Должность — не у владельца:
+    // в его position лежит техническое значение (модель KPI), а титул —
+    // в positionLabel («Владелец / основатель»), пикер бы его затёр.
+    const patch: Record<string, unknown> = { ...base }
     if (args.position && target.role !== 'owner') {
-      await ctx.db.patch(args.id, {
-        ...base,
-        position: args.position,
-        positionLabel: args.positionLabel ?? target.positionLabel,
-        department: args.department ?? target.department,
-      })
-    } else {
-      await ctx.db.patch(args.id, base)
+      patch.position = args.position
+      patch.positionLabel = args.positionLabel ?? target.positionLabel
     }
+    if (args.department !== undefined) patch.department = args.department
+    await ctx.db.patch(args.id, patch)
   },
 })
 
@@ -211,12 +195,7 @@ export const invite = mutation({
     lastName: v.string(),
     email: v.string(),
     phone: v.string(),
-    position: v.union(
-      v.literal('smm'),
-      v.literal('targetolog'),
-      v.literal('sales'),
-      v.literal('packer'),
-    ),
+    position: v.string(), // slug из справочника должностей
     positionLabel: v.string(),
     department: v.string(),
     role: v.union(v.literal('head'), v.literal('employee')),

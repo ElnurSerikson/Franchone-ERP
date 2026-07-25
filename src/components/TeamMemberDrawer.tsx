@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { useMutation } from 'convex/react'
+import { useMutation, useQuery } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
 import { UserPlus, Pencil, X, Loader2, CheckCircle2, Mail, Save } from 'lucide-react'
@@ -11,19 +11,7 @@ const inputCls =
   'w-full rounded-lg border border-line-2 px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-green-light bg-white'
 const labelCls = 'block text-sm font-medium text-ink-2 mb-1.5'
 
-type Position = 'smm' | 'targetolog' | 'sales' | 'packer'
-
-const POSITIONS: { value: Position; label: string; dept: string }[] = [
-  { value: 'smm', label: 'SMM-специалист', dept: 'Маркетинг' },
-  { value: 'targetolog', label: 'Таргетолог', dept: 'Маркетинг' },
-  { value: 'sales', label: 'Менеджер по продажам', dept: 'Продажи' },
-  { value: 'packer', label: 'Упаковщик / проект-менеджер', dept: 'Производство' },
-]
-
 const today = () => new Date().toISOString().slice(0, 10)
-
-const isPosition = (p: string): p is Position =>
-  p === 'smm' || p === 'targetolog' || p === 'sales' || p === 'packer'
 
 // Drawer участника команды: без `employee` — приглашение, с ним — редактирование.
 export default function TeamMemberDrawer({
@@ -64,21 +52,31 @@ export default function TeamMemberDrawer({
   const [lastName, setLastName] = useState(parts.slice(1).join(' '))
   const [email, setEmail] = useState(employee?.email ?? '')
   const [phone, setPhone] = useState(employee?.phone ?? '')
-  // У владельца в position лежит техническое значение (модель KPI), а реальный
-  // титул — в positionLabel («Владелец / основатель»). Пикер бы его затёр,
-  // поэтому владельцу показываем должность как есть, без выбора.
+  // Справочники должностей и отделов (§11).
+  const positions = useQuery(api.positions.list) ?? []
+  const departments = useQuery(api.departments.list) ?? []
+  // У владельца в position техническое значение (модель KPI), титул —
+  // в positionLabel; пикер должностей ему не показываем.
   const isOwnerEdit = isEdit && employee!.role === 'owner'
-  const initialPosition: Position =
-    employee && isPosition(employee.position) ? employee.position : 'smm'
-  const [position, setPosition] = useState<Position>(initialPosition)
+  const [position, setPosition] = useState(employee?.position ?? '')
+  const [department, setDepartment] = useState(employee?.department ?? '')
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [invited, setInvited] = useState<{ name: string; email: string } | null>(null)
 
-  const posMeta = useMemo(() => POSITIONS.find((p) => p.value === position)!, [position])
+  // Автовыбор первого варианта при приглашении, когда справочники загрузились.
+  useEffect(() => {
+    if (!position && positions.length) setPosition(positions[0].slug)
+  }, [positions, position])
+  useEffect(() => {
+    if (!department && departments.length) setDepartment(departments[0].name)
+  }, [departments, department])
 
-  const canSubmit = firstName.trim() && lastName.trim() && email.trim() && !loading
+  const posMeta = useMemo(() => positions.find((p) => p.slug === position), [positions, position])
+
+  const canSubmit =
+    firstName.trim() && lastName.trim() && email.trim() && !!position && !!department && !loading
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
@@ -93,24 +91,24 @@ export default function TeamMemberDrawer({
         phone: phone.trim(),
       }
       if (isEdit) {
+        // Должность/отдел шлём только когда реально меняли. Должность владельца
+        // не трогаем (кастомный титул), отдел — можно.
+        const posChanged = !isOwnerEdit && position !== employee!.position
+        const deptChanged = department !== employee!.department
         await updateMember({
           id: employee!.id as Id<'employees'>,
           ...person,
-          // Должность шлём, только если её реально меняли — иначе затёрли бы
-          // существующий титул. Владельцу её менять нельзя вовсе.
-          ...(!isOwnerEdit && position !== initialPosition
-            ? { position, positionLabel: posMeta.label, department: posMeta.dept }
-            : {}),
+          ...(posChanged ? { position, positionLabel: posMeta?.label ?? position } : {}),
+          ...(deptChanged ? { department } : {}),
         })
         close()
       } else {
         const name = `${person.firstName} ${person.lastName}`.trim()
-        // Скрытые поля — значения по умолчанию (редактируются позже).
         await invite({
           ...person,
           position,
-          positionLabel: posMeta.label,
-          department: posMeta.dept,
+          positionLabel: posMeta?.label ?? position,
+          department,
           role: 'employee',
           salary: 0,
           hiredAt: today(),
@@ -134,7 +132,8 @@ export default function TeamMemberDrawer({
     setLastName('')
     setEmail('')
     setPhone('')
-    setPosition('smm')
+    setPosition(positions[0]?.slug ?? '')
+    setDepartment(departments[0]?.name ?? '')
     setError(null)
     setInvited(null)
   }
@@ -226,10 +225,17 @@ export default function TeamMemberDrawer({
                 ) : (
                   <Select
                     value={position}
-                    onChange={(v) => setPosition(v as Position)}
-                    options={POSITIONS.map((p) => ({ value: p.value, label: p.label }))}
+                    onChange={setPosition}
+                    options={positions.map((p) => ({ value: p.slug, label: p.label }))}
                   />
                 )}
+              </Field>
+              <Field label="Отдел">
+                <Select
+                  value={department}
+                  onChange={setDepartment}
+                  options={departments.map((d) => ({ value: d.name, label: d.name }))}
+                />
               </Field>
             </div>
 
