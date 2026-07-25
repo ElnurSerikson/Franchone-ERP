@@ -73,6 +73,15 @@ export default function ReportForm() {
 
   const reporting = (REPORTING_POSITIONS as readonly string[]).includes(data.position)
 
+  // Форму показываем по фактическому содержимому отчёта, а не по текущей
+  // должности сотрудника. Если человек сменил должность, его прошлые цифры
+  // лежат под старым разделом (smm/targetolog/sales) — рисуем ту форму, где
+  // данные реально есть, иначе поля были бы пустыми, хотя отчёт сдан. Пустой
+  // (переоткрытый) или новый день — по текущей должности.
+  const r = data.report
+  const formPos: string =
+    (r?.smm ? 'smm' : r?.targetolog ? 'targetolog' : r?.sales ? 'sales' : null) ?? data.position
+
   if (!reporting)
     return (
       <div className="card p-10 text-center">
@@ -100,10 +109,10 @@ export default function ReportForm() {
         {/* key по дате: форму пересоздаём при переключении дня, иначе в полях
             останутся значения предыдущей даты — начальное состояние берётся
             из report один раз при монтировании. */}
-        <div className="card p-5" key={data.date}>
-          {data.position === 'smm' && <SmmForm report={data.report} date={data.date} readOnly={!data.editable} />}
-          {data.position === 'targetolog' && <TargetologForm report={data.report} date={data.date} readOnly={!data.editable} />}
-          {data.position === 'sales' && <SalesForm report={data.report} date={data.date} readOnly={!data.editable} />}
+        <div className="card p-5" key={`${data.date}:${formPos}`}>
+          {formPos === 'smm' && <SmmForm report={data.report} date={data.date} readOnly={!data.editable} />}
+          {formPos === 'targetolog' && <TargetologForm report={data.report} date={data.date} readOnly={!data.editable} />}
+          {formPos === 'sales' && <SalesForm report={data.report} date={data.date} readOnly={!data.editable} />}
         </div>
       </div>
       <HistoryPanel history={data.history} />

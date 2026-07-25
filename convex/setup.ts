@@ -790,6 +790,74 @@ export const seedActivity = mutation({
   },
 })
 
+// Скрытый служебный аккаунт-сотрудник: доступ по роли есть, но нигде во
+// фронте не виден (Команда/KPI/Дисциплина/Активность фильтруют hidden) — как
+// у владельца elnur.serikson. Нужен, чтобы владелец зашёл «как сотрудник» и
+// проверил кабинет отчётов. Запуск:
+// npx convex run setup:addHiddenEmployee '{"email":"almnurken@gmail.com","name":"Алмнуркен","position":"smm"}'
+export const addHiddenEmployee = mutation({
+  args: {
+    email: v.string(),
+    name: v.string(),
+    position: v.optional(
+      v.union(v.literal('smm'), v.literal('targetolog'), v.literal('sales')),
+    ),
+  },
+  handler: async (ctx, { email, name, position }) => {
+    const low = email.toLowerCase().trim()
+    const pos = position ?? 'smm'
+    const LABEL = { smm: 'SMM-специалист', targetolog: 'Таргетолог', sales: 'Менеджер по продажам' } as const
+    const DEPT = { smm: 'Маркетинг', targetolog: 'Маркетинг', sales: 'Продажи' } as const
+    const parts = name.trim().split(/\s+/).filter(Boolean)
+    const initials = (parts.length >= 2 ? parts[0][0] + parts[1][0] : name.trim().slice(0, 2)).toUpperCase()
+
+    const fields = {
+      name: name.trim(),
+      role: 'employee' as const,
+      position: pos,
+      positionLabel: LABEL[pos],
+      department: DEPT[pos],
+      salary: 0,
+      email: low,
+      phone: '',
+      avatarColor: '#7c3aed',
+      initials,
+      status: 'active' as const,
+      hiredAt: '2026-07-01',
+      hidden: true,
+    }
+
+    const existing = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (existing) {
+      await ctx.db.patch(existing._id, fields)
+      return { updated: true, email: low, position: pos }
+    }
+    await ctx.db.insert('employees', fields)
+    return { created: true, email: low, position: pos }
+  },
+})
+
+// Одноразово: привести position каждого отчёта к фактическому разделу данных
+// (smm/targetolog/sales). Чинит старые отчёты, где position «застрял» от
+// прежней должности сотрудника, из-за чего форма рисовалась пустой.
+export const syncReportPositions = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const changes: { date: string; from: string; to: string }[] = []
+    for (const r of await ctx.db.query('dailyReports').collect()) {
+      const actual = r.smm ? 'smm' : r.targetolog ? 'targetolog' : r.sales ? 'sales' : null
+      if (actual && actual !== r.position) {
+        await ctx.db.patch(r._id, { position: actual })
+        changes.push({ date: r.date, from: r.position, to: actual })
+      }
+    }
+    return { fixed: changes.length, changes }
+  },
+})
+
 // Одноразово: выставить дедлайн ежедневных отчётов на 23:50 (в БД мог остаться
 // старый 20:00, а он перекрывает умолчание). Запуск: npx convex run setup:setReportDeadline
 export const setReportDeadline = mutation({

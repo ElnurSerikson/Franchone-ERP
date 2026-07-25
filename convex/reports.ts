@@ -176,9 +176,22 @@ export const submit = mutation({
       note: args.note,
     }
 
+    // Должность отчёта берём по фактически присланному разделу, а не только по
+    // текущей должности сотрудника: тогда position всегда совпадает с payload,
+    // и цифры не «прячутся» под чужим разделом, если человек сменил должность.
+    const submittedPosition: 'smm' | 'targetolog' | 'sales' =
+      args.smm !== undefined
+        ? 'smm'
+        : args.targetolog !== undefined
+          ? 'targetolog'
+          : args.sales !== undefined
+            ? 'sales'
+            : (existing?.position ?? position)
+
     if (existing) {
       await ctx.db.patch(existing._id, {
         ...payload,
+        position: submittedPosition,
         // Переоткрытый день закрываем повторной сдачей: снимаем флаг и метки
         // удаления, статус фиксируем «с опозданием».
         ...(reopened
@@ -199,7 +212,7 @@ export const submit = mutation({
     // выше), значит она всегда «в срок».
     return await ctx.db.insert('dailyReports', {
       employeeId: me._id,
-      position,
+      position: submittedPosition,
       date,
       submittedAt: now,
       onTime: true,
@@ -441,6 +454,14 @@ export const ownerSet = mutation({
         ...(args.targetolog !== undefined ? { targetolog: args.targetolog } : {}),
         ...(args.sales !== undefined ? { sales: args.sales } : {}),
         ...(args.note !== undefined ? { note: args.note } : {}),
+        // position держим в паре с присланным разделом.
+        ...(args.smm !== undefined
+          ? { position: 'smm' as const }
+          : args.targetolog !== undefined
+            ? { position: 'targetolog' as const }
+            : args.sales !== undefined
+              ? { position: 'sales' as const }
+              : {}),
         // Правка в срок не сдвигает статус. Дозаполнение переоткрытого дня —
         // «с опозданием», флаг снимаем.
         ...(reopened
