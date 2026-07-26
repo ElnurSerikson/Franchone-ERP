@@ -183,7 +183,7 @@ function Metric({
   small?: boolean
 }) {
   return (
-    <div className="bg-chip rounded-lg p-2.5">
+    <div className="bg-line-2 rounded-lg p-2.5">
       <div className="text-[11px] text-muted mb-0.5">{label}</div>
       <div
         className={`${small ? 'text-xs' : 'text-lg'} font-bold ${
