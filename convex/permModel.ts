@@ -42,5 +42,5 @@ export const DEFAULT_PERMS: Record<PermRole, string[]> = {
     'team:view', 'team:create', 'team:edit', 'team:delete',
     'activity:view',
   ],
-  employee: ['tasks:view', 'kpi:view'],
+  employee: ['tasks:view', 'tasks:create', 'kpi:view'],
 }
