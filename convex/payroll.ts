@@ -3,6 +3,7 @@ import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, hiddenEmployeeIds } from './lib'
+import { viewScope } from './permissions'
 import {
   computeSmmMath,
   computeTargetologMath,
@@ -208,17 +209,23 @@ export const month = query({
         }))
       : await computeMonth(ctx, ym)
 
-    // Скоуп: владелец — все; руководитель — свой отдел; сотрудник — только своя.
-    let visible = rows
-    if (me.role === 'head') {
-      const deptIds = new Set(
-        (await ctx.db.query('employees').collect())
-          .filter((e) => e.department === me.department)
-          .map((e) => e._id),
-      )
-      visible = rows.filter((r) => deptIds.has(r.employeeId))
-    } else if (me.role !== 'owner') {
-      visible = rows.filter((r) => r.employeeId === me._id)
+    // Скоуп по режиму просмотра KPI: «Все» → вся команда; «Только свои» →
+    // руководитель свой отдел / сотрудник своя строка; нет доступа → пусто.
+    const scope = await viewScope(ctx, 'kpi')
+    let visible: typeof rows = []
+    if (scope === 'all') {
+      visible = rows
+    } else if (scope === 'own') {
+      if (me.role === 'head') {
+        const deptIds = new Set(
+          (await ctx.db.query('employees').collect())
+            .filter((e) => e.department === me.department)
+            .map((e) => e._id),
+        )
+        visible = rows.filter((r) => deptIds.has(r.employeeId))
+      } else {
+        visible = rows.filter((r) => r.employeeId === me._id)
+      }
     }
 
     return {

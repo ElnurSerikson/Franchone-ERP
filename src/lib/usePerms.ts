@@ -12,6 +12,11 @@ export function usePerms() {
     ready: data !== undefined,
     isOwner,
     role: data?.role ?? null,
-    can: (section: string, action: string) => isOwner || allowed.has(permKey(section, action)),
+    // «Просмотр» доступен и в режиме «Только свои», и в «Все» — как на сервере.
+    can: (section: string, action: string) =>
+      isOwner ||
+      (action === 'view'
+        ? allowed.has(permKey(section, 'view')) || allowed.has(permKey(section, 'viewAll'))
+        : allowed.has(permKey(section, action))),
   }
 }

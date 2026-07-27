@@ -119,8 +119,15 @@ function PermissionsCard() {
   const allowed = new Set(tab === 'head' ? data.head : data.employee)
   const toggle = async (key: string) => {
     const next = new Set(allowed)
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
+    if (next.has(key)) {
+      next.delete(key)
+    } else {
+      next.add(key)
+      // «Только свои» и «Все» — взаимоисключающие режимы просмотра.
+      const [section, action] = key.split(':')
+      if (action === 'view') next.delete(permKey(section, 'viewAll'))
+      if (action === 'viewAll') next.delete(permKey(section, 'view'))
+    }
     setBusy(true)
     setError('')
     try {
@@ -162,29 +169,63 @@ function PermissionsCard() {
           <div key={s.key} className="flex items-center gap-3 py-3 first:pt-0 flex-wrap">
             <div className="w-28 shrink-0 text-sm font-medium text-ink">{s.label}</div>
             <div className="flex items-center gap-1.5 flex-wrap">
-              {s.actions.map((a) => {
-                const key = permKey(s.key, a)
-                const on = allowed.has(key)
-                return (
-                  <button
+              <span className="text-[11px] text-muted mr-0.5">Просмотр:</span>
+              {(['view', 'viewAll'] as const)
+                .filter((a) => (s.actions as string[]).includes(a))
+                .map((a) => (
+                  <PermBtn
                     key={a}
-                    onClick={() => toggle(key)}
-                    disabled={busy}
-                    className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 ${
-                      on
-                        ? 'bg-[#e2f2ef] text-green-d border-green-light'
-                        : 'bg-white text-muted border-line-2 hover:bg-chip'
-                    }`}
-                  >
-                    {ACTION_LABEL[a]}
-                  </button>
-                )
-              })}
+                    label={ACTION_LABEL[a]}
+                    on={allowed.has(permKey(s.key, a))}
+                    busy={busy}
+                    onClick={() => toggle(permKey(s.key, a))}
+                  />
+                ))}
+              {s.actions.some((a) => a !== 'view' && a !== 'viewAll') && (
+                <span className="w-px h-5 bg-line-2 mx-1" />
+              )}
+              {s.actions
+                .filter((a) => a !== 'view' && a !== 'viewAll')
+                .map((a) => (
+                  <PermBtn
+                    key={a}
+                    label={ACTION_LABEL[a]}
+                    on={allowed.has(permKey(s.key, a))}
+                    busy={busy}
+                    onClick={() => toggle(permKey(s.key, a))}
+                  />
+                ))}
             </div>
           </div>
         ))}
       </div>
     </div>
+  )
+}
+
+function PermBtn({
+  label,
+  on,
+  busy,
+  onClick,
+}: {
+  label: string
+  on: boolean
+  busy: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={busy}
+      className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 ${
+        on
+          ? 'bg-[#e2f2ef] text-green-d border-green-light'
+          : 'bg-white text-muted border-line-2 hover:bg-chip'
+      }`}
+    >
+      {label}
+    </button>
   )
 }
 

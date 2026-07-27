@@ -25,6 +25,8 @@ export async function can(
   if (me.role === 'owner') return true
   if (me.role !== 'head' && me.role !== 'employee') return false
   const set = await allowedFor(ctx, me.role)
+  // «Просмотр» доступен и в режиме «Только свои», и в «Все».
+  if (action === 'view') return set.has(permKey(section, 'view')) || set.has(permKey(section, 'viewAll'))
   return set.has(permKey(section, action))
 }
 
@@ -38,17 +40,53 @@ export async function requireCan(
   if (me.role === 'owner') return me
   if (me.role === 'head' || me.role === 'employee') {
     const set = await allowedFor(ctx, me.role)
-    if (set.has(permKey(section, action))) return me
+    const ok =
+      action === 'view'
+        ? set.has(permKey(section, 'view')) || set.has(permKey(section, 'viewAll'))
+        : set.has(permKey(section, action))
+    if (ok) return me
   }
   throw new ConvexError('Недостаточно прав для этого действия')
 }
 
 // Скоуп данных: владелец — все, руководитель — свой отдел, сотрудник — только
-// сам. Проверка «можно ли действовать над этим сотрудником/его данными».
+// сам. Базовая (без учёта режима «Все») проверка.
 export function inScope(me: Doc<'employees'>, target: Doc<'employees'>): boolean {
   if (me.role === 'owner') return true
   if (me.role === 'head') return target.department === me.department
   return target._id === me._id
+}
+
+// Режим просмотра раздела: 'all' (владелец или «Все»), 'own' (только свои —
+// у руководителя свой отдел, у сотрудника только он сам), 'none' (нет доступа).
+export async function viewScope(
+  ctx: QueryCtx | MutationCtx,
+  section: string,
+): Promise<'all' | 'own' | 'none'> {
+  const me = await currentEmployee(ctx)
+  if (!me) return 'none'
+  if (me.role === 'owner') return 'all'
+  if (me.role !== 'head' && me.role !== 'employee') return 'none'
+  const set = await allowedFor(ctx, me.role)
+  if (set.has(permKey(section, 'viewAll'))) return 'all'
+  if (set.has(permKey(section, 'view'))) return 'own'
+  return 'none'
+}
+
+// Можно ли действовать над данными сотрудника target в разделе section:
+// владелец — всегда; режим «Все» по разделу — над всеми; иначе свой отдел
+// (руководитель) / только сам (сотрудник).
+export async function canScope(
+  ctx: QueryCtx | MutationCtx,
+  me: Doc<'employees'>,
+  target: Doc<'employees'>,
+  section: string,
+): Promise<boolean> {
+  if (me.role === 'owner') return true
+  if (me.role !== 'head' && me.role !== 'employee') return false
+  const set = await allowedFor(ctx, me.role)
+  if (set.has(permKey(section, 'viewAll'))) return true
+  return me.role === 'head' ? target.department === me.department : target._id === me._id
 }
 
 // Права текущего пользователя — для гейтинга интерфейса.

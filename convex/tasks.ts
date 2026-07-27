@@ -2,7 +2,7 @@ import { query, mutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import type { Doc } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, isManager, isOnTime } from './lib'
-import { can, requireCan, inScope } from './permissions'
+import { can, requireCan, canScope, viewScope } from './permissions'
 
 const statusV = v.union(v.literal('assigned'), v.literal('in_progress'), v.literal('done'))
 const priorityV = v.union(
@@ -25,11 +25,12 @@ export const list = query({
   handler: async (ctx) => {
     const me = await currentEmployee(ctx)
     if (!me) return []
-    if (!(await can(ctx, 'tasks', 'view'))) return []
+    // Режим просмотра: «Все» → вся команда; «Только свои» → свой отдел
+    // (руководитель) / свои (сотрудник); нет доступа → пусто.
+    const scope = await viewScope(ctx, 'tasks')
+    if (scope === 'none') return []
     const rows = await ctx.db.query('tasks').collect()
-    // Скоуп: владелец — все; руководитель — свой отдел (по исполнителю) + свои;
-    // сотрудник — только свои. Фильтруем на сервере, не только в UI.
-    if (me.role === 'owner') return rows
+    if (scope === 'all') return rows
     if (me.role === 'head') {
       const dept = new Set(
         (await ctx.db.query('employees').collect())
@@ -132,7 +133,7 @@ export const create = mutation({
     const me = await requireCan(ctx, 'tasks', 'create')
     // Ставить задачи можно только в своём скоупе (руководитель — своему отделу).
     const assignee = await ctx.db.get(args.assigneeId)
-    if (!assignee || !inScope(me, assignee)) {
+    if (!assignee || !(await canScope(ctx, me, assignee, 'tasks'))) {
       throw new ConvexError('Можно ставить задачи только сотрудникам в вашем доступе')
     }
     const id = await ctx.db.insert('tasks', {
@@ -164,7 +165,7 @@ export const setStatus = mutation({
     // задач и если она в его скоупе.
     if (task.assigneeId !== me._id) {
       const assignee = await ctx.db.get(task.assigneeId)
-      if (!(await can(ctx, 'tasks', 'edit')) || !assignee || !inScope(me, assignee)) {
+      if (!(await can(ctx, 'tasks', 'edit')) || !assignee || !(await canScope(ctx, me, assignee, 'tasks'))) {
         throw new ConvexError('Недостаточно прав, чтобы менять статус этой задачи')
       }
     }
@@ -209,7 +210,7 @@ export const update = mutation({
     if (!task) throw new Error('Задача не найдена')
     // Задача должна быть в скоупе (руководитель — свой отдел).
     const assignee = await ctx.db.get(task.assigneeId)
-    if (!assignee || !inScope(me, assignee)) {
+    if (!assignee || !(await canScope(ctx, me, assignee, 'tasks'))) {
       throw new ConvexError('Недостаточно прав для этой задачи')
     }
     // Переназначение — только в пределах своего скоупа и с правом «назначение».
@@ -218,7 +219,7 @@ export const update = mutation({
         throw new ConvexError('Нет права переназначать задачи')
       }
       const next = await ctx.db.get(patch.assigneeId)
-      if (!next || !inScope(me, next)) {
+      if (!next || !(await canScope(ctx, me, next, 'tasks'))) {
         throw new ConvexError('Переназначить можно только сотруднику в вашем доступе')
       }
       await ctx.db.insert('taskEvents', { taskId: id, type: 'assignee', byId: me._id })
@@ -236,7 +237,7 @@ export const remove = mutation({
     const task = await ctx.db.get(id)
     if (!task) throw new ConvexError('Задача не найдена')
     const assignee = await ctx.db.get(task.assigneeId)
-    if (assignee && !inScope(me, assignee)) {
+    if (assignee && !(await canScope(ctx, me, assignee, 'tasks'))) {
       throw new ConvexError('Можно удалять только задачи в вашем доступе')
     }
 

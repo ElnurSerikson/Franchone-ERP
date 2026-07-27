@@ -4,7 +4,7 @@ import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc } from './_generated/dataModel'
 import { currentEmployee, requireEmployee } from './lib'
 import { isMonthClosed } from './payroll'
-import { can, requireCan, inScope } from './permissions'
+import { can, requireCan, inScope, viewScope } from './permissions'
 
 // Бизнес-часовой пояс компании — Asia/Almaty (UTC+5, без перехода на летнее время).
 const TZ = '+05:00'
@@ -317,7 +317,8 @@ export const discipline = query({
     // команда, руководитель — свой отдел. Сам запрос доступен любому
     // авторизованному, поэтому фильтруем на сервере.
     const viewer = await currentEmployee(ctx)
-    if (!viewer || !(await can(ctx, 'reports', 'view'))) {
+    const scope = await viewScope(ctx, 'reports')
+    if (!viewer || scope === 'none') {
       return { today, deadlineTime: time, dates: [], rows: [] }
     }
     const deadlinePassedToday = Date.now() > deadlineMs(today, time)
@@ -333,7 +334,12 @@ export const discipline = query({
         !e.hidden &&
         e.role !== 'owner' &&
         REPORTING.has(e.position) &&
-        (viewer.role === 'owner' || e.department === viewer.department),
+        // «Все» — вся команда; «Только свои» — свой отдел (руководитель) / сам.
+        (scope === 'all'
+          ? true
+          : viewer.role === 'head'
+            ? e.department === viewer.department
+            : e._id === viewer._id),
     )
 
     const rows = []
