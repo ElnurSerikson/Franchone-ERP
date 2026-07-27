@@ -5,6 +5,7 @@ import type { Id } from '../../convex/_generated/dataModel'
 import { X, Loader2, ListPlus, Link2, Upload, Paperclip } from 'lucide-react'
 import DatePicker from './ui/DatePicker'
 import Select, { type SelectOption } from './ui/Select'
+import { useCurrentUser } from '@/store'
 import type { Employee, Priority } from '@/types'
 
 const inputCls =
@@ -44,8 +45,15 @@ export default function TaskCreateModal({
   const addFileMut = useMutation(api.tasks.addFile)
   const generateUploadUrl = useMutation(api.tasks.generateUploadUrl)
 
-  // Назначать можно только действующих сотрудников.
-  const assignable = employees.filter((e) => e.status === 'active')
+  // Назначать можно только действующих сотрудников и только в своём скоупе —
+  // как проверяет сервер (inScope): владелец — всех, руководитель — свой отдел,
+  // сотрудник — только себя. Так список не предлагает того, кого сервер отклонит.
+  const me = useCurrentUser()
+  const assignable = employees
+    .filter((e) => e.status === 'active')
+    .filter((e) =>
+      me.role === 'owner' ? true : me.role === 'head' ? e.department === me.department : e.id === me.id,
+    )
 
   const [shown, setShown] = useState(false)
   const firstRef = useRef<HTMLInputElement>(null)
@@ -81,6 +89,12 @@ export default function TaskCreateModal({
   const [dragging, setDragging] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Единственный доступный исполнитель (сотрудник ставит задачу только себе) —
+  // выбираем сразу, чтобы не заставлять открывать список из одного пункта.
+  useEffect(() => {
+    if (!assigneeId && assignable.length === 1) setAssigneeId(assignable[0].id)
+  }, [assignable, assigneeId])
 
   // Достаточно названия и исполнителя. Остальное — по желанию: описание и срок
   // необязательны, а приоритет по умолчанию «средний».
