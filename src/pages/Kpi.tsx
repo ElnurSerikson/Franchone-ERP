@@ -10,6 +10,7 @@ import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
 import { computeSmm, computeTargetolog, spendBySource } from '@/lib/kpi'
 import { mapSmm, mapCampaign } from '@/lib/mappers'
+import { goalMeta } from '../../convex/campaignGoals'
 import { kzt, num, pct } from '@/lib/format'
 import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
 
@@ -218,7 +219,7 @@ function TargetologKpi({ month }: { month: string }) {
         <StatCard highlight label="Общий расход" value={kzt(tg.totalSpend)} foot="реклама за месяц" icon={Wallet} />
         <StatCard label="Деньги FRANCHONE" value={kzt(src.FRANCHONE.spend)} foot="свои услуги" icon={Building2} />
         <StatCard label="Деньги партнёров" value={kzt(src.Партнёр.spend)} foot="партнёрские проекты" icon={Users} />
-        <StatCard label="Заявки" value={num(tg.totalLeads)} foot="всего за месяц" icon={Target} />
+        <StatCard label="Результат" value={num(tg.totalLeads)} foot="сумма по метрикам целей" icon={Target} />
       </div>
 
       <div className="card grid grid-cols-3 divide-x divide-line mb-5">
@@ -237,11 +238,11 @@ function TargetologKpi({ month }: { month: string }) {
             <table className="w-full min-w-[680px]">
               <thead>
                 <tr className="bg-[#e2f2ef]">
-                  <Th>Кампания</Th>
+                  <Th>Кампания · метрика</Th>
                   <Th>Источник</Th>
                   <Th right>Бюджет</Th>
-                  <Th right>Заявки</Th>
-                  <Th right>CPL</Th>
+                  <Th right>Результат</Th>
+                  <Th right>Цена</Th>
                   <Th right>KPI</Th>
                 </tr>
               </thead>
@@ -249,8 +250,11 @@ function TargetologKpi({ month }: { month: string }) {
                 {tg.rows.map((r) => (
                   <tr key={r.campaign.id} className="border-t border-line hover:bg-chip/40 transition-colors">
                     <td className="px-5 py-3 text-sm text-ink-2">
-                      <span className="font-medium text-ink">{r.campaign.brand}</span>
-                      <span className="text-xs text-muted ml-1.5">{r.campaign.id}</span>
+                      <div>
+                        <span className="font-medium text-ink">{r.campaign.brand}</span>
+                        <span className="text-xs text-muted ml-1.5">{r.campaign.id}</span>
+                      </div>
+                      <span className="text-[11px] text-green-d font-medium">{goalMeta(r.campaign.goal).metric}</span>
                     </td>
                     <td className="px-5 py-3 text-sm">
                       <span

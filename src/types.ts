@@ -43,6 +43,7 @@ export interface Campaign {
   brand: string
   campaign: string
   moneySource: MoneySource
+  goal?: string // цель кампании (slug); определяет метрику отчёта
   status: 'Активна' | 'Пауза' | 'Завершена'
   weight: number // вес KPI
   planBudget: number

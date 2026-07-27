@@ -6,6 +6,7 @@ import { Loader2, Save, Check, Clock, PencilLine, History, ChevronDown, Lock } f
 import type { SmmRow, TargetologRow } from '@/types'
 import { REPORTING_POSITIONS, REPORT_PAGES, CONTENT_TYPES } from '@/lib/constants'
 import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
+import { goalMeta } from '../../../convex/campaignGoals'
 import { kzt, num } from '@/lib/format'
 import { useMediaQuery } from '@/lib/useMediaQuery'
 import DatePicker from '../ui/DatePicker'
@@ -428,7 +429,7 @@ function TargetologForm({ report, date, readOnly }: { report: Report | null; dat
   return (
     <FormShell
       title="Отчёт таргетолога"
-      hint="Бюджет и заявки по каждой активной кампании за сегодня. CPL считается сам; кампания не крутилась — оставьте 0"
+      hint="Бюджет и результат по метрике каждой кампании за сегодня. Метрика зависит от цели кампании; цена считается сама; кампания не крутилась — оставьте 0"
       edited={!!report}
       saving={saving}
       saved={saved}
@@ -439,22 +440,23 @@ function TargetologForm({ report, date, readOnly }: { report: Report | null; dat
         <div className="min-w-[560px]">
           <div className="grid grid-cols-[92px_1fr_104px_74px_96px] gap-2 px-1 mb-1.5">
             <Lbl>ID</Lbl>
-            <Lbl>Кампания</Lbl>
+            <Lbl>Кампания · метрика</Lbl>
             <Lbl right>Бюджет ₸</Lbl>
-            <Lbl right>Заявки</Lbl>
-            <Lbl right>CPL</Lbl>
+            <Lbl right>Результат</Lbl>
+            <Lbl right>Цена</Lbl>
           </div>
           <div className="flex flex-col gap-2">
             {list.map((c) => {
               const val = get(c.code)
               const n = numOf(c.code)
+              const gm = goalMeta(c.goal)
               return (
                 <div key={c.code} className="grid grid-cols-[92px_1fr_104px_74px_96px] gap-2 items-center">
                   <span className="chip bg-[#e2f2ef] text-green-d justify-center">{c.code}</span>
                   <div className="min-w-0">
                     <div className="text-sm font-medium text-ink truncate">{c.campaign}</div>
                     <div className="text-[11px] text-muted truncate">
-                      {c.brand} · деньги: {c.moneySource}
+                      <span className="text-green-d font-medium">{gm.metric}</span> · {c.brand}
                     </div>
                   </div>
                   <NumInput value={val.budget} onChange={(v) => setVal(c.code, { budget: v })} disabled={readOnly} />
@@ -470,8 +472,8 @@ function TargetologForm({ report, date, readOnly }: { report: Report | null; dat
       </div>
       <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-line">
         <Summary label="Бюджет" value={kzt(sumB)} />
-        <Summary label="Заявки" value={num(sumL)} />
-        <Summary label="Средний CPL" value={sumL > 0 ? kzt(sumB / sumL) : '—'} accent />
+        <Summary label="Результат" value={num(sumL)} />
+        <Summary label="Средняя цена" value={sumL > 0 ? kzt(sumB / sumL) : '—'} accent />
       </div>
     </FormShell>
   )

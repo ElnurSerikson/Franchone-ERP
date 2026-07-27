@@ -88,6 +88,17 @@ export default defineSchema({
     brand: v.string(),
     campaign: v.string(),
     moneySource: v.union(v.literal('FRANCHONE'), v.literal('Партнёр')),
+    // Цель кампании — задаётся при создании и неизменна; определяет метрику
+    // отчёта (§3.2). optional: у кампаний, созданных до доработки, ещё не задана.
+    goal: v.optional(
+      v.union(
+        v.literal('msg_inst'),
+        v.literal('msg_wa'),
+        v.literal('reach'),
+        v.literal('profile'),
+        v.literal('site_leads'),
+      ),
+    ),
     status: v.union(v.literal('Активна'), v.literal('Пауза'), v.literal('Завершена')),
     startedAt: v.optional(v.string()), // YYYY-MM-DD
     endedAt: v.optional(v.string()),

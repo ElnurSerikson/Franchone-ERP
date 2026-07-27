@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { X, Megaphone, Pencil, Trash2, Loader2, Plus, Check } from 'lucide-react'
+import { X, Megaphone, Pencil, Trash2, Loader2, Plus, Check, Lock } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Doc, Id } from '../../../convex/_generated/dataModel'
 import Select from '@/components/ui/Select'
@@ -8,6 +8,7 @@ import DatePicker from '@/components/ui/DatePicker'
 import { useApp } from '@/store'
 import { kzt } from '@/lib/format'
 import { formatMonth } from '@/lib/month'
+import { CAMPAIGN_GOALS, goalMeta, type CampaignGoalSlug } from '../../../convex/campaignGoals'
 
 type Campaign = Doc<'campaigns'>
 
@@ -89,6 +90,11 @@ export default function CampaignDrawer({
   const [planBudget, setPlanBudget] = useState(0)
   const [planLeads, setPlanLeads] = useState(0)
   const [weight, setWeight] = useState(0)
+  // Цель кампании. Задаётся при создании и неизменна; у старых кампаний её нет,
+  // и её можно задать один раз (потом залочится).
+  const [goal, setGoal] = useState<string>(campaign?.goal ?? '')
+  const goalLocked = isEdit && !!campaign?.goal
+  const gm = goalMeta(goal)
   const [shown, setShown] = useState(false)
   const [saving, setSaving] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
@@ -142,6 +148,8 @@ export default function CampaignDrawer({
   const save = async () => {
     if (!f.code.trim()) return setError('Укажите ID кампании')
     if (!f.campaign.trim()) return setError('Укажите название кампании')
+    // Цель обязательна при создании и при первичном задании старой кампании.
+    if (!goalLocked && !goal) return setError('Выберите цель кампании')
     setSaving(true)
     try {
       let id = campaign?._id
@@ -153,6 +161,8 @@ export default function CampaignDrawer({
           brand: f.brand,
           campaign: f.campaign,
           moneySource: f.moneySource,
+          // Цель шлём только когда её ещё нет (задаём старой кампании один раз).
+          ...(goalLocked ? {} : { goal: goal as CampaignGoalSlug }),
           status: f.status,
           startedAt: f.startedAt,
           endedAt: f.endedAt,
@@ -166,6 +176,7 @@ export default function CampaignDrawer({
           brand: f.brand,
           campaign: f.campaign,
           moneySource: f.moneySource,
+          goal: goal as CampaignGoalSlug,
           status: f.status,
           startedAt: f.startedAt,
           note: f.note,
@@ -247,6 +258,30 @@ export default function CampaignDrawer({
               value={f.campaign}
               onChange={(e) => set({ campaign: e.target.value })}
             />
+          </Field>
+
+          <Field label="Цель кампании">
+            {goalLocked ? (
+              <div className={`${inputCls} flex items-center justify-between bg-chip text-ink-2`}>
+                <span>{gm.label}</span>
+                <span className="inline-flex items-center gap-1 text-[11px] text-muted-2">
+                  <Lock size={11} /> неизменна
+                </span>
+              </div>
+            ) : (
+              <Select
+                value={goal}
+                onChange={(v) => setGoal(v)}
+                options={[
+                  { value: '', label: 'Выберите цель…' },
+                  ...CAMPAIGN_GOALS.map((g) => ({ value: g.slug, label: g.label })),
+                ]}
+              />
+            )}
+            <p className="text-[11px] text-muted-2 mt-1">
+              Определяет метрику отчёта: <b>{gm.metric}</b>.
+              {goalLocked ? ' Задаётся при создании и не меняется.' : ' После сохранения изменить нельзя.'}
+            </p>
           </Field>
 
           <Field label="Бренд / услуга">
@@ -393,7 +428,7 @@ export default function CampaignDrawer({
                   onChange={(e) => setPlanBudget(Number(e.target.value) || 0)}
                 />
               </Field>
-              <Field label="План заявок">
+              <Field label={gm.planLabel}>
                 <input
                   type="number"
                   min={0}
@@ -419,7 +454,7 @@ export default function CampaignDrawer({
                 </p>
               </Field>
               <div className="rounded-xl bg-chip px-3 py-2.5 flex items-center justify-between">
-                <span className="text-sm text-muted">План CPL</span>
+                <span className="text-sm text-muted">План · {gm.costLabel.toLowerCase()}</span>
                 <span className="text-sm font-semibold text-ink tabular-nums">
                   {planLeads > 0 ? kzt(planCpl) : '—'}
                 </span>
@@ -428,7 +463,7 @@ export default function CampaignDrawer({
 
             {planBudget > 0 && planLeads === 0 && (
               <p className="text-[11px] text-[#c53030] mt-3">
-                Без плана заявок кампания не попадёт в итоговый KPI — так же, как в Excel.
+                Без плана ({gm.metric.toLowerCase()}) кампания не попадёт в итоговый KPI.
               </p>
             )}
           </div>

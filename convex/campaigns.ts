@@ -6,6 +6,13 @@ import { ConvexError } from 'convex/values'
 
 const MONEY = v.union(v.literal('FRANCHONE'), v.literal('Партнёр'))
 const STATUS = v.union(v.literal('Активна'), v.literal('Пауза'), v.literal('Завершена'))
+const GOAL = v.union(
+  v.literal('msg_inst'),
+  v.literal('msg_wa'),
+  v.literal('reach'),
+  v.literal('profile'),
+  v.literal('site_leads'),
+)
 
 // Реестр ведут владелец/руководитель и сам таргетолог — иначе он заблокирован
 // до тех пор, пока владелец не заведёт запущенную им кампанию.
@@ -44,6 +51,7 @@ export const create = mutation({
     brand: v.string(),
     campaign: v.string(),
     moneySource: MONEY,
+    goal: v.optional(GOAL), // цель кампании (§3.2); задаётся при создании
     status: STATUS,
     startedAt: v.optional(v.string()),
     note: v.optional(v.string()),
@@ -69,6 +77,7 @@ export const update = mutation({
     brand: v.optional(v.string()),
     campaign: v.optional(v.string()),
     moneySource: v.optional(MONEY),
+    goal: v.optional(GOAL),
     status: v.optional(STATUS),
     startedAt: v.optional(v.string()),
     endedAt: v.optional(v.string()),
@@ -76,6 +85,10 @@ export const update = mutation({
   },
   handler: async (ctx, { id, ...patch }) => {
     await requireRegistryAccess(ctx)
+    const existing = await ctx.db.get(id)
+    if (!existing) throw new Error('Кампания не найдена')
+    // Цель неизменяема: задать можно только у кампании без цели (старой).
+    if (patch.goal !== undefined && existing.goal) delete patch.goal
     await ctx.db.patch(id, patch)
   },
 })
@@ -209,6 +222,7 @@ export const list = query({
         brand: c.brand,
         campaign: c.campaign,
         moneySource: c.moneySource,
+        goal: c.goal,
         status: c.status,
         weight: p.weight,
         planBudget: p.planBudget,

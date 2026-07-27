@@ -49,6 +49,7 @@ export const mapCampaign = (d: CampaignRow): Campaign => ({
   brand: d.brand,
   campaign: d.campaign,
   moneySource: d.moneySource,
+  goal: d.goal,
   status: d.status,
   weight: d.weight,
   planBudget: d.planBudget,
