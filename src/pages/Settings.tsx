@@ -55,7 +55,7 @@ export default function Settings() {
       {pos === 'sales' && <SalesKpiSetup />}
 
       {/* Ежедневная отчётность */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 mt-5">
+      <div className="mt-5">
         <ReportDeadlineCard />
       </div>
 
