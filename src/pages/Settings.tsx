@@ -760,15 +760,15 @@ function SalesKpiSetup() {
                 setSaved(false)
               }}
             />
-            <SalaryField
-              value={curSalary}
-              onChange={(v) => {
-                setSalary(v)
-                setSaved(false)
-              }}
-              hint="персональный оклад сотрудника"
-            />
-            <div className="pt-4 border-t border-line">
+            <div className="grid gap-4 lg:grid-cols-2">
+              <SalaryField
+                value={curSalary}
+                onChange={(v) => {
+                  setSalary(v)
+                  setSaved(false)
+                }}
+                hint="персональный оклад сотрудника"
+              />
               <SalaryField
                 label="План выручки, ₸"
                 value={curPlan}
