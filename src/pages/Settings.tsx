@@ -470,6 +470,41 @@ function EmployeePicker({
   )
 }
 
+function EmployeeTabs({
+  staff,
+  value,
+  onChange,
+}: {
+  staff: { id: string; name: string }[]
+  value: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <div>
+      <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">Сотрудник</div>
+      <div className="flex flex-wrap gap-1.5">
+        {staff.map((e) => {
+          const active = e.id === value
+          return (
+            <button
+              key={e.id}
+              type="button"
+              onClick={() => onChange(e.id)}
+              className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors ${
+                active
+                  ? 'bg-[#e2f2ef] text-green-d border-green-light'
+                  : 'bg-white text-muted border-line-2 hover:bg-chip'
+              }`}
+            >
+              {e.name}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function SmmKpiSetup() {
   const { activeEmployees } = useData()
   const staff = activeEmployees.filter((e) => e.position === 'smm' && e.role !== 'owner')
@@ -810,7 +845,12 @@ function TargetologKpiSetup() {
 // ——— Отдел продаж: план выручки ———
 function SalesKpiSetup() {
   const { activeEmployees } = useData()
-  const staff = activeEmployees.filter((e) => e.position === 'sales' && e.role !== 'owner')
+  const salesManagers = useQuery(api.sales.managers, {})
+  const staff =
+    salesManagers ??
+    activeEmployees
+      .filter((e) => e.position === 'sales' && e.role !== 'owner')
+      .map((e) => ({ id: e.id, name: e.name, salary: e.salary }))
   const [empId, setEmpId] = useState('')
   const selected = empId || staff[0]?.id || ''
   const emp = staff.find((e) => e.id === selected)
@@ -870,7 +910,7 @@ function SalesKpiSetup() {
           <p className="text-sm text-muted">Нет действующих менеджеров по продажам.</p>
         ) : (
           <div className="flex flex-col gap-4">
-            <EmployeePicker
+            <EmployeeTabs
               staff={staff}
               value={selected}
               onChange={(v) => {
@@ -915,7 +955,12 @@ function SalesKpiSetup() {
 
 function SalesObjectsSetup() {
   const { activeEmployees } = useData()
-  const staff = activeEmployees.filter((e) => e.position === 'sales' && e.role !== 'owner')
+  const salesManagers = useQuery(api.sales.managers, {})
+  const staff =
+    salesManagers ??
+    activeEmployees
+      .filter((e) => e.position === 'sales' && e.role !== 'owner')
+      .map((e) => ({ id: e.id, name: e.name, initials: e.initials, avatarColor: e.avatarColor }))
   const [month, setMonth] = useState(CURRENT_MONTH)
   const objects = useQuery(api.sales.objects) ?? []
   const monthRows = useQuery(api.sales.monthSettings, { month }) ?? []
@@ -1004,20 +1049,23 @@ function SalesObjectsSetup() {
         </button>
       </div>
 
-      <div className="flex flex-col gap-3">
-        {objects.map((object) => (
-          <SalesObjectRow
-            key={`${month}:${object._id}`}
-            object={object}
-            staff={staff}
-            month={month}
-            monthRow={monthRows.find((r) => r.objectId === object._id)}
-            onSaveObject={saveObject}
-            onSaveMonth={saveMonth}
-          />
-        ))}
-        {objects.length === 0 && (
-          <p className="text-sm text-muted py-3">Пока нет объектов продаж.</p>
+      <div className="rounded-2xl bg-chip/70 p-3">
+        {objects.length > 0 ? (
+          <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+            {objects.map((object) => (
+              <SalesObjectRow
+                key={`${month}:${object._id}`}
+                object={object}
+                staff={staff}
+                month={month}
+                monthRow={monthRows.find((r) => r.objectId === object._id)}
+                onSaveObject={saveObject}
+                onSaveMonth={saveMonth}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-sm text-muted p-3">Пока нет объектов продаж.</p>
         )}
       </div>
       <p className="text-[11px] text-muted-2 mt-3">
@@ -1033,7 +1081,7 @@ function ManagerChecks({
   selected,
   onChange,
 }: {
-  staff: { id: string; name: string }[]
+  staff: { id: string; name: string; initials?: string; avatarColor?: string }[]
   selected: string[]
   onChange: (ids: string[]) => void
 }) {
@@ -1081,7 +1129,7 @@ function SalesObjectRow({
     managerIds: string[]
     comment?: string
   }
-  staff: { id: string; name: string }[]
+  staff: { id: string; name: string; initials?: string; avatarColor?: string }[]
   month: string
   monthRow?: {
     status: 'selling' | 'not_selling'
@@ -1138,49 +1186,61 @@ function SalesObjectRow({
   }
 
   return (
-    <div className="rounded-2xl border border-line p-4">
-      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_150px_150px_auto] items-start">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="h-9 px-2.5 rounded-lg border border-line-2 text-sm font-semibold focus:outline-none focus:border-green-light"
-        />
-        <Select
-          value={type}
-          onChange={(v) => setType(v as typeof type)}
-          options={[
-            { value: 'franchise', label: 'Франшиза' },
-            { value: 'service', label: 'Услуга' },
-            { value: 'product', label: 'Другой продукт' },
-          ]}
-        />
-        <Select
-          value={status}
-          onChange={(v) => setStatus(v as typeof status)}
-          options={[
-            { value: 'active', label: 'Активен' },
-            { value: 'paused', label: 'На паузе' },
-            { value: 'archived', label: 'Архив' },
-          ]}
-        />
-        <button onClick={save} disabled={busy || !name.trim()} className="btn btn-green h-9 px-3 text-sm disabled:opacity-60">
+    <div className="rounded-2xl border border-line bg-white p-4 shadow-card">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-1">Объект продаж</div>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="w-full h-10 px-3 rounded-lg border border-line-2 text-base font-semibold focus:outline-none focus:border-green-light"
+          />
+        </div>
+        <button onClick={save} disabled={busy || !name.trim()} className="btn btn-green h-10 px-3 text-sm disabled:opacity-60 shrink-0">
           {saved ? <Check size={15} /> : null}
           Сохранить
         </button>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-1">Тип</div>
+          <Select
+            value={type}
+            onChange={(v) => setType(v as typeof type)}
+            options={[
+              { value: 'franchise', label: 'Франшиза' },
+              { value: 'service', label: 'Услуга' },
+              { value: 'product', label: 'Другой продукт' },
+            ]}
+          />
+        </div>
+        <div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-1">Статус</div>
+          <Select
+            value={status}
+            onChange={(v) => setStatus(v as typeof status)}
+            options={[
+              { value: 'active', label: 'Активен' },
+              { value: 'paused', label: 'На паузе' },
+              { value: 'archived', label: 'Архив' },
+            ]}
+          />
+        </div>
       </div>
 
       <input
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         placeholder="Комментарий"
-        className="mt-3 w-full h-9 px-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
+        className="mt-3 w-full h-10 px-3 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
       />
 
-      <div className="mt-3 flex items-center gap-2 flex-wrap">
+      <div className="mt-4 flex items-center gap-2 flex-wrap">
         <button
           onClick={() => setSelling((v) => !v)}
           disabled={status === 'archived'}
-          className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40 ${
+          className={`h-9 px-3 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40 ${
             selling && status !== 'archived'
               ? 'bg-[#e2f2ef] text-green-d border-green-light'
               : 'bg-white text-muted border-line-2 hover:bg-chip'
@@ -1188,25 +1248,39 @@ function SalesObjectRow({
         >
           {selling && status !== 'archived' ? 'Продаётся в месяце' : 'Не продаётся в месяце'}
         </button>
-        <span className="text-xs text-muted">План сделок: {num(managerIds.reduce((s, id) => s + (plans[id] || 0), 0))}</span>
+        <span className="h-9 px-3 rounded-lg bg-chip inline-flex items-center text-xs font-semibold text-muted">
+          План сделок: {num(managerIds.reduce((s, id) => s + (plans[id] || 0), 0))}
+        </span>
       </div>
 
-      <ManagerChecks staff={staff} selected={managerIds} onChange={setManagerIds} />
+      <div className="mt-4">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Менеджеры</div>
+        <ManagerChecks staff={staff} selected={managerIds} onChange={setManagerIds} />
+      </div>
 
       {managerIds.length > 0 && (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 mt-3">
-          {managerIds.map((id) => (
-            <div key={id} className="flex items-center gap-2 rounded-xl bg-chip p-2">
-              <span className="text-xs text-ink-2 flex-1 truncate">{staff.find((e) => e.id === id)?.name ?? 'Менеджер'}</span>
-              <input
-                type="number"
-                min={0}
-                value={plans[id] ?? 0}
-                onChange={(e) => setPlans((p) => ({ ...p, [id]: Number(e.target.value) || 0 }))}
-                className="w-20 h-8 px-2 rounded-lg border border-line-2 text-sm text-right focus:outline-none focus:border-green-light"
-              />
-            </div>
-          ))}
+        <div className="grid gap-2 mt-3">
+          {managerIds.map((id) => {
+            const manager = staff.find((e) => e.id === id)
+            return (
+              <div key={id} className="flex items-center gap-2 rounded-xl bg-chip p-2">
+                <span
+                  className="w-7 h-7 rounded-full grid place-items-center text-white text-[11px] font-bold shrink-0"
+                  style={{ background: manager?.avatarColor ?? '#057269' }}
+                >
+                  {manager?.initials ?? manager?.name.slice(0, 2).toUpperCase() ?? 'М'}
+                </span>
+                <span className="text-sm text-ink-2 flex-1 truncate">{manager?.name ?? 'Менеджер'}</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={plans[id] ?? 0}
+                  onChange={(e) => setPlans((p) => ({ ...p, [id]: Number(e.target.value) || 0 }))}
+                  className="w-20 h-9 px-2 rounded-lg border border-line-2 text-sm text-right focus:outline-none focus:border-green-light"
+                />
+              </div>
+            )
+          })}
         </div>
       )}
       {error && <p className="text-sm text-[#c53030] mt-3">{error}</p>}

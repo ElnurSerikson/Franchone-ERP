@@ -86,6 +86,13 @@ export default function SalesDashboardBlock({
   const managerRows = data.managerRows as SalesRow[]
   const objectOptions = data.objects as SalesObjectOption[]
   const salesPeople = employees.filter((e) => e.position === 'sales' && e.role !== 'owner' && e.status === 'active')
+  const managerOptions = salesPeople.map((e) => ({ value: e.id, label: e.name }))
+  const seenManagerIds = new Set(managerOptions.map((option) => option.value))
+  for (const row of managerRows) {
+    if (!row.employeeId || seenManagerIds.has(row.employeeId)) continue
+    managerOptions.push({ value: row.employeeId, label: row.name })
+    seenManagerIds.add(row.employeeId)
+  }
   const progress = totals.planCompletion ?? 0
 
   return (
@@ -106,7 +113,7 @@ export default function SalesDashboardBlock({
                 onChange={setEmployeeId}
                 options={[
                   { value: 'all', label: 'Все менеджеры' },
-                  ...salesPeople.map((e) => ({ value: e.id, label: e.name })),
+                  ...managerOptions,
                 ]}
                 className="mt-1.5"
               />

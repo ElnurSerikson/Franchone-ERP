@@ -130,11 +130,11 @@ function buildAnalytics(t: SalesTotals, planDeals: number) {
   }
 }
 
-async function salesEmployees(ctx: QueryCtx | MutationCtx) {
+async function salesEmployees(ctx: QueryCtx | MutationCtx, includeHidden = false) {
   const hidden = await hiddenEmployeeIds(ctx)
   return (await ctx.db.query('employees').collect()).filter(
     (e) =>
-      !hidden.has(e._id) &&
+      (includeHidden || !hidden.has(e._id)) &&
       e.role !== 'owner' &&
       e.status === 'active' &&
       e.position === 'sales',
@@ -291,6 +291,33 @@ export const monthSettings = query({
   },
 })
 
+export const managers = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await currentEmployee(ctx)
+    if (!me || !isManager(me)) return []
+    const hidden = await hiddenEmployeeIds(ctx)
+    const includeHidden = me.role === 'owner'
+    return (await ctx.db.query('employees').collect())
+      .filter(
+        (e) =>
+          e.role !== 'owner' &&
+          e.status === 'active' &&
+          e.position === 'sales' &&
+          (includeHidden || !hidden.has(e._id)) &&
+          (me.role === 'owner' || e.department === me.department),
+      )
+      .map((e) => ({
+        id: e._id,
+        name: e.name,
+        initials: e.initials,
+        avatarColor: e.avatarColor,
+        salary: e.salary,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+  },
+})
+
 export const upsertObject = mutation({
   args: {
     id: v.optional(v.id('salesObjects')),
@@ -305,7 +332,7 @@ export const upsertObject = mutation({
     if (me.role !== 'owner') throw new ConvexError('Объекты продаж настраивает только владелец')
     const cleanName = name.trim()
     if (!cleanName) throw new ConvexError('Название объекта продаж обязательно')
-    const salesIds = new Set((await salesEmployees(ctx)).map((e) => e._id))
+    const salesIds = new Set((await salesEmployees(ctx, me.role === 'owner')).map((e) => e._id))
     const cleanManagers = managerIds.filter((mid) => salesIds.has(mid))
     if (id) {
       await ctx.db.patch(id, {
@@ -343,7 +370,7 @@ export const upsertMonth = mutation({
     if (object.status === 'archived' && status === 'selling') {
       throw new ConvexError('Архивный объект нельзя включить в продажи месяца')
     }
-    const salesIds = new Set((await salesEmployees(ctx)).map((e) => e._id))
+    const salesIds = new Set((await salesEmployees(ctx, me.role === 'owner')).map((e) => e._id))
     const clean = managerPlans
       .filter((p) => salesIds.has(p.managerId))
       .map((p) => ({
@@ -610,14 +637,15 @@ export const summary = query({
     const allEmployees = await ctx.db.query('employees').collect()
     const employeeById = new Map(allEmployees.map((e) => [e._id, e]))
     const hidden = await hiddenEmployeeIds(ctx)
+    const ownerCanSeeHidden = me.role === 'owner'
 
     let visibleEmployeeIds = new Set<Id<'employees'>>()
     if (employeeId) {
       if (!(await maySeeEmployee(me, employeeId, ctx))) return empty
-      if (!hidden.has(employeeId)) visibleEmployeeIds.add(employeeId)
+      if (ownerCanSeeHidden || !hidden.has(employeeId)) visibleEmployeeIds.add(employeeId)
     } else if (me.role === 'owner') {
       for (const e of allEmployees) {
-        if (!hidden.has(e._id) && e.role !== 'owner' && e.position === 'sales') visibleEmployeeIds.add(e._id)
+        if (e.status === 'active' && e.role !== 'owner' && e.position === 'sales') visibleEmployeeIds.add(e._id)
       }
     } else if (me.role === 'head') {
       for (const e of allEmployees) {
