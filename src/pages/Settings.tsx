@@ -1258,12 +1258,11 @@ function SalesObjectRow({
                 <input
                   type="number"
                   min={0}
-                  value={plans[id] ?? 0}
+                  placeholder="0"
+                  value={plans[id] ? String(plans[id]) : ''}
                   disabled={readOnly}
-                  onFocus={(e) => e.currentTarget.select()}
-                  onMouseUp={(e) => e.preventDefault()}
-                  onChange={(e) => setPlans((p) => ({ ...p, [id]: Number(e.target.value) || 0 }))}
-                  className="w-20 h-9 px-2 rounded-lg border border-line-2 text-sm text-right focus:outline-none focus:border-green-light"
+                  onChange={(e) => setPlans((p) => ({ ...p, [id]: Math.max(0, Number(e.target.value) || 0) }))}
+                  className="w-20 h-9 px-2 rounded-lg border border-line-2 text-sm text-right placeholder:text-muted focus:outline-none focus:border-green-light"
                 />
               </div>
             )
