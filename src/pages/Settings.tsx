@@ -1,14 +1,14 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { Sliders, Users2, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X } from 'lucide-react'
+import { Sliders, Users2, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X, Briefcase, ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
 import Select from '@/components/ui/Select'
 import { useData } from '@/lib/useData'
 import { DEFAULT_WEIGHTS } from '@/lib/kpi'
 import type { Id } from '../../convex/_generated/dataModel'
-import { pct } from '@/lib/format'
-import { CURRENT_MONTH } from '@/lib/month'
+import { num, pct } from '@/lib/format'
+import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
 import { errMessage } from '@/lib/errors'
 import { th, td, theadRow } from '@/lib/table'
 import { PERM_SECTIONS, ACTION_LABEL, permKey } from '../../convex/permModel'
@@ -851,60 +851,365 @@ function SalesKpiSetup() {
   }
 
   return (
-    <div className="card p-5">
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <Sliders size={18} className="text-green" />
-        <h3 className="sec-title flex-1">KPI · Отдел продаж</h3>
-        <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />
+    <div className="flex flex-col gap-5">
+      <div className="card p-5">
+        <div className="flex items-center gap-2 mb-4 flex-wrap">
+          <Sliders size={18} className="text-green" />
+          <h3 className="sec-title flex-1">KPI · Отдел продаж</h3>
+          <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />
+        </div>
+
+        <FormulaNote>
+          <b>МИН(выручка за месяц ÷ план выручки; 1)</b>, выплата — <b>оклад × KPI</b>. Выручка
+          собирается из ежедневных объектных отчётов отдела продаж.
+        </FormulaNote>
+
+        {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
+
+        {staff.length === 0 ? (
+          <p className="text-sm text-muted">Нет действующих менеджеров по продажам.</p>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <EmployeePicker
+              staff={staff}
+              value={selected}
+              onChange={(v) => {
+                setEmpId(v)
+                setSalary(null)
+                setPlan(null)
+                setSaved(false)
+              }}
+            />
+            <SalaryField
+              value={curSalary}
+              onChange={(v) => {
+                setSalary(v)
+                setSaved(false)
+              }}
+              hint="персональный оклад сотрудника"
+            />
+            <div className="pt-4 border-t border-line">
+              <SalaryField
+                label="План выручки, ₸"
+                value={curPlan}
+                onChange={(v) => {
+                  setPlan(v)
+                  setSaved(false)
+                }}
+                hint="персональная цель месяца для начислений KPI"
+              />
+            </div>
+            {curSalary > 0 && curPlan === 0 && (
+              <p className="text-[11px] text-[#c53030]">
+                Без плана выручки KPI продаж не считается, и выплата останется нулевой.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
-      <FormulaNote>
-        <b>МИН(выручка за месяц ÷ план выручки; 1)</b>, выплата — <b>оклад × KPI</b>. Выручка
-        собирается из ежедневных отчётов отдела продаж.
-      </FormulaNote>
+      <SalesObjectsSetup />
+    </div>
+  )
+}
+
+function SalesObjectsSetup() {
+  const { activeEmployees } = useData()
+  const staff = activeEmployees.filter((e) => e.position === 'sales' && e.role !== 'owner')
+  const [month, setMonth] = useState(CURRENT_MONTH)
+  const objects = useQuery(api.sales.objects) ?? []
+  const monthRows = useQuery(api.sales.monthSettings, { month }) ?? []
+  const saveObject = useMutation(api.sales.upsertObject)
+  const saveMonth = useMutation(api.sales.upsertMonth)
+
+  const [name, setName] = useState('')
+  const [type, setType] = useState<'franchise' | 'service' | 'product'>('franchise')
+  const [managerIds, setManagerIds] = useState<string[]>([])
+  const [comment, setComment] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const add = async () => {
+    const clean = name.trim()
+    if (!clean) return
+    setBusy(true)
+    setError('')
+    try {
+      await saveObject({
+        name: clean,
+        type,
+        status: 'active',
+        managerIds: managerIds as Id<'employees'>[],
+        comment: comment.trim() || undefined,
+      })
+      setName('')
+      setManagerIds([])
+      setComment('')
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось создать объект продаж.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <Briefcase size={18} className="text-green" />
+        <h3 className="sec-title flex-1">Объекты продаж и планы месяца</h3>
+        <div className="flex items-center gap-1 rounded-xl bg-chip p-1">
+          <button onClick={() => setMonth(addMonth(month, -1))} className="ico-btn w-8 h-8 border-0 bg-transparent" title="Предыдущий месяц">
+            <ChevronLeft size={15} />
+          </button>
+          <span className="px-2 text-sm font-semibold text-ink min-w-[116px] text-center">{formatMonth(month)}</span>
+          <button onClick={() => setMonth(addMonth(month, 1))} className="ico-btn w-8 h-8 border-0 bg-transparent" title="Следующий месяц">
+            <ChevronRight size={15} />
+          </button>
+        </div>
+      </div>
 
       {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
 
-      {staff.length === 0 ? (
-        <p className="text-sm text-muted">Нет действующих менеджеров по продажам.</p>
-      ) : (
-        <div className="flex flex-col gap-4">
-          <EmployeePicker
+      <div className="rounded-2xl border border-line p-4 mb-4">
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_150px]">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Название объекта продаж"
+            className="h-9 px-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
+          />
+          <Select
+            value={type}
+            onChange={(v) => setType(v as typeof type)}
+            options={[
+              { value: 'franchise', label: 'Франшиза' },
+              { value: 'service', label: 'Услуга' },
+              { value: 'product', label: 'Другой продукт' },
+            ]}
+          />
+        </div>
+        <ManagerChecks
+          staff={staff}
+          selected={managerIds}
+          onChange={setManagerIds}
+        />
+        <input
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Комментарий"
+          className="mt-3 w-full h-9 px-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
+        />
+        <button onClick={add} disabled={busy || !name.trim()} className="btn btn-green h-9 px-3 text-sm disabled:opacity-60 mt-3">
+          <Plus size={15} /> Создать объект
+        </button>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {objects.map((object) => (
+          <SalesObjectRow
+            key={`${month}:${object._id}`}
+            object={object}
             staff={staff}
-            value={selected}
-            onChange={(v) => {
-              setEmpId(v)
-              setSalary(null)
-              setPlan(null)
-              setSaved(false)
-            }}
+            month={month}
+            monthRow={monthRows.find((r) => r.objectId === object._id)}
+            onSaveObject={saveObject}
+            onSaveMonth={saveMonth}
           />
-          <SalaryField
-            value={curSalary}
-            onChange={(v) => {
-              setSalary(v)
-              setSaved(false)
+        ))}
+        {objects.length === 0 && (
+          <p className="text-sm text-muted py-3">Пока нет объектов продаж.</p>
+        )}
+      </div>
+      <p className="text-[11px] text-muted-2 mt-3">
+        Если объект уже использовался в отчётах, его не удаляем физически: переведите в архив,
+        и история останется доступной по прошлым месяцам.
+      </p>
+    </div>
+  )
+}
+
+function ManagerChecks({
+  staff,
+  selected,
+  onChange,
+}: {
+  staff: { id: string; name: string }[]
+  selected: string[]
+  onChange: (ids: string[]) => void
+}) {
+  const set = new Set(selected)
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-3">
+      {staff.map((e) => {
+        const on = set.has(e.id)
+        return (
+          <button
+            key={e.id}
+            type="button"
+            onClick={() => {
+              const next = new Set(set)
+              if (on) next.delete(e.id)
+              else next.add(e.id)
+              onChange([...next])
             }}
-            hint="персональный оклад сотрудника"
-          />
-          <div className="pt-4 border-t border-line">
-            <SalaryField
-              label="План выручки, ₸"
-              value={curPlan}
-              onChange={(v) => {
-                setPlan(v)
-                setSaved(false)
-              }}
-              hint="персональная цель месяца"
-            />
-          </div>
-          {curSalary > 0 && curPlan === 0 && (
-            <p className="text-[11px] text-[#c53030]">
-              Без плана выручки KPI продаж не считается, и выплата останется нулевой.
-            </p>
-          )}
+            className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors ${
+              on ? 'bg-[#e2f2ef] text-green-d border-green-light' : 'bg-white text-muted border-line-2 hover:bg-chip'
+            }`}
+          >
+            {e.name}
+          </button>
+        )
+      })}
+      {staff.length === 0 && <span className="text-xs text-muted">Нет менеджеров продаж.</span>}
+    </div>
+  )
+}
+
+function SalesObjectRow({
+  object,
+  staff,
+  month,
+  monthRow,
+  onSaveObject,
+  onSaveMonth,
+}: {
+  object: {
+    _id: string
+    name: string
+    type: 'franchise' | 'service' | 'product'
+    status: 'active' | 'paused' | 'archived'
+    managerIds: string[]
+    comment?: string
+  }
+  staff: { id: string; name: string }[]
+  month: string
+  monthRow?: {
+    status: 'selling' | 'not_selling'
+    managerPlans: { managerId: string; planDeals: number }[]
+  }
+  onSaveObject: ReturnType<typeof useMutation<typeof api.sales.upsertObject>>
+  onSaveMonth: ReturnType<typeof useMutation<typeof api.sales.upsertMonth>>
+}) {
+  const [name, setName] = useState(object.name)
+  const [status, setStatus] = useState(object.status)
+  const [type, setType] = useState(object.type)
+  const [comment, setComment] = useState(object.comment ?? '')
+  const [managerIds, setManagerIds] = useState<string[]>(
+    () => monthRow?.managerPlans.map((p) => p.managerId) ?? object.managerIds,
+  )
+  const [selling, setSelling] = useState((monthRow?.status ?? 'not_selling') === 'selling')
+  const [plans, setPlans] = useState<Record<string, number>>(() => {
+    const out: Record<string, number> = {}
+    for (const p of monthRow?.managerPlans ?? []) out[p.managerId] = p.planDeals
+    return out
+  })
+  const [busy, setBusy] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
+
+  const save = async () => {
+    setBusy(true)
+    setSaved(false)
+    setError('')
+    try {
+      await onSaveObject({
+        id: object._id as Id<'salesObjects'>,
+        name,
+        type,
+        status,
+        managerIds: managerIds as Id<'employees'>[],
+        comment: comment.trim() || undefined,
+      })
+      await onSaveMonth({
+        objectId: object._id as Id<'salesObjects'>,
+        month,
+        status: selling && status !== 'archived' ? 'selling' : 'not_selling',
+        managerPlans: managerIds.map((id) => ({
+          managerId: id as Id<'employees'>,
+          planDeals: Math.max(0, Math.floor(plans[id] || 0)),
+        })),
+      })
+      setSaved(true)
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось сохранить объект продаж.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-line p-4">
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_150px_150px_auto] items-start">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="h-9 px-2.5 rounded-lg border border-line-2 text-sm font-semibold focus:outline-none focus:border-green-light"
+        />
+        <Select
+          value={type}
+          onChange={(v) => setType(v as typeof type)}
+          options={[
+            { value: 'franchise', label: 'Франшиза' },
+            { value: 'service', label: 'Услуга' },
+            { value: 'product', label: 'Другой продукт' },
+          ]}
+        />
+        <Select
+          value={status}
+          onChange={(v) => setStatus(v as typeof status)}
+          options={[
+            { value: 'active', label: 'Активен' },
+            { value: 'paused', label: 'На паузе' },
+            { value: 'archived', label: 'Архив' },
+          ]}
+        />
+        <button onClick={save} disabled={busy || !name.trim()} className="btn btn-green h-9 px-3 text-sm disabled:opacity-60">
+          {saved ? <Check size={15} /> : null}
+          Сохранить
+        </button>
+      </div>
+
+      <input
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        placeholder="Комментарий"
+        className="mt-3 w-full h-9 px-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
+      />
+
+      <div className="mt-3 flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => setSelling((v) => !v)}
+          disabled={status === 'archived'}
+          className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40 ${
+            selling && status !== 'archived'
+              ? 'bg-[#e2f2ef] text-green-d border-green-light'
+              : 'bg-white text-muted border-line-2 hover:bg-chip'
+          }`}
+        >
+          {selling && status !== 'archived' ? 'Продаётся в месяце' : 'Не продаётся в месяце'}
+        </button>
+        <span className="text-xs text-muted">План сделок: {num(managerIds.reduce((s, id) => s + (plans[id] || 0), 0))}</span>
+      </div>
+
+      <ManagerChecks staff={staff} selected={managerIds} onChange={setManagerIds} />
+
+      {managerIds.length > 0 && (
+        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 mt-3">
+          {managerIds.map((id) => (
+            <div key={id} className="flex items-center gap-2 rounded-xl bg-chip p-2">
+              <span className="text-xs text-ink-2 flex-1 truncate">{staff.find((e) => e.id === id)?.name ?? 'Менеджер'}</span>
+              <input
+                type="number"
+                min={0}
+                value={plans[id] ?? 0}
+                onChange={(e) => setPlans((p) => ({ ...p, [id]: Number(e.target.value) || 0 }))}
+                className="w-20 h-8 px-2 rounded-lg border border-line-2 text-sm text-right focus:outline-none focus:border-green-light"
+              />
+            </div>
+          ))}
         </div>
       )}
+      {error && <p className="text-sm text-[#c53030] mt-3">{error}</p>}
     </div>
   )
 }

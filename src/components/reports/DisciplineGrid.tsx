@@ -181,7 +181,7 @@ function CellModal({ sel, onClose }: { sel: Sel; onClose: () => void }) {
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-lg bg-white rounded-t-card sm:rounded-card shadow-soft max-h-[92vh] sm:max-h-[85vh] overflow-y-auto [padding-bottom:env(safe-area-inset-bottom)] sm:pb-0"
+        className="w-full sm:max-w-3xl bg-white rounded-t-card sm:rounded-card shadow-soft max-h-[92vh] sm:max-h-[85vh] overflow-y-auto [padding-bottom:env(safe-area-inset-bottom)] sm:pb-0"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 bg-white flex items-center justify-between px-5 sm:px-6 py-4 border-b border-line">

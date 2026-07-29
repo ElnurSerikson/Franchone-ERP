@@ -1,15 +1,17 @@
 import { useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import { api } from '../../../convex/_generated/api'
-import type { Doc } from '../../../convex/_generated/dataModel'
+import type { Doc, Id } from '../../../convex/_generated/dataModel'
 import { Loader2, Save, Check, Clock, PencilLine, History, ChevronDown, Lock } from 'lucide-react'
 import type { SmmRow, TargetologRow } from '@/types'
 import { REPORTING_POSITIONS, REPORT_PAGES, CONTENT_TYPES } from '@/lib/constants'
 import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
 import { goalMeta } from '../../../convex/campaignGoals'
 import { kzt, num } from '@/lib/format'
+import { errMessage } from '@/lib/errors'
 import { useMediaQuery } from '@/lib/useMediaQuery'
 import DatePicker from '../ui/DatePicker'
+import Select from '../ui/Select'
 
 type Report = Doc<'dailyReports'>
 
@@ -479,38 +481,122 @@ function TargetologForm({ report, date, readOnly }: { report: Report | null; dat
   )
 }
 
-// ——— §3.3 Отдел продаж ———
+// ——— §3.3 Отдел продаж: объектный отчёт по новому ТЗ ———
 function SalesForm({ report, date, readOnly }: { report: Report | null; date: string; readOnly: boolean }) {
-  const submit = useMutation(api.reports.submit)
-  // Числа держим строками — иначе поле не очистить, см. NumInput.
+  const objects = useQuery(api.sales.assignedObjects, { date })
+  const [objectId, setObjectId] = useState('')
+  const selected = objectId || objects?.[0]?._id || ''
+  const daily = useQuery(
+    api.sales.daily,
+    selected ? { date, objectId: selected as Id<'salesObjects'> } : 'skip',
+  )
+
+  if (objects === undefined || daily === undefined) {
+    return (
+      <div className="py-8 grid place-items-center text-muted">
+        <Loader2 className="animate-spin" size={18} />
+      </div>
+    )
+  }
+
+  if (objects.length === 0) {
+    return (
+      <div className="rounded-2xl border border-line p-6 text-center">
+        <div className="sec-title mb-1">Нет активных объектов продаж</div>
+        <p className="text-sm text-muted max-w-md mx-auto">
+          Для выбранного месяца вам не назначены объекты продаж. Объект появится здесь после
+          настройки месяца владельцем.
+        </p>
+      </div>
+    )
+  }
+
+  const object = objects.find((o) => o._id === selected) ?? objects[0]
+
+  return (
+    <SalesObjectEditor
+      key={`${date}:${object._id}:${daily?._id ?? 'new'}`}
+      report={report}
+      daily={daily}
+      date={date}
+      object={object}
+      objects={objects}
+      selected={object._id}
+      onSelect={setObjectId}
+      readOnly={readOnly}
+    />
+  )
+}
+
+type SalesAssignedObject = Doc<'salesObjects'> & { planDeals: number }
+type SalesDaily = Doc<'salesObjectReports'> | null
+
+function SalesObjectEditor({
+  report,
+  daily,
+  date,
+  object,
+  objects,
+  selected,
+  onSelect,
+  readOnly,
+}: {
+  report: Report | null
+  daily: SalesDaily
+  date: string
+  object: SalesAssignedObject
+  objects: SalesAssignedObject[]
+  selected: string
+  onSelect: (id: string) => void
+  readOnly: boolean
+}) {
+  const submit = useMutation(api.sales.submitDaily)
   const [f, setF] = useState({
-    leads: report?.sales ? String(report.sales.leads) : '',
-    meetings: report?.sales ? String(report.sales.meetings) : '',
-    sales: report?.sales ? String(report.sales.sales) : '',
-    revenue: report?.sales ? String(report.sales.revenue) : '',
-    note: report?.sales?.note ?? '',
+    newLeads: daily ? String(daily.newLeads) : '',
+    processedLeads: daily ? String(daily.processedLeads) : '',
+    newConsultations: daily ? String(daily.newConsultations) : '',
+    repeatConsultations: daily ? String(daily.repeatConsultations) : '',
+    newMeetings: daily ? String(daily.newMeetings) : '',
+    repeatMeetings: daily ? String(daily.repeatMeetings) : '',
+    newPrepayments: daily ? String(daily.newPrepayments) : '',
+    newDeals: daily ? String(daily.newDeals) : '',
+    revenue: daily ? String(daily.revenue) : '',
+    comment: daily?.comment ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
 
-  const setNum = (k: 'leads' | 'meetings' | 'sales' | 'revenue', v: string) =>
+  const setNum = (k: Exclude<keyof typeof f, 'comment'>, v: string) =>
     setF((p) => ({ ...p, [k]: v }))
+  const toInt = (v: string) => Math.max(0, Math.floor(Number(v) || 0))
 
   const save = async () => {
     if (readOnly) return
+    if (f.newLeads.trim() === '') {
+      setError('Поле «Новые заявки» обязательно для заполнения.')
+      return
+    }
     setSaving(true)
+    setError('')
     try {
       await submit({
         date,
-        sales: {
-          leads: Number(f.leads) || 0,
-          meetings: Number(f.meetings) || 0,
-          sales: Number(f.sales) || 0,
-          revenue: Number(f.revenue) || 0,
-          note: f.note.trim() || undefined,
-        },
+        objectId: object._id as Id<'salesObjects'>,
+        newLeads: toInt(f.newLeads),
+        processedLeads: toInt(f.processedLeads),
+        newConsultations: toInt(f.newConsultations),
+        repeatConsultations: toInt(f.repeatConsultations),
+        newMeetings: toInt(f.newMeetings),
+        repeatMeetings: toInt(f.repeatMeetings),
+        newPrepayments: toInt(f.newPrepayments),
+        newDeals: toInt(f.newDeals),
+        revenue: Number(f.revenue) || 0,
+        comment: f.comment.trim() || undefined,
       })
       setSaved(true)
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось сохранить отчёт.'))
     } finally {
       setSaving(false)
     }
@@ -519,30 +605,70 @@ function SalesForm({ report, date, readOnly }: { report: Report | null; date: st
   return (
     <FormShell
       title="Отчёт отдела продаж"
-      hint="Базовый набор метрик — состав уточняется заказчиком (§3.3)"
-      edited={!!report}
+      hint="Заполняется отдельно по каждому объекту продаж за выбранную дату"
+      edited={!!daily || !!report}
       saving={saving}
       saved={saved}
       readOnly={readOnly}
       onSave={save}
     >
-      <div className="grid grid-cols-2 gap-3">
-        <NumField label="Обработано заявок" value={f.leads} onChange={(v) => setNum('leads', v)} disabled={readOnly} />
-        <NumField label="Звонки / встречи" value={f.meetings} onChange={(v) => setNum('meetings', v)} disabled={readOnly} />
-        <NumField label="Продаж, шт" value={f.sales} onChange={(v) => setNum('sales', v)} disabled={readOnly} />
-        <NumField label="Сумма продаж, ₸" value={f.revenue} onChange={(v) => setNum('revenue', v)} disabled={readOnly} />
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px] mb-4">
+        <div>
+          <Lbl>Объект продаж</Lbl>
+          <Select
+            value={selected}
+            onChange={onSelect}
+            options={objects.map((o) => ({ value: o._id, label: o.name }))}
+            className="mt-1.5"
+          />
+        </div>
+        <div className="rounded-xl bg-chip px-3 py-2">
+          <div className="text-[11px] text-muted uppercase tracking-wide">План сделок</div>
+          <div className="text-lg font-bold text-green-d">{num(object.planDeals)}</div>
+        </div>
       </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border border-line p-4">
+          <div className="text-[11px] font-semibold text-green-d uppercase tracking-wide mb-3">
+            Уникальные этапы
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <NumField label="Новые заявки *" value={f.newLeads} onChange={(v) => setNum('newLeads', v)} disabled={readOnly} />
+            <NumField label="Обработано новых заявок" value={f.processedLeads} onChange={(v) => setNum('processedLeads', v)} disabled={readOnly} />
+            <NumField label="Новые консультации" value={f.newConsultations} onChange={(v) => setNum('newConsultations', v)} disabled={readOnly} />
+            <NumField label="Новые встречи / Zoom" value={f.newMeetings} onChange={(v) => setNum('newMeetings', v)} disabled={readOnly} />
+            <NumField label="Новые предоплаты" value={f.newPrepayments} onChange={(v) => setNum('newPrepayments', v)} disabled={readOnly} />
+            <NumField label="Новые сделки" value={f.newDeals} onChange={(v) => setNum('newDeals', v)} disabled={readOnly} />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-line p-4">
+          <div className="text-[11px] font-semibold text-green-d uppercase tracking-wide mb-3">
+            Повторная активность и деньги
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <NumField label="Повторные консультации" value={f.repeatConsultations} onChange={(v) => setNum('repeatConsultations', v)} disabled={readOnly} />
+            <NumField label="Повторные встречи / Zoom" value={f.repeatMeetings} onChange={(v) => setNum('repeatMeetings', v)} disabled={readOnly} />
+            <div className="col-span-2">
+              <NumField label="Фактически полученная сумма, ₸" value={f.revenue} onChange={(v) => setNum('revenue', v)} disabled={readOnly} />
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="mt-3">
         <Lbl>Комментарий</Lbl>
         <textarea
           rows={2}
           className={`${txtCls} h-auto py-2 resize-y mt-1 disabled:bg-chip disabled:text-muted`}
           placeholder="Необязательно"
-          value={f.note ?? ''}
+          value={f.comment ?? ''}
           disabled={readOnly}
-          onChange={(e) => setF((p) => ({ ...p, note: e.target.value }))}
+          onChange={(e) => setF((p) => ({ ...p, comment: e.target.value }))}
         />
       </div>
+      {error && <div className="text-sm text-[#c53030] mt-3">{error}</div>}
     </FormShell>
   )
 }

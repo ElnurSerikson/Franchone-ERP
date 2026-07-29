@@ -34,7 +34,7 @@ export interface ReportData {
 const th = 'text-left text-[11px] font-semibold text-green-d uppercase tracking-wide px-3 py-2'
 const td = 'px-3 py-2 text-sm text-ink-2 border-t border-line'
 const numCls =
-  'w-24 h-8 px-2 rounded-lg border border-line-2 text-sm text-right text-ink tabular-nums focus:outline-none focus:border-green-light'
+  'w-full h-8 px-2 rounded-lg border border-line-2 text-sm text-right text-ink tabular-nums focus:outline-none focus:border-green-light'
 
 // Все шесть ячеек «страница × формат» — как в форме сотрудника и в KPI_SMM.
 const SMM_CELLS = REPORT_PAGES.flatMap((page) => CONTENT_TYPES.map((type) => ({ page, type })))
@@ -70,6 +70,7 @@ export default function ReportView({
   onClose: () => void
 }) {
   const { report, history, reopened, position, canEdit, canDelete, canCreate } = data
+  const isSales = position === 'sales' || report?.position === 'sales'
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [confirmDel, setConfirmDel] = useState(false)
   const [delBusy, setDelBusy] = useState(false)
@@ -108,12 +109,12 @@ export default function ReportView({
             </span>
           )}
           <div className="flex-1" />
-          {canEdit && mode === 'view' && (
+          {canEdit && !isSales && mode === 'view' && (
             <button onClick={() => setMode('edit')} className="mini-btn">
               <PencilLine size={13} /> Редактировать
             </button>
           )}
-          {canDelete && mode === 'view' && !confirmDel && (
+          {canDelete && !isSales && mode === 'view' && !confirmDel && (
             <button
               onClick={() => setConfirmDel(true)}
               className="mini-btn text-[#c53030] hover:bg-[#fdeaea]"
@@ -145,7 +146,9 @@ export default function ReportView({
       )}
 
       {/* Тело: просмотр / правка / внесение за пропущенный день */}
-      {hasContent && report ? (
+      {isSales ? (
+        <SalesObjectReports employeeId={employeeId} date={date} canCreate={canCreate} />
+      ) : hasContent && report ? (
         mode === 'edit' ? (
           <OwnerEditor
             employeeId={employeeId}
@@ -303,6 +306,218 @@ function ReadContent({
         </div>
       ) : null}
     </>
+  )
+}
+
+function SalesObjectReports({
+  employeeId,
+  date,
+  canCreate,
+}: {
+  employeeId: Id<'employees'>
+  date: string
+  canCreate: boolean
+}) {
+  const data = useQuery(api.sales.dayForEmployee, { employeeId, date })
+
+  if (data === undefined) {
+    return (
+      <div className="grid place-items-center py-6 text-muted">
+        <Loader2 className="animate-spin" size={18} />
+      </div>
+    )
+  }
+  if (data === null) {
+    return <div className="rounded-xl border border-line p-4 text-sm text-muted">Нет доступа к объектным отчётам продаж.</div>
+  }
+  if (data.rows.length === 0) {
+    return (
+      <div className="rounded-xl border border-line p-4 text-sm text-muted">
+        На эту дату нет назначенных объектов продаж.
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      {data.rows.map((row) => (
+        <SalesObjectReportRow
+          key={row.object._id}
+          employeeId={employeeId}
+          date={date}
+          object={row.object}
+          planDeals={row.planDeals}
+          report={row.report}
+          canEdit={data.canEdit || canCreate}
+        />
+      ))}
+      {data.closed && (
+        <div className="text-[11px] text-muted-2">
+          Месяц закрыт — объектные отчёты доступны только для просмотра.
+        </div>
+      )}
+    </div>
+  )
+}
+
+type SalesObjectDoc = Doc<'salesObjects'>
+type SalesObjectReportDoc = Doc<'salesObjectReports'> | null
+
+function SalesObjectReportRow({
+  employeeId,
+  date,
+  object,
+  planDeals,
+  report,
+  canEdit,
+}: {
+  employeeId: Id<'employees'>
+  date: string
+  object: SalesObjectDoc
+  planDeals: number
+  report: SalesObjectReportDoc
+  canEdit: boolean
+}) {
+  const save = useMutation(api.sales.ownerSetDaily)
+  const [editing, setEditing] = useState(false)
+  const [f, setF] = useState(() => ({
+    newLeads: report ? String(report.newLeads) : '',
+    processedLeads: report ? String(report.processedLeads) : '',
+    newConsultations: report ? String(report.newConsultations) : '',
+    repeatConsultations: report ? String(report.repeatConsultations) : '',
+    newMeetings: report ? String(report.newMeetings) : '',
+    repeatMeetings: report ? String(report.repeatMeetings) : '',
+    newPrepayments: report ? String(report.newPrepayments) : '',
+    newDeals: report ? String(report.newDeals) : '',
+    revenue: report ? String(report.revenue) : '',
+    comment: report?.comment ?? '',
+  }))
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const setNum = (key: Exclude<keyof typeof f, 'comment'>, value: string) =>
+    setF((prev) => ({ ...prev, [key]: value }))
+  const toInt = (value: string) => Math.max(0, Math.floor(Number(value) || 0))
+  const doSave = async () => {
+    if (f.newLeads.trim() === '') {
+      setError('Поле «Новые заявки» обязательно.')
+      return
+    }
+    setSaving(true)
+    setError('')
+    try {
+      await save({
+        employeeId,
+        date,
+        objectId: object._id as Id<'salesObjects'>,
+        newLeads: toInt(f.newLeads),
+        processedLeads: toInt(f.processedLeads),
+        newConsultations: toInt(f.newConsultations),
+        repeatConsultations: toInt(f.repeatConsultations),
+        newMeetings: toInt(f.newMeetings),
+        repeatMeetings: toInt(f.repeatMeetings),
+        newPrepayments: toInt(f.newPrepayments),
+        newDeals: toInt(f.newDeals),
+        revenue: Number(f.revenue) || 0,
+        comment: f.comment.trim() || undefined,
+      })
+      setEditing(false)
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось сохранить объектный отчёт.'))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (!editing) {
+    return (
+      <div className="rounded-2xl border border-line p-4">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-ink truncate">{object.name}</div>
+            <div className="text-[11px] text-muted">План сделок: {num(planDeals)}</div>
+          </div>
+          {canEdit && (
+            <button onClick={() => setEditing(true)} className="mini-btn">
+              <PencilLine size={13} /> {report ? 'Править' : 'Внести'}
+            </button>
+          )}
+        </div>
+        {report ? (
+          <>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              <Metric label="Заявки" value={num(report.newLeads)} />
+              <Metric label="Консультации" value={num(report.newConsultations)} />
+              <Metric label="Встречи" value={num(report.newMeetings)} />
+              <Metric label="Сделки" value={num(report.newDeals)} />
+              <Metric label="Повт. консультации" value={num(report.repeatConsultations)} />
+              <Metric label="Повт. встречи" value={num(report.repeatMeetings)} />
+              <Metric label="Предоплаты" value={num(report.newPrepayments)} />
+              <Metric label="Сумма" value={kzt(report.revenue)} />
+            </div>
+            {report.comment && (
+              <div className="text-sm text-muted mt-3 break-words">{report.comment}</div>
+            )}
+          </>
+        ) : (
+          <div className="text-sm text-muted">По этому объекту отчёт за день ещё не внесён.</div>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div className="rounded-2xl border border-green-light/50 p-4 bg-[#f8fcfb]">
+      <div className="font-semibold text-ink mb-3">{object.name}</div>
+      <div className="grid grid-cols-2 gap-3">
+        <EditField label="Новые заявки *" value={f.newLeads} onChange={(v) => setNum('newLeads', v)} />
+        <EditField label="Обработано новых" value={f.processedLeads} onChange={(v) => setNum('processedLeads', v)} />
+        <EditField label="Новые консультации" value={f.newConsultations} onChange={(v) => setNum('newConsultations', v)} />
+        <EditField label="Повторные консультации" value={f.repeatConsultations} onChange={(v) => setNum('repeatConsultations', v)} />
+        <EditField label="Новые встречи / Zoom" value={f.newMeetings} onChange={(v) => setNum('newMeetings', v)} />
+        <EditField label="Повторные встречи" value={f.repeatMeetings} onChange={(v) => setNum('repeatMeetings', v)} />
+        <EditField label="Предоплаты" value={f.newPrepayments} onChange={(v) => setNum('newPrepayments', v)} />
+        <EditField label="Сделки" value={f.newDeals} onChange={(v) => setNum('newDeals', v)} />
+        <div className="col-span-2">
+          <EditField label="Фактически полученная сумма, ₸" value={f.revenue} onChange={(v) => setNum('revenue', v)} />
+        </div>
+      </div>
+      <div className="mt-3">
+        <div className="text-[11px] text-muted uppercase tracking-wide mb-1">Комментарий</div>
+        <input
+          value={f.comment}
+          onChange={(e) => setF((prev) => ({ ...prev, comment: e.target.value }))}
+          className="w-full h-9 px-2 rounded-lg border border-line-2 text-sm text-ink focus:outline-none focus:border-green-light"
+        />
+      </div>
+      {error && <p className="text-sm text-[#c53030] mt-3">{error}</p>}
+      <div className="flex items-center gap-2 mt-3">
+        <button onClick={doSave} disabled={saving} className="btn btn-green h-9 px-4 text-sm disabled:opacity-60">
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+          Сохранить
+        </button>
+        <button onClick={() => setEditing(false)} disabled={saving} className="btn btn-ghost h-9 px-4 text-sm">
+          Отмена
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function EditField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: string
+  onChange: (value: string) => void
+}) {
+  return (
+    <div>
+      <div className="text-xs text-muted mb-1">{label}</div>
+      <EditNum value={value} onChange={onChange} />
+    </div>
   )
 }
 

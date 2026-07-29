@@ -133,6 +133,65 @@ export default defineSchema({
     .index('by_month', ['month'])
     .index('by_employee', ['employeeId']),
 
+  // Справочник объектов продаж: франшизы, услуги и другие продукты, по которым
+  // отдел продаж ведёт отдельные планы, отчёты и LIVE-воронки.
+  salesObjects: defineTable({
+    name: v.string(),
+    type: v.union(
+      v.literal('franchise'),
+      v.literal('service'),
+      v.literal('product'),
+    ),
+    status: v.union(v.literal('active'), v.literal('paused'), v.literal('archived')),
+    managerIds: v.array(v.id('employees')),
+    createdAt: v.number(),
+    comment: v.optional(v.string()),
+  }).index('by_status', ['status']),
+
+  // Настройка месяца продаж: продаётся ли объект в выбранном месяце, кто за
+  // него отвечает и какой план сделок у каждого назначенного менеджера.
+  salesObjectMonths: defineTable({
+    objectId: v.id('salesObjects'),
+    month: v.string(), // YYYY-MM
+    status: v.union(v.literal('selling'), v.literal('not_selling')),
+    managerPlans: v.array(
+      v.object({
+        managerId: v.id('employees'),
+        planDeals: v.number(),
+      }),
+    ),
+  })
+    .index('by_month', ['month'])
+    .index('by_object', ['objectId'])
+    .index('by_object_month', ['objectId', 'month']),
+
+  // Дневные агрегированные показатели отдела продаж по связке
+  // дата × менеджер × объект продаж. Один объект в один день сохраняется
+  // повторно как правка, без дублей.
+  salesObjectReports: defineTable({
+    employeeId: v.id('employees'),
+    objectId: v.id('salesObjects'),
+    date: v.string(), // YYYY-MM-DD
+    month: v.string(), // YYYY-MM
+    newLeads: v.number(),
+    processedLeads: v.number(),
+    newConsultations: v.number(),
+    repeatConsultations: v.number(),
+    newMeetings: v.number(),
+    repeatMeetings: v.number(),
+    newPrepayments: v.number(),
+    newDeals: v.number(),
+    revenue: v.number(),
+    comment: v.optional(v.string()),
+    submittedAt: v.number(),
+    editedAt: v.optional(v.number()),
+    editCount: v.number(),
+  })
+    .index('by_month', ['month'])
+    .index('by_employee', ['employeeId'])
+    .index('by_object', ['objectId'])
+    .index('by_employee_date_object', ['employeeId', 'date', 'objectId']),
+
   // Задачи (Kanban). Статусы по ТЗ: assigned / in_progress / done.
   tasks: defineTable({
     title: v.string(),

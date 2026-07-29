@@ -103,7 +103,11 @@ export const mine = query({
     const reporting = me.role !== 'owner' && REPORTING.has(me.position)
     const closed = await isMonthClosed(ctx, target.slice(0, 7))
     const editable =
-      reporting && !closed && authorCanEdit(report, target, Date.now(), time)
+      reporting &&
+      !closed &&
+      // Новый объектный модуль продаж по ТЗ разрешает менеджеру править свои
+      // показатели до закрытия месяца. SMM/таргетолог сохраняют дневной дедлайн.
+      (me.position === 'sales' ? target <= today : authorCanEdit(report, target, Date.now(), time))
     // Почему поле закрыто — чтобы форма показала верное сообщение.
     const lockReason = editable
       ? null
@@ -539,6 +543,15 @@ export const remove = mutation({
     }
 
     const now = Date.now()
+    if (report.position === 'sales') {
+      const rows = (
+        await ctx.db
+          .query('salesObjectReports')
+          .withIndex('by_employee', (q) => q.eq('employeeId', report.employeeId))
+          .collect()
+      ).filter((r) => r.date === report.date)
+      for (const row of rows) await ctx.db.delete(row._id)
+    }
     await ctx.db.patch(reportId, {
       smm: undefined,
       targetolog: undefined,

@@ -840,6 +840,121 @@ export const addHiddenEmployee = mutation({
   },
 })
 
+// DEV: подготовить скрытого sales-сотрудника и тестовые объекты продаж для
+// проверки нового модуля без попадания тестового аккаунта в обычные списки.
+// Запуск:
+// npx convex run setup:seedHiddenSalesObjects '{"email":"almnurken@gmail.com","month":"2026-07"}'
+export const seedHiddenSalesObjects = mutation({
+  args: {
+    email: v.optional(v.string()),
+    month: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const email = (args.email ?? 'almnurken@gmail.com').toLowerCase().trim()
+    const month = args.month ?? '2026-07'
+    const existingEmployee = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', email))
+      .first()
+
+    const employeeFields = {
+      name: existingEmployee?.name ?? 'Алмнур Кен',
+      role: 'employee' as const,
+      position: 'sales',
+      positionLabel: 'Менеджер по продажам',
+      department: 'Продажи',
+      salary: existingEmployee?.salary ?? 0,
+      email,
+      phone: existingEmployee?.phone ?? '',
+      avatarColor: existingEmployee?.avatarColor ?? '#7c3aed',
+      initials: existingEmployee?.initials ?? 'АК',
+      status: 'active' as const,
+      hiredAt: existingEmployee?.hiredAt ?? '2026-07-01',
+      hidden: true,
+    }
+
+    const employeeId = existingEmployee?._id ?? (await ctx.db.insert('employees', employeeFields))
+    if (existingEmployee) await ctx.db.patch(existingEmployee._id, employeeFields)
+
+    const rows = [
+      {
+        name: 'Упаковка',
+        type: 'service' as const,
+        planDeals: 4,
+        comment: 'Комплексная упаковка франшизы: финмодель, бренд, процессы и запуск.',
+      },
+      {
+        name: 'Инвайт',
+        type: 'service' as const,
+        planDeals: 3,
+        comment: 'Invite-механика и привлечение заявок на консультации.',
+      },
+      {
+        name: 'Консалтинг',
+        type: 'service' as const,
+        planDeals: 2,
+        comment: 'Консультационные продукты по продажам, масштабированию и франчайзингу.',
+      },
+      {
+        name: 'Подбор',
+        type: 'service' as const,
+        planDeals: 5,
+        comment: 'Подбор франшизы и сопровождение клиента до сделки.',
+      },
+    ]
+
+    const objectNames: string[] = []
+    for (const row of rows) {
+      const existingObject = (await ctx.db.query('salesObjects').collect()).find(
+        (object) => object.name.toLowerCase() === row.name.toLowerCase(),
+      )
+      const managerIds = Array.from(
+        new Set([...(existingObject?.managerIds ?? []), employeeId]),
+      )
+      const objectId =
+        existingObject?._id ??
+        (await ctx.db.insert('salesObjects', {
+          name: row.name,
+          type: row.type,
+          status: 'active',
+          managerIds,
+          comment: row.comment,
+          createdAt: Date.now(),
+        }))
+      if (existingObject) {
+        await ctx.db.patch(existingObject._id, {
+          type: row.type,
+          status: 'active',
+          managerIds,
+          comment: row.comment,
+        })
+      }
+
+      const existingMonth = await ctx.db
+        .query('salesObjectMonths')
+        .withIndex('by_object_month', (q) => q.eq('objectId', objectId).eq('month', month))
+        .first()
+      const otherPlans = (existingMonth?.managerPlans ?? []).filter(
+        (plan) => plan.managerId !== employeeId,
+      )
+      const managerPlans = [...otherPlans, { managerId: employeeId, planDeals: row.planDeals }]
+      if (existingMonth) {
+        await ctx.db.patch(existingMonth._id, { status: 'selling', managerPlans })
+      } else {
+        await ctx.db.insert('salesObjectMonths', {
+          objectId,
+          month,
+          status: 'selling',
+          managerPlans,
+        })
+      }
+      objectNames.push(row.name)
+    }
+
+    return { email, employeeId, month, objects: objectNames }
+  },
+})
+
 // Миграция §5 на персональную модель KPI/оклада. Аккуратно с боевыми данными:
 // — SMM-планы (smmMetrics) привязываем к действующему SMM-специалисту (Нурай);
 // — план продаж (settings.planRevenueSales) переносим в salesPlans на менеджера

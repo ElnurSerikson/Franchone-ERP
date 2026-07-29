@@ -10,6 +10,7 @@ import StatCard from '@/components/ui/StatCard'
 import Avatar from '@/components/ui/Avatar'
 import { ProgressBar } from '@/components/ui/Progress'
 import { KpiChip, PriorityChip } from '@/components/ui/StatusChip'
+import SalesDashboardBlock from '@/components/sales/SalesDashboardBlock'
 import { useApp, useCurrentUser } from '@/store'
 import { useData } from '@/lib/useData'
 import { computeTargetolog, DEFAULT_WEIGHTS } from '@/lib/kpi'
@@ -59,6 +60,8 @@ function PersonalView({ me }: { me: Employee }) {
         title="Дашборд"
         subtitle={`${me.positionLabel} · ${formatMonth(CURRENT_MONTH)}`}
       />
+
+      {me.position === 'sales' && <SalesDashboardBlock role={me.role} me={me} />}
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
         {plan ? (
@@ -201,6 +204,8 @@ function ManagerView({ me }: { me: Employee }) {
         title="Дашборд"
         subtitle={`${me.role === 'head' ? me.department : 'Вся команда'} · ${reportMonth}`}
       />
+
+      <SalesDashboardBlock role={me.role} me={me} employees={scoped} />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
         <StatCard
