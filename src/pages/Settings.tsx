@@ -77,7 +77,7 @@ function GeneralSettings() {
 function PermissionsCard() {
   const data = useQuery(api.permissions.matrix)
   const setMatrix = useMutation(api.permissions.setMatrix)
-  const [tab, setTab] = useState<'head' | 'employee'>('head')
+  const [tab, setTab] = useState<'head' | 'employee'>('employee')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
