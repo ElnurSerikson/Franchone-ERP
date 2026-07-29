@@ -911,7 +911,7 @@ function SalesObjectsSetup() {
         </div>
       )}
 
-      <div className="rounded-2xl bg-chip/70 p-3">
+      <div>
         {objects.length > 0 ? (
           <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
             {objects.map((object) => (
@@ -1155,7 +1155,7 @@ function SalesObjectRow({
   }
 
   return (
-    <div className="rounded-2xl border border-line bg-white p-4 shadow-card">
+    <div className="rounded-2xl border border-line bg-white p-4">
       {readOnly && (
         <div className="mb-3 rounded-lg bg-chip px-3 py-2 text-xs font-semibold text-muted">
           Просмотр прошлого периода
