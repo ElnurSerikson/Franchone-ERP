@@ -769,15 +769,17 @@ function SalesKpiSetup() {
                 }}
                 hint="персональный оклад сотрудника"
               />
-              <SalaryField
-                label="План выручки, ₸"
-                value={curPlan}
-                onChange={(v) => {
-                  setPlan(v)
-                  setSaved(false)
-                }}
-                hint="персональная цель месяца для начислений KPI"
-              />
+              <div className="lg:border-l lg:border-line lg:pl-4">
+                <SalaryField
+                  label="План выручки, ₸"
+                  value={curPlan}
+                  onChange={(v) => {
+                    setPlan(v)
+                    setSaved(false)
+                  }}
+                  hint="персональная цель месяца для начислений KPI"
+                />
+              </div>
             </div>
             {curSalary > 0 && curPlan === 0 && (
               <p className="text-[11px] text-[#c53030]">
