@@ -19,15 +19,12 @@ function isReopened(r: Doc<'dailyReports'> | null | undefined): boolean {
 
 // Может ли сотрудник (автор) сам править отчёт за дату прямо сейчас.
 // Правило: до дедлайна своего дня (23:50) — да; после — лок, дальше только
-// владелец. Исключение — владелец переоткрыл день удалением: тогда сотрудник
-// дозаполняет заново, и отметка будет «с опозданием».
+// владелец.
 function authorCanEdit(
-  r: Doc<'dailyReports'> | null,
   date: string,
   nowMs: number,
   time: string,
 ): boolean {
-  if (isReopened(r)) return true
   return nowMs <= deadlineMs(date, time)
 }
 
@@ -46,6 +43,10 @@ function addDays(date: string, delta: number): string {
 // Момент дедлайна для даты в часовом поясе Алматы (ms).
 function deadlineMs(date: string, time: string): number {
   return Date.parse(`${date}T${time}:00${TZ}`)
+}
+
+function effectiveOnTime(r: Doc<'dailyReports'>, time: string): boolean {
+  return r.onTime && r.submittedAt <= deadlineMs(r.date, time)
 }
 
 async function deadlineTime(ctx: QueryCtx | MutationCtx): Promise<string> {
@@ -98,16 +99,15 @@ export const mine = query({
       .withIndex('by_employee', (q) => q.eq('employeeId', me._id))
       .collect()
     all.sort((a, b) => (a.date < b.date ? 1 : -1)) // по дате, свежие сверху
+    const normalizedAll = all.map((r) => ({ ...r, onTime: effectiveOnTime(r, time) }))
 
-    const report = all.find((r) => r.date === target) ?? null
+    const report = normalizedAll.find((r) => r.date === target) ?? null
     const reporting = me.role !== 'owner' && REPORTING.has(me.position)
     const closed = await isMonthClosed(ctx, target.slice(0, 7))
     const editable =
       reporting &&
       !closed &&
-      // Новый объектный модуль продаж по ТЗ разрешает менеджеру править свои
-      // показатели до закрытия месяца. SMM/таргетолог сохраняют дневной дедлайн.
-      (me.position === 'sales' ? target <= today : authorCanEdit(report, target, Date.now(), time))
+      authorCanEdit(target, Date.now(), time)
     // Почему поле закрыто — чтобы форма показала верное сообщение.
     const lockReason = editable
       ? null
@@ -125,7 +125,7 @@ export const mine = query({
       reopened: isReopened(report),
       editable,
       lockReason,
-      history: all.slice(0, 21),
+      history: normalizedAll.slice(0, 21),
     }
   },
 })
@@ -165,10 +165,9 @@ export const submit = mutation({
       .first()
 
     const reopened = isReopened(existing)
-    // Своё окно правки — до 23:50 своего дня. После дедлайна отчёт трогает
-    // только владелец; исключение — день, переоткрытый удалением: его сотрудник
-    // дозаполняет заново, но уже «с опозданием».
-    if (!reopened && now > deadlineMs(date, time)) {
+    // Своё окно правки — до 23:50 своего дня. После дедлайна и прошлые даты
+    // трогает только владелец.
+    if (now > deadlineMs(date, time)) {
       throw new ConvexError(
         'Дедлайн прошёл — отчёт за этот день может изменить только владелец',
       )
@@ -236,6 +235,7 @@ async function disciplineRow(
   dates: string[],
   today: string,
   deadlinePassedToday: boolean,
+  time: string,
 ) {
   const reps = await ctx.db
     .query('dailyReports')
@@ -259,11 +259,12 @@ async function disciplineRow(
         missed++
         return { date: d, status: 'missed' as const, reopened: true }
       }
-      if (r.onTime) onTime++
+      const reportOnTime = effectiveOnTime(r, time)
+      if (reportOnTime) onTime++
       else late++
       return {
         date: d,
-        status: r.onTime ? ('onTime' as const) : ('late' as const),
+        status: reportOnTime ? ('onTime' as const) : ('late' as const),
         submittedAt: r.submittedAt,
         edited: (r.editCount ?? 0) > 0,
       }
@@ -306,7 +307,7 @@ export const myDiscipline = query({
     if (me.role === 'owner' || !REPORTING.has(me.position)) return empty
 
     const dates = windowDates(today, days ?? 14)
-    const row = await disciplineRow(ctx, me, dates, today, Date.now() > deadlineMs(today, time))
+    const row = await disciplineRow(ctx, me, dates, today, Date.now() > deadlineMs(today, time), time)
     return { today, deadlineTime: time, dates, ...row, reporting: true }
   },
 })
@@ -354,6 +355,7 @@ export const discipline = query({
         dates,
         today,
         deadlinePassedToday,
+        time,
       )
       rows.push({
         employeeId: e._id,
@@ -390,16 +392,18 @@ export const reportFor = query({
       viewer.role === 'owner' ||
       (!!emp && inScope(viewer, emp) && (await can(ctx, 'reports', 'view')))
     if (!mayView) return null
-    const report = await ctx.db
+    const rawReport = await ctx.db
       .query('dailyReports')
       .withIndex('by_employee_date', (q) =>
         q.eq('employeeId', employeeId).eq('date', date),
       )
       .first()
+    const time = await deadlineTime(ctx)
+    const report = rawReport ? { ...rawReport, onTime: effectiveOnTime(rawReport, time) } : null
 
-    const history = report
+    const history = rawReport
       ? await Promise.all(
-          report.history.map(async (h) => {
+          rawReport.history.map(async (h) => {
             const by = await ctx.db.get(h.byId)
             return {
               at: h.at,
@@ -436,9 +440,8 @@ export const reportFor = query({
 })
 
 // Владелец вносит или правит цифры отчёта после дедлайна (§3: правки
-// фиксируются с автором и временем). Правка НЕ меняет «в срок» — сданный
-// вовремя отчёт остаётся зелёным. Внесённый за пропущенный день — «с
-// опозданием» (жёлтый). Только владелец и только в открытом месяце.
+// фиксируются с автором и временем). Любая запись после дедлайна становится
+// «с опозданием» (жёлтой). Только владелец и только в открытом месяце.
 export const ownerSet = mutation({
   args: {
     employeeId: v.id('employees'),
@@ -466,6 +469,8 @@ export const ownerSet = mutation({
     }
 
     const now = Date.now()
+    const time = await deadlineTime(ctx)
+    const lateOwnerWrite = now > deadlineMs(args.date, time)
     const existing = await ctx.db
       .query('dailyReports')
       .withIndex('by_employee_date', (q) =>
@@ -489,10 +494,11 @@ export const ownerSet = mutation({
             : args.sales !== undefined
               ? { position: 'sales' as const }
               : {}),
-        // Правка в срок не сдвигает статус. Дозаполнение переоткрытого дня —
-        // «с опозданием», флаг снимаем.
+        // Правка после дедлайна и дозаполнение переоткрытого дня — «с
+        // опозданием», флаг снимаем.
+        ...(lateOwnerWrite ? { onTime: false } : {}),
         ...(reopened
-          ? { onTime: false, reopened: false, deletedAt: undefined, deletedById: undefined }
+          ? { reopened: false, deletedAt: undefined, deletedById: undefined }
           : {}),
         editedAt: now,
         editedById: me._id,

@@ -6,6 +6,9 @@ import { currentEmployee, requireEmployee, isManager, hiddenEmployeeIds } from '
 import { can, requireCan, inScope } from './permissions'
 import { isMonthClosed } from './payroll'
 
+const TZ = '+05:00'
+const DEFAULT_DEADLINE = '23:50'
+
 const objectTypeV = v.union(
   v.literal('franchise'),
   v.literal('service'),
@@ -80,6 +83,18 @@ function assertWritableSalesMonth(month: string) {
 
 function businessToday(): string {
   return new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
+}
+
+function deadlineMs(date: string, time: string): number {
+  return Date.parse(`${date}T${time}:00${TZ}`)
+}
+
+async function deadlineTime(ctx: QueryCtx | MutationCtx): Promise<string> {
+  const s = await ctx.db
+    .query('settings')
+    .withIndex('by_key', (q) => q.eq('key', 'global'))
+    .first()
+  return s?.reportDeadlineTime ?? DEFAULT_DEADLINE
 }
 
 function assertWholeNonNegative(value: number, label: string) {
@@ -225,11 +240,14 @@ async function syncLegacyDailyReport(
     note: 'Синхронизировано из объектных отчётов продаж',
   }
   const now = Date.now()
+  const time = await deadlineTime(ctx)
+  const onTime = now <= deadlineMs(date, time)
 
   if (existing) {
     await ctx.db.patch(existing._id, {
       position: 'sales',
       sales,
+      onTime: onTime ? existing.onTime : false,
       note: existing.note,
       reopened: false,
       deletedAt: undefined,
@@ -247,7 +265,7 @@ async function syncLegacyDailyReport(
     position: 'sales',
     date,
     submittedAt: now,
-    onTime: true,
+    onTime,
     editCount: 0,
     history: [{ at: now, byId, action: 'submitted' }],
     sales,
@@ -518,7 +536,12 @@ export const submitDaily = mutation({
     if (me.role === 'owner' || me.position !== 'sales') {
       throw new ConvexError('Объектный отчёт продаж доступен менеджерам отдела продаж')
     }
-    if (args.date > businessToday()) throw new ConvexError('Отчёт за будущую дату сдать нельзя')
+    const today = businessToday()
+    if (args.date > today) throw new ConvexError('Отчёт за будущую дату сдать нельзя')
+    const time = await deadlineTime(ctx)
+    if (Date.now() > deadlineMs(args.date, time)) {
+      throw new ConvexError('Дедлайн прошёл — отчёт за этот день может изменить только владелец')
+    }
     const month = args.date.slice(0, 7)
     if (await isMonthClosed(ctx, month)) {
       throw new ConvexError('Месяц закрыт — отчёты за него больше не принимаются')
