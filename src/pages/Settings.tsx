@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { Sliders, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X, Briefcase, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Sliders, Users2, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X, Briefcase, ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
 import Select from '@/components/ui/Select'
@@ -11,6 +11,7 @@ import { num, pct } from '@/lib/format'
 import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
 import { errMessage } from '@/lib/errors'
 import { th, td, theadRow } from '@/lib/table'
+import { PERM_SECTIONS, ACTION_LABEL, permKey } from '../../convex/permModel'
 
 const cellCls =
   'w-16 h-8 px-2 rounded-lg border border-line-2 text-sm text-right tabular-nums focus:outline-none focus:border-green-light'
@@ -61,11 +62,135 @@ function GeneralSettings() {
   return (
     <div className="flex flex-col gap-5">
       <ReportDeadlineCard />
+      <PermissionsCard />
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <CatalogCard kind="departments" />
         <CatalogCard kind="positions" />
       </div>
     </div>
+  )
+}
+
+// ——— Матрица прав (§9) ———
+// Владелец включает/выключает действия для ролей «Руководитель» и «Сотрудник».
+// Владелец всегда имеет всё; роли/оклады/сама матрица — только владелец.
+function PermissionsCard() {
+  const data = useQuery(api.permissions.matrix)
+  const setMatrix = useMutation(api.permissions.setMatrix)
+  const [tab, setTab] = useState<'head' | 'employee'>('head')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  if (data === undefined) return null
+  if (data === null) return null
+
+  const allowed = new Set(tab === 'head' ? data.head : data.employee)
+  const toggle = async (key: string) => {
+    const next = new Set(allowed)
+    if (next.has(key)) {
+      next.delete(key)
+    } else {
+      next.add(key)
+      const [section, action] = key.split(':')
+      if (action === 'view') next.delete(permKey(section, 'viewAll'))
+      if (action === 'viewAll') next.delete(permKey(section, 'view'))
+    }
+    setBusy(true)
+    setError('')
+    try {
+      await setMatrix({ role: tab, allowed: [...next] })
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось сохранить.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="card p-5">
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        <Users2 size={18} className="text-green" />
+        <h3 className="sec-title flex-1">Матрица доступов</h3>
+        <div className="flex items-center gap-1 p-1 bg-chip rounded-xl">
+          {(['head', 'employee'] as const).map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => setTab(r)}
+              className={`h-8 px-3 rounded-lg text-sm font-semibold transition-colors ${
+                tab === r ? 'bg-white text-ink shadow-card' : 'text-ink-2/70 hover:text-ink'
+              }`}
+            >
+              {r === 'head' ? 'Руководитель' : 'Сотрудник'}
+            </button>
+          ))}
+        </div>
+      </div>
+      {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
+
+      <div className="flex flex-col divide-y divide-line">
+        {PERM_SECTIONS.map((section) => (
+          <div key={section.key} className="flex items-center gap-3 py-3 first:pt-0 flex-wrap">
+            <div className="w-28 shrink-0 text-sm font-medium text-ink">{section.label}</div>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] text-muted mr-0.5">Просмотр:</span>
+              {(['view', 'viewAll'] as const)
+                .filter((action) => (section.actions as string[]).includes(action))
+                .map((action) => (
+                  <PermBtn
+                    key={action}
+                    label={ACTION_LABEL[action]}
+                    on={allowed.has(permKey(section.key, action))}
+                    busy={busy}
+                    onClick={() => toggle(permKey(section.key, action))}
+                  />
+                ))}
+              {section.actions.some((action) => action !== 'view' && action !== 'viewAll') && (
+                <span className="w-px h-5 bg-line-2 mx-1" />
+              )}
+              {section.actions
+                .filter((action) => action !== 'view' && action !== 'viewAll')
+                .map((action) => (
+                  <PermBtn
+                    key={action}
+                    label={ACTION_LABEL[action]}
+                    on={allowed.has(permKey(section.key, action))}
+                    busy={busy}
+                    onClick={() => toggle(permKey(section.key, action))}
+                  />
+                ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function PermBtn({
+  label,
+  on,
+  busy,
+  onClick,
+}: {
+  label: string
+  on: boolean
+  busy: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 ${
+        on
+          ? 'bg-[#e2f2ef] text-green-d border-green-light'
+          : 'bg-white text-muted border-line-2 hover:bg-chip'
+      }`}
+    >
+      {label}
+    </button>
   )
 }
 
