@@ -1206,13 +1206,19 @@ function SalesObjectRow({
         </div>
       </div>
 
-      <input
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        placeholder="Комментарий"
-        disabled={readOnly}
-        className="mt-3 w-full h-10 px-3 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
-      />
+      <div className="mt-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-1">
+          Комментарий
+        </div>
+        <textarea
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Комментарий"
+          disabled={readOnly}
+          rows={3}
+          className="w-full px-3 py-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light resize-y"
+        />
+      </div>
 
       <div className="mt-4 flex items-center gap-2 flex-wrap">
         <button
@@ -1254,6 +1260,8 @@ function SalesObjectRow({
                   min={0}
                   value={plans[id] ?? 0}
                   disabled={readOnly}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onMouseUp={(e) => e.preventDefault()}
                   onChange={(e) => setPlans((p) => ({ ...p, [id]: Number(e.target.value) || 0 }))}
                   className="w-20 h-9 px-2 rounded-lg border border-line-2 text-sm text-right focus:outline-none focus:border-green-light"
                 />
