@@ -826,7 +826,10 @@ function SalesObjectsSetup() {
     year: 'numeric',
     timeZone: 'Asia/Almaty',
   })
-  const filteredObjects = objects.filter((object) => object.status === statusFilter)
+  const monthRowByObject = new Map(monthRows.map((row) => [row.objectId, row]))
+  const statusForMonth = (object: { _id: string; status: 'active' | 'paused' | 'archived' }) =>
+    monthRowByObject.get(object._id as Id<'salesObjects'>)?.objectStatus ?? object.status
+  const filteredObjects = objects.filter((object) => statusForMonth(object) === statusFilter)
   const statusFilterTabs: { value: typeof statusFilter; label: string }[] = [
     { value: 'active', label: 'Активен' },
     { value: 'paused', label: 'На паузе' },
@@ -940,9 +943,10 @@ function SalesObjectsSetup() {
               <SalesObjectRow
                 key={`${month}:${object._id}`}
                 object={object}
+                effectiveStatus={statusForMonth(object)}
                 staff={staff}
                 month={month}
-                monthRow={monthRows.find((r) => r.objectId === object._id)}
+                monthRow={monthRowByObject.get(object._id as Id<'salesObjects'>)}
                 onSaveObject={saveObject}
                 onSaveMonth={saveMonth}
                 readOnly={isPastMonth}
@@ -1104,6 +1108,7 @@ function ManagerChecks({
 
 function SalesObjectRow({
   object,
+  effectiveStatus,
   staff,
   month,
   monthRow,
@@ -1119,9 +1124,11 @@ function SalesObjectRow({
     managerIds: string[]
     comment?: string
   }
+  effectiveStatus: 'active' | 'paused' | 'archived'
   staff: { id: string; name: string; initials?: string; avatarColor?: string }[]
   month: string
   monthRow?: {
+    objectStatus?: 'active' | 'paused' | 'archived'
     status: 'selling' | 'not_selling'
     managerPlans: { managerId: string; planDeals: number }[]
   }
@@ -1130,7 +1137,7 @@ function SalesObjectRow({
   readOnly?: boolean
 }) {
   const [name, setName] = useState(object.name)
-  const [status, setStatus] = useState(object.status)
+  const [status, setStatus] = useState(effectiveStatus)
   const [type, setType] = useState(object.type)
   const [comment, setComment] = useState(object.comment ?? '')
   const [managerIds, setManagerIds] = useState<string[]>(
@@ -1164,6 +1171,7 @@ function SalesObjectRow({
       await onSaveMonth({
         objectId: object._id as Id<'salesObjects'>,
         month,
+        objectStatus: status,
         status: selling && status !== 'archived' ? 'selling' : 'not_selling',
         managerPlans: managerIds.map((id) => ({
           managerId: id as Id<'employees'>,

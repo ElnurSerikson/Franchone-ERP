@@ -367,16 +367,18 @@ export const upsertMonth = mutation({
   args: {
     objectId: v.id('salesObjects'),
     month: v.string(),
+    objectStatus: v.optional(objectStatusV),
     status: monthStatusV,
     managerPlans: managerPlansV,
   },
-  handler: async (ctx, { objectId, month, status, managerPlans }) => {
+  handler: async (ctx, { objectId, month, objectStatus, status, managerPlans }) => {
     const me = await requireEmployee(ctx)
     if (me.role !== 'owner') throw new ConvexError('Месяц продаж настраивает только владелец')
     assertWritableSalesMonth(month)
     const object = await ctx.db.get(objectId)
     if (!object) throw new ConvexError('Объект продаж не найден')
-    if (object.status === 'archived' && status === 'selling') {
+    const effectiveObjectStatus = objectStatus ?? object.status
+    if (effectiveObjectStatus === 'archived' && status === 'selling') {
       throw new ConvexError('Архивный объект нельзя включить в продажи месяца')
     }
     const salesIds = new Set((await salesEmployees(ctx, me.role === 'owner')).map((e) => e._id))
@@ -387,8 +389,17 @@ export const upsertMonth = mutation({
         planDeals: Math.max(0, Math.floor(p.planDeals || 0)),
       }))
     const existing = await monthSetting(ctx, objectId, month)
-    if (existing) await ctx.db.patch(existing._id, { status, managerPlans: clean })
-    else await ctx.db.insert('salesObjectMonths', { objectId, month, status, managerPlans: clean })
+    if (existing) {
+      await ctx.db.patch(existing._id, { objectStatus: effectiveObjectStatus, status, managerPlans: clean })
+    } else {
+      await ctx.db.insert('salesObjectMonths', {
+        objectId,
+        month,
+        objectStatus: effectiveObjectStatus,
+        status,
+        managerPlans: clean,
+      })
+    }
   },
 })
 

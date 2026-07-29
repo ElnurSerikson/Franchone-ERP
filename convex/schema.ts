@@ -149,10 +149,12 @@ export default defineSchema({
   }).index('by_status', ['status']),
 
   // Настройка месяца продаж: продаётся ли объект в выбранном месяце, кто за
-  // него отвечает и какой план сделок у каждого назначенного менеджера.
+  // него отвечает, какой у него статус в этом месяце и какой план сделок у
+  // каждого назначенного менеджера.
   salesObjectMonths: defineTable({
     objectId: v.id('salesObjects'),
     month: v.string(), // YYYY-MM
+    objectStatus: v.optional(v.union(v.literal('active'), v.literal('paused'), v.literal('archived'))),
     status: v.union(v.literal('selling'), v.literal('not_selling')),
     managerPlans: v.array(
       v.object({
