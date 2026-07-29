@@ -17,15 +17,16 @@ function isReopened(r: Doc<'dailyReports'> | null | undefined): boolean {
   return r?.reopened === true
 }
 
-// Может ли сотрудник (автор) сам править отчёт за дату прямо сейчас.
-// Правило: до дедлайна своего дня (23:50) — да; после — лок, дальше только
-// владелец.
+// Может ли сотрудник (автор) сам править отчёт прямо сейчас.
+// Правило: только сегодняшний отчёт до дедлайна (23:50). Прошлые даты —
+// просмотр, будущие даты вообще не должны попадать в форму как редактируемые.
 function authorCanEdit(
   date: string,
+  today: string,
   nowMs: number,
   time: string,
 ): boolean {
-  return nowMs <= deadlineMs(date, time)
+  return date === today && nowMs <= deadlineMs(date, time)
 }
 
 // Сегодняшняя календарная дата в часовом поясе Алматы.
@@ -107,7 +108,7 @@ export const mine = query({
     const editable =
       reporting &&
       !closed &&
-      authorCanEdit(target, Date.now(), time)
+      authorCanEdit(target, today, Date.now(), time)
     // Почему поле закрыто — чтобы форма показала верное сообщение.
     const lockReason = editable
       ? null
