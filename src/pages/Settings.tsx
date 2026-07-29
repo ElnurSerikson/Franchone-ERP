@@ -811,6 +811,7 @@ function SalesObjectsSetup() {
 
   const [name, setName] = useState('')
   const [type, setType] = useState<'franchise' | 'service' | 'product'>('franchise')
+  const [createStatus, setCreateStatus] = useState<'active' | 'paused' | 'archived'>('active')
   const [managerIds, setManagerIds] = useState<string[]>([])
   const [comment, setComment] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
@@ -851,12 +852,13 @@ function SalesObjectsSetup() {
       await saveObject({
         name: clean,
         type,
-        status: 'active',
+        status: createStatus,
         managerIds: managerIds as Id<'employees'>[],
         comment: comment.trim() || undefined,
         month,
       })
       setName('')
+      setCreateStatus('active')
       setManagerIds([])
       setComment('')
       closeCreateDrawer()
@@ -982,8 +984,26 @@ function SalesObjectsSetup() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Менеджеры</label>
+                  <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Статус</label>
+                  <Select
+                    value={createStatus}
+                    onChange={(v) => setCreateStatus(v as typeof createStatus)}
+                    options={[
+                      { value: 'active', label: 'Активен' },
+                      { value: 'paused', label: 'На паузе' },
+                      { value: 'archived', label: 'Архив' },
+                    ]}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Ответственный менеджер</label>
                   <ManagerChecks staff={staff} selected={managerIds} onChange={setManagerIds} />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Дата создания</label>
+                  <div className="w-full h-10 px-3 rounded-lg border border-line-2 bg-chip text-sm text-muted flex items-center">
+                    Заполнится системой автоматически
+                  </div>
                 </div>
                 <div>
                   <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Комментарий</label>
