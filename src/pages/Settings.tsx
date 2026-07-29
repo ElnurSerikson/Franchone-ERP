@@ -819,6 +819,12 @@ function SalesObjectsSetup() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const isPastMonth = month < CURRENT_MONTH
+  const createDateLabel = new Date().toLocaleDateString('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone: 'Asia/Almaty',
+  })
 
   useEffect(() => {
     if (!createOpen) return undefined
@@ -1001,8 +1007,8 @@ function SalesObjectsSetup() {
                 </div>
                 <div>
                   <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Дата создания</label>
-                  <div className="w-full h-10 px-3 rounded-lg border border-line-2 bg-chip text-sm text-muted flex items-center">
-                    Заполнится системой автоматически
+                  <div className="w-full h-10 px-3 rounded-lg border border-line-2 bg-chip text-sm font-semibold text-ink flex items-center">
+                    {createDateLabel}
                   </div>
                 </div>
                 <div>
