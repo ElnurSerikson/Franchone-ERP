@@ -18,6 +18,7 @@ export default function Select({
   className = '',
   variant = 'input',
   align = 'left',
+  disabled = false,
 }: {
   value: string
   onChange: (v: string) => void
@@ -26,6 +27,7 @@ export default function Select({
   className?: string
   variant?: 'input' | 'ghost'
   align?: 'left' | 'right'
+  disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -37,10 +39,10 @@ export default function Select({
     variant === 'ghost'
       ? `inline-flex items-center gap-1 text-sm font-semibold cursor-pointer transition-colors ${
           selected ? 'text-ink' : 'text-muted'
-        } hover:text-green-d`
+        } hover:text-green-d disabled:cursor-not-allowed disabled:text-muted`
       : `w-full h-[38px] flex items-center gap-2 rounded-lg border px-2.5 text-sm bg-white transition-colors ${
           open ? 'border-green-light' : 'border-line-2 hover:border-muted-2'
-        } ${selected ? 'text-ink' : 'text-muted'}`
+        } ${selected ? 'text-ink' : 'text-muted'} disabled:bg-chip disabled:text-muted disabled:cursor-not-allowed disabled:hover:border-line-2`
 
   const optionBtn = (o: SelectOption, big = false) => (
     <button
@@ -62,7 +64,13 @@ export default function Select({
 
   return (
     <div className={`relative ${variant === 'ghost' ? 'inline-block' : ''} ${className}`}>
-      <button ref={btnRef} type="button" onClick={() => setOpen((o) => !o)} className={trigger}>
+      <button
+        ref={btnRef}
+        type="button"
+        disabled={disabled}
+        onClick={() => !disabled && setOpen((o) => !o)}
+        className={trigger}
+      >
         {selected?.dot && (
           <span className="w-2 h-2 rounded-full shrink-0" style={{ background: selected.dot }} />
         )}

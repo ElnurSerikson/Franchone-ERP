@@ -72,6 +72,12 @@ function businessMonth(at = Date.now()): string {
   return new Date(at + 5 * 3600 * 1000).toISOString().slice(0, 7)
 }
 
+function assertWritableSalesMonth(month: string) {
+  if (month < businessMonth()) {
+    throw new ConvexError('Прошлый период закрыт для настройки объектов продаж')
+  }
+}
+
 function businessToday(): string {
   return new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
 }
@@ -326,10 +332,12 @@ export const upsertObject = mutation({
     status: objectStatusV,
     managerIds: v.array(v.id('employees')),
     comment: v.optional(v.string()),
+    month: v.optional(v.string()),
   },
-  handler: async (ctx, { id, name, type, status, managerIds, comment }) => {
+  handler: async (ctx, { id, name, type, status, managerIds, comment, month }) => {
     const me = await requireEmployee(ctx)
     if (me.role !== 'owner') throw new ConvexError('Объекты продаж настраивает только владелец')
+    if (month) assertWritableSalesMonth(month)
     const cleanName = name.trim()
     if (!cleanName) throw new ConvexError('Название объекта продаж обязательно')
     const salesIds = new Set((await salesEmployees(ctx, me.role === 'owner')).map((e) => e._id))
@@ -365,6 +373,7 @@ export const upsertMonth = mutation({
   handler: async (ctx, { objectId, month, status, managerPlans }) => {
     const me = await requireEmployee(ctx)
     if (me.role !== 'owner') throw new ConvexError('Месяц продаж настраивает только владелец')
+    assertWritableSalesMonth(month)
     const object = await ctx.db.get(objectId)
     if (!object) throw new ConvexError('Объект продаж не найден')
     if (object.status === 'archived' && status === 'selling') {

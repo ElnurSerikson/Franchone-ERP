@@ -973,10 +973,11 @@ function SalesObjectsSetup() {
   const [comment, setComment] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const isPastMonth = month < CURRENT_MONTH
 
   const add = async () => {
     const clean = name.trim()
-    if (!clean) return
+    if (!clean || isPastMonth) return
     setBusy(true)
     setError('')
     try {
@@ -986,6 +987,7 @@ function SalesObjectsSetup() {
         status: 'active',
         managerIds: managerIds as Id<'employees'>[],
         comment: comment.trim() || undefined,
+        month,
       })
       setName('')
       setManagerIds([])
@@ -1014,18 +1016,26 @@ function SalesObjectsSetup() {
       </div>
 
       {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
+      {isPastMonth && (
+        <div className="rounded-xl border border-[#d69e2e]/30 bg-[#fff6e6] px-3 py-2 text-sm text-[#8a5a00] mb-3">
+          Прошлый период доступен только для просмотра. Создание объектов, планы и назначения
+          меняются с текущего месяца и будущих периодов.
+        </div>
+      )}
 
-      <div className="rounded-2xl border border-line p-4 mb-4">
+      <div className={`rounded-2xl border border-line p-4 mb-4 ${isPastMonth ? 'opacity-60' : ''}`}>
         <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_150px]">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Название объекта продаж"
+            disabled={isPastMonth}
             className="h-9 px-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
           />
           <Select
             value={type}
             onChange={(v) => setType(v as typeof type)}
+            disabled={isPastMonth}
             options={[
               { value: 'franchise', label: 'Франшиза' },
               { value: 'service', label: 'Услуга' },
@@ -1037,14 +1047,16 @@ function SalesObjectsSetup() {
           staff={staff}
           selected={managerIds}
           onChange={setManagerIds}
+          disabled={isPastMonth}
         />
         <input
           value={comment}
           onChange={(e) => setComment(e.target.value)}
           placeholder="Комментарий"
+          disabled={isPastMonth}
           className="mt-3 w-full h-9 px-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
         />
-        <button onClick={add} disabled={busy || !name.trim()} className="btn btn-green h-9 px-3 text-sm disabled:opacity-60 mt-3">
+        <button onClick={add} disabled={busy || !name.trim() || isPastMonth} className="btn btn-green h-9 px-3 text-sm disabled:opacity-60 mt-3">
           <Plus size={15} /> Создать объект
         </button>
       </div>
@@ -1061,6 +1073,7 @@ function SalesObjectsSetup() {
                 monthRow={monthRows.find((r) => r.objectId === object._id)}
                 onSaveObject={saveObject}
                 onSaveMonth={saveMonth}
+                readOnly={isPastMonth}
               />
             ))}
           </div>
@@ -1080,10 +1093,12 @@ function ManagerChecks({
   staff,
   selected,
   onChange,
+  disabled = false,
 }: {
   staff: { id: string; name: string; initials?: string; avatarColor?: string }[]
   selected: string[]
   onChange: (ids: string[]) => void
+  disabled?: boolean
 }) {
   const set = new Set(selected)
   return (
@@ -1094,13 +1109,15 @@ function ManagerChecks({
           <button
             key={e.id}
             type="button"
+            disabled={disabled}
             onClick={() => {
+              if (disabled) return
               const next = new Set(set)
               if (on) next.delete(e.id)
               else next.add(e.id)
               onChange([...next])
             }}
-            className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors ${
+            className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors disabled:cursor-not-allowed ${
               on ? 'bg-[#e2f2ef] text-green-d border-green-light' : 'bg-white text-muted border-line-2 hover:bg-chip'
             }`}
           >
@@ -1120,6 +1137,7 @@ function SalesObjectRow({
   monthRow,
   onSaveObject,
   onSaveMonth,
+  readOnly = false,
 }: {
   object: {
     _id: string
@@ -1137,6 +1155,7 @@ function SalesObjectRow({
   }
   onSaveObject: ReturnType<typeof useMutation<typeof api.sales.upsertObject>>
   onSaveMonth: ReturnType<typeof useMutation<typeof api.sales.upsertMonth>>
+  readOnly?: boolean
 }) {
   const [name, setName] = useState(object.name)
   const [status, setStatus] = useState(object.status)
@@ -1156,6 +1175,7 @@ function SalesObjectRow({
   const [error, setError] = useState('')
 
   const save = async () => {
+    if (readOnly) return
     setBusy(true)
     setSaved(false)
     setError('')
@@ -1167,6 +1187,7 @@ function SalesObjectRow({
         status,
         managerIds: managerIds as Id<'employees'>[],
         comment: comment.trim() || undefined,
+        month,
       })
       await onSaveMonth({
         objectId: object._id as Id<'salesObjects'>,
@@ -1187,16 +1208,22 @@ function SalesObjectRow({
 
   return (
     <div className="rounded-2xl border border-line bg-white p-4 shadow-card">
+      {readOnly && (
+        <div className="mb-3 rounded-lg bg-chip px-3 py-2 text-xs font-semibold text-muted">
+          Просмотр прошлого периода
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="min-w-0">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-1">Объект продаж</div>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
+            disabled={readOnly}
             className="w-full h-10 px-3 rounded-lg border border-line-2 text-base font-semibold focus:outline-none focus:border-green-light"
           />
         </div>
-        <button onClick={save} disabled={busy || !name.trim()} className="btn btn-green h-10 px-3 text-sm disabled:opacity-60 shrink-0">
+        <button onClick={save} disabled={busy || !name.trim() || readOnly} className="btn btn-green h-10 px-3 text-sm disabled:opacity-60 shrink-0">
           {saved ? <Check size={15} /> : null}
           Сохранить
         </button>
@@ -1208,6 +1235,7 @@ function SalesObjectRow({
           <Select
             value={type}
             onChange={(v) => setType(v as typeof type)}
+            disabled={readOnly}
             options={[
               { value: 'franchise', label: 'Франшиза' },
               { value: 'service', label: 'Услуга' },
@@ -1220,6 +1248,7 @@ function SalesObjectRow({
           <Select
             value={status}
             onChange={(v) => setStatus(v as typeof status)}
+            disabled={readOnly}
             options={[
               { value: 'active', label: 'Активен' },
               { value: 'paused', label: 'На паузе' },
@@ -1233,13 +1262,14 @@ function SalesObjectRow({
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         placeholder="Комментарий"
+        disabled={readOnly}
         className="mt-3 w-full h-10 px-3 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
       />
 
       <div className="mt-4 flex items-center gap-2 flex-wrap">
         <button
           onClick={() => setSelling((v) => !v)}
-          disabled={status === 'archived'}
+          disabled={status === 'archived' || readOnly}
           className={`h-9 px-3 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40 ${
             selling && status !== 'archived'
               ? 'bg-[#e2f2ef] text-green-d border-green-light'
@@ -1255,7 +1285,7 @@ function SalesObjectRow({
 
       <div className="mt-4">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">Менеджеры</div>
-        <ManagerChecks staff={staff} selected={managerIds} onChange={setManagerIds} />
+        <ManagerChecks staff={staff} selected={managerIds} onChange={setManagerIds} disabled={readOnly} />
       </div>
 
       {managerIds.length > 0 && (
@@ -1275,6 +1305,7 @@ function SalesObjectRow({
                   type="number"
                   min={0}
                   value={plans[id] ?? 0}
+                  disabled={readOnly}
                   onChange={(e) => setPlans((p) => ({ ...p, [id]: Number(e.target.value) || 0 }))}
                   className="w-20 h-9 px-2 rounded-lg border border-line-2 text-sm text-right focus:outline-none focus:border-green-light"
                 />
