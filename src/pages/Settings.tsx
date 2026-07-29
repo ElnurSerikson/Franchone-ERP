@@ -813,11 +813,18 @@ function SalesObjectsSetup() {
   const [type, setType] = useState<'franchise' | 'service' | 'product'>('franchise')
   const [managerIds, setManagerIds] = useState<string[]>([])
   const [comment, setComment] = useState('')
+  const [createOpen, setCreateOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const isPastMonth = month < CURRENT_MONTH
 
-  const add = async () => {
+  const closeCreateDrawer = () => {
+    setCreateOpen(false)
+    setError('')
+  }
+
+  const add = async (event?: { preventDefault: () => void }) => {
+    event?.preventDefault()
     const clean = name.trim()
     if (!clean || isPastMonth) return
     setBusy(true)
@@ -834,6 +841,7 @@ function SalesObjectsSetup() {
       setName('')
       setManagerIds([])
       setComment('')
+      setCreateOpen(false)
     } catch (e) {
       setError(errMessage(e, 'Не удалось создать объект продаж.'))
     } finally {
@@ -846,7 +854,7 @@ function SalesObjectsSetup() {
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Briefcase size={18} className="text-green" />
         <h3 className="sec-title flex-1">Объекты продаж и планы месяца</h3>
-        <div className="flex items-center gap-1 rounded-xl bg-chip p-1">
+        <div className="flex items-center gap-1 rounded-xl bg-chip p-1 order-2 sm:order-none">
           <button onClick={() => setMonth(addMonth(month, -1))} className="ico-btn w-8 h-8 border-0 bg-transparent" title="Предыдущий месяц">
             <ChevronLeft size={15} />
           </button>
@@ -855,53 +863,26 @@ function SalesObjectsSetup() {
             <ChevronRight size={15} />
           </button>
         </div>
+        <button
+          onClick={() => {
+            if (isPastMonth) return
+            setError('')
+            setCreateOpen(true)
+          }}
+          disabled={isPastMonth}
+          className="btn btn-green h-10 px-4 text-sm disabled:opacity-55 order-1 sm:order-none"
+          title={isPastMonth ? 'В прошлом периоде создание недоступно' : 'Создать объект продаж'}
+        >
+          <Plus size={16} /> Создать объект
+        </button>
       </div>
 
-      {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
       {isPastMonth && (
         <div className="rounded-xl border border-[#d69e2e]/30 bg-[#fff6e6] px-3 py-2 text-sm text-[#8a5a00] mb-3">
           Прошлый период доступен только для просмотра. Создание объектов, планы и назначения
           меняются с текущего месяца и будущих периодов.
         </div>
       )}
-
-      <div className={`rounded-2xl border border-line p-4 mb-4 ${isPastMonth ? 'opacity-60' : ''}`}>
-        <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_150px]">
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Название объекта продаж"
-            disabled={isPastMonth}
-            className="h-9 px-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
-          />
-          <Select
-            value={type}
-            onChange={(v) => setType(v as typeof type)}
-            disabled={isPastMonth}
-            options={[
-              { value: 'franchise', label: 'Франшиза' },
-              { value: 'service', label: 'Услуга' },
-              { value: 'product', label: 'Другой продукт' },
-            ]}
-          />
-        </div>
-        <ManagerChecks
-          staff={staff}
-          selected={managerIds}
-          onChange={setManagerIds}
-          disabled={isPastMonth}
-        />
-        <input
-          value={comment}
-          onChange={(e) => setComment(e.target.value)}
-          placeholder="Комментарий"
-          disabled={isPastMonth}
-          className="mt-3 w-full h-9 px-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
-        />
-        <button onClick={add} disabled={busy || !name.trim() || isPastMonth} className="btn btn-green h-9 px-3 text-sm disabled:opacity-60 mt-3">
-          <Plus size={15} /> Создать объект
-        </button>
-      </div>
 
       <div className="rounded-2xl bg-chip/70 p-3">
         {objects.length > 0 ? (
@@ -927,6 +908,82 @@ function SalesObjectsSetup() {
         Если объект уже использовался в отчётах, его не удаляем физически: переведите в архив,
         и история останется доступной по прошлым месяцам.
       </p>
+
+      {createOpen && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <button
+            type="button"
+            aria-label="Закрыть создание объекта продаж"
+            onClick={closeCreateDrawer}
+            className="absolute inset-0 bg-black/30"
+          />
+          <div className="relative w-full max-w-md h-full bg-bg shadow-soft flex flex-col">
+            <div className="shrink-0 bg-white border-b border-line px-5 sm:px-6 py-4 flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#e2f2ef] text-green-d grid place-items-center shrink-0">
+                <Plus size={19} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="text-lg font-bold text-ink leading-tight">Создать объект продаж</h2>
+                <p className="text-[13px] text-muted mt-0.5">{formatMonth(month)}</p>
+              </div>
+              <button onClick={closeCreateDrawer} className="ico-btn w-9 h-9 shrink-0" title="Закрыть">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={add} className="flex-1 min-h-0 flex flex-col">
+              <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5 flex flex-col gap-4">
+                {error && <p className="rounded-xl border border-[#c53030]/20 bg-[#fff5f5] px-3 py-2 text-sm text-[#c53030]">{error}</p>}
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Объект продаж</label>
+                  <input
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Название объекта продаж"
+                    autoFocus
+                    className="w-full h-10 px-3 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Тип</label>
+                  <Select
+                    value={type}
+                    onChange={(v) => setType(v as typeof type)}
+                    options={[
+                      { value: 'franchise', label: 'Франшиза' },
+                      { value: 'service', label: 'Услуга' },
+                      { value: 'product', label: 'Другой продукт' },
+                    ]}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Менеджеры</label>
+                  <ManagerChecks staff={staff} selected={managerIds} onChange={setManagerIds} />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Комментарий</label>
+                  <textarea
+                    value={comment}
+                    onChange={(e) => setComment(e.target.value)}
+                    placeholder="Комментарий"
+                    rows={4}
+                    className="w-full px-3 py-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light resize-y"
+                  />
+                </div>
+              </div>
+
+              <div className="shrink-0 bg-white border-t border-line px-5 sm:px-6 py-4 flex items-center justify-end gap-2">
+                <button type="button" onClick={closeCreateDrawer} className="btn h-10 px-4">
+                  Отмена
+                </button>
+                <button type="submit" disabled={busy || !name.trim()} className="btn btn-green h-10 px-4 disabled:opacity-60">
+                  <Plus size={16} /> Создать объект
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
