@@ -809,6 +809,7 @@ function SalesObjectsSetup() {
   const saveObject = useMutation(api.sales.upsertObject)
   const saveMonth = useMutation(api.sales.upsertMonth)
 
+  const [statusFilter, setStatusFilter] = useState<'active' | 'paused' | 'archived'>('active')
   const [name, setName] = useState('')
   const [type, setType] = useState<'franchise' | 'service' | 'product'>('franchise')
   const [createStatus, setCreateStatus] = useState<'active' | 'paused' | 'archived'>('active')
@@ -825,6 +826,12 @@ function SalesObjectsSetup() {
     year: 'numeric',
     timeZone: 'Asia/Almaty',
   })
+  const filteredObjects = objects.filter((object) => object.status === statusFilter)
+  const statusFilterTabs: { value: typeof statusFilter; label: string }[] = [
+    { value: 'active', label: 'Активен' },
+    { value: 'paused', label: 'На паузе' },
+    { value: 'archived', label: 'Архив' },
+  ]
 
   useEffect(() => {
     if (!createOpen) return undefined
@@ -881,6 +888,21 @@ function SalesObjectsSetup() {
         <Briefcase size={18} className="text-green" />
         <h3 className="sec-title flex-1">Объекты продаж и планы месяца</h3>
         <div className="flex items-center gap-1 rounded-xl bg-chip p-1 order-2 sm:order-none">
+          {statusFilterTabs.map((tab) => (
+            <button
+              key={tab.value}
+              onClick={() => setStatusFilter(tab.value)}
+              className={`h-8 px-3 rounded-lg text-sm font-semibold transition-colors ${
+                statusFilter === tab.value
+                  ? 'bg-white text-ink shadow-card'
+                  : 'text-muted hover:bg-white/70 hover:text-ink'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 rounded-xl bg-chip p-1 order-2 sm:order-none">
           <button onClick={() => setMonth(addMonth(month, -1))} className="ico-btn w-8 h-8 border-0 bg-transparent" title="Предыдущий месяц">
             <ChevronLeft size={15} />
           </button>
@@ -912,9 +934,9 @@ function SalesObjectsSetup() {
       )}
 
       <div>
-        {objects.length > 0 ? (
+        {filteredObjects.length > 0 ? (
           <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-            {objects.map((object) => (
+            {filteredObjects.map((object) => (
               <SalesObjectRow
                 key={`${month}:${object._id}`}
                 object={object}
@@ -928,7 +950,9 @@ function SalesObjectsSetup() {
             ))}
           </div>
         ) : (
-          <p className="text-sm text-muted p-3">Пока нет объектов продаж.</p>
+          <p className="text-sm text-muted p-3">
+            {objects.length > 0 ? 'Нет объектов с выбранным статусом.' : 'Пока нет объектов продаж.'}
+          </p>
         )}
       </div>
       <p className="text-[11px] text-muted-2 mt-3">
