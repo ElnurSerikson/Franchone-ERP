@@ -182,10 +182,11 @@ async function ensureAssignedObject(
   month: string,
 ) {
   const object = await ctx.db.get(objectId)
-  if (!object || object.status !== 'active') {
+  const setting = await monthSetting(ctx, objectId, month)
+  const effectiveObjectStatus = setting?.objectStatus ?? object?.status
+  if (!object || effectiveObjectStatus !== 'active') {
     throw new ConvexError('Объект продаж не активен')
   }
-  const setting = await monthSetting(ctx, objectId, month)
   if (
     !setting ||
     setting.status !== 'selling' ||
@@ -431,7 +432,7 @@ export const assignedObjects = query({
       const plan = row.managerPlans.find((p) => p.managerId === me._id)
       if (!plan) continue
       const object = await ctx.db.get(row.objectId)
-      if (!object || object.status !== 'active') continue
+      if (!object || (row.objectStatus ?? object.status) !== 'active') continue
       out.push({ ...object, planDeals: plan.planDeals })
     }
     out.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
@@ -501,7 +502,8 @@ export const dayForEmployee = query({
       const setting = monthRows.find((r) => r.objectId === objectId)
       const planDeals = planForEmployee(setting, employeeId)
       const report = reports.find((r) => r.objectId === objectId) ?? null
-      if (!report && (object.status !== 'active' || setting?.status !== 'selling')) continue
+      const effectiveObjectStatus = setting?.objectStatus ?? object.status
+      if (!report && (effectiveObjectStatus !== 'active' || setting?.status !== 'selling')) continue
       out.push({ object, report, planDeals })
     }
     out.sort((a, b) => a.object.name.localeCompare(b.object.name, 'ru'))
