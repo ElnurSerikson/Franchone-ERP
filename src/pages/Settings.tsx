@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { Sliders, Users2, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X, Briefcase, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Sliders, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X, Briefcase, ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
 import Select from '@/components/ui/Select'
@@ -11,7 +11,6 @@ import { num, pct } from '@/lib/format'
 import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
 import { errMessage } from '@/lib/errors'
 import { th, td, theadRow } from '@/lib/table'
-import { PERM_SECTIONS, ACTION_LABEL, permKey } from '../../convex/permModel'
 
 const cellCls =
   'w-16 h-8 px-2 rounded-lg border border-line-2 text-sm text-right tabular-nums focus:outline-none focus:border-green-light'
@@ -19,28 +18,28 @@ const cellCls =
 // §5 ТЗ: «формулы расчёта и набор KPI настраиваются отдельно для каждой
 // должности». Поэтому настройки сгруппированы по должности, а не по типу
 // параметра: у каждой своя формула, свой оклад и свой набор показателей.
-type Position = 'smm' | 'targetolog' | 'sales'
-const POSITIONS: { id: Position; label: string }[] = [
+type SettingsTab = 'general' | 'smm' | 'targetolog' | 'sales'
+const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
+  { id: 'general', label: 'Общие' },
   { id: 'smm', label: 'SMM' },
   { id: 'targetolog', label: 'Таргетолог' },
   { id: 'sales', label: 'Отдел продаж' },
 ]
 
 export default function Settings() {
-  const registry = useQuery(api.campaigns.registry, {})
-  const [pos, setPos] = useState<Position>('smm')
+  const [tab, setTab] = useState<SettingsTab>('general')
 
   return (
     <>
       <PageHeader title="Настройки" subtitle="KPI по должностям, отчётность и справочники" />
 
       <div className="flex items-center gap-1 p-1 bg-chip rounded-xl w-full sm:w-fit mb-5">
-        {POSITIONS.map((p) => (
+        {SETTINGS_TABS.map((p) => (
           <button
             key={p.id}
-            onClick={() => setPos(p.id)}
+            onClick={() => setTab(p.id)}
             className={`h-9 px-4 rounded-lg text-sm font-semibold transition-colors flex-1 sm:flex-none ${
-              pos === p.id
+              tab === p.id
                 ? 'bg-white text-ink shadow-card'
                 : 'bg-line text-ink-2/70 hover:bg-line-2 hover:text-ink'
             }`}
@@ -50,182 +49,23 @@ export default function Settings() {
         ))}
       </div>
 
-      {pos === 'smm' && <SmmKpiSetup />}
-      {pos === 'targetolog' && <TargetologKpiSetup />}
-      {pos === 'sales' && <SalesKpiSetup />}
-
-      {/* Ежедневная отчётность */}
-      <div className="mt-5">
-        <ReportDeadlineCard />
-      </div>
-
-      {/* Матрица прав (§9) */}
-      <div className="mt-5">
-        <PermissionsCard />
-      </div>
-
-      {/* Справочники отделов и должностей (§11) */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 mt-5">
-        <CatalogCard kind="departments" />
-        <CatalogCard kind="positions" />
-      </div>
-
-      {/* Справочная информация */}
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 mt-5">
-        <div className="card p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Building2 size={18} className="text-green" />
-            <h3 className="sec-title">Справочная информация</h3>
-          </div>
-          <div className="flex flex-col gap-3 text-sm">
-            <Row label="Аккаунты" value="FRANCHONE · ANUAR" />
-            <Row label="Источники денег" value="FRANCHONE · Партнёр" />
-            <Row label="Кампаний в реестре" value={`${registry?.length ?? 0}`} />
-            <Row label="Правило недель" value="ROUNDUP(день/7), максимум 5" />
-          </div>
-        </div>
-
-        <div className="card p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Users2 size={18} className="text-green" />
-            <h3 className="sec-title">Роли и доступ</h3>
-          </div>
-          <div className="flex flex-col gap-3 text-sm">
-            <Row label="Владелец" value="Полный доступ ко всему" />
-            <Row label="Руководитель отдела" value="Свой отдел: планы, задачи, KPI" />
-            <Row label="Сотрудник" value="Только своё: факт, задачи, свой KPI" />
-          </div>
-        </div>
-      </div>
+      {tab === 'general' && <GeneralSettings />}
+      {tab === 'smm' && <SmmKpiSetup />}
+      {tab === 'targetolog' && <TargetologKpiSetup />}
+      {tab === 'sales' && <SalesKpiSetup />}
     </>
   )
 }
 
-// ——— Матрица прав (§9) ———
-// Владелец включает/выключает действия для ролей «Руководитель» и «Сотрудник».
-// Владелец всегда имеет всё; роли/оклады/сама матрица — только владелец (вне
-// матрицы). Руководитель действует в рамках своего отдела, сотрудник — только
-// над своими данными (скоуп применяется на сервере).
-function PermissionsCard() {
-  const data = useQuery(api.permissions.matrix)
-  const setMatrix = useMutation(api.permissions.setMatrix)
-  const [tab, setTab] = useState<'head' | 'employee'>('head')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  if (data === undefined) return null
-  if (data === null) return null // не владелец
-
-  const allowed = new Set(tab === 'head' ? data.head : data.employee)
-  const toggle = async (key: string) => {
-    const next = new Set(allowed)
-    if (next.has(key)) {
-      next.delete(key)
-    } else {
-      next.add(key)
-      // «Только свои» и «Все» — взаимоисключающие режимы просмотра.
-      const [section, action] = key.split(':')
-      if (action === 'view') next.delete(permKey(section, 'viewAll'))
-      if (action === 'viewAll') next.delete(permKey(section, 'view'))
-    }
-    setBusy(true)
-    setError('')
-    try {
-      await setMatrix({ role: tab, allowed: [...next] })
-    } catch (e) {
-      setError(errMessage(e, 'Не удалось сохранить.'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
+function GeneralSettings() {
   return (
-    <div className="card p-5">
-      <div className="flex items-center gap-2 mb-1 flex-wrap">
-        <Users2 size={18} className="text-green" />
-        <h3 className="sec-title flex-1">Матрица прав</h3>
-        <div className="flex items-center gap-1 p-1 bg-chip rounded-xl">
-          {(['head', 'employee'] as const).map((r) => (
-            <button
-              key={r}
-              onClick={() => setTab(r)}
-              className={`h-8 px-3 rounded-lg text-sm font-semibold transition-colors ${
-                tab === r ? 'bg-white text-ink shadow-card' : 'text-ink-2/70 hover:text-ink'
-              }`}
-            >
-              {r === 'head' ? 'Руководитель' : 'Сотрудник'}
-            </button>
-          ))}
-        </div>
-      </div>
-      <p className="text-[11px] text-muted-2 mb-4">
-        Владелец всегда имеет полный доступ. Роли, оклады и сама матрица меняются только
-        владельцем. Руководитель действует в своём отделе, сотрудник — только над своими данными.
-      </p>
-      {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
-
-      <div className="flex flex-col divide-y divide-line">
-        {PERM_SECTIONS.map((s) => (
-          <div key={s.key} className="flex items-center gap-3 py-3 first:pt-0 flex-wrap">
-            <div className="w-28 shrink-0 text-sm font-medium text-ink">{s.label}</div>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] text-muted mr-0.5">Просмотр:</span>
-              {(['view', 'viewAll'] as const)
-                .filter((a) => (s.actions as string[]).includes(a))
-                .map((a) => (
-                  <PermBtn
-                    key={a}
-                    label={ACTION_LABEL[a]}
-                    on={allowed.has(permKey(s.key, a))}
-                    busy={busy}
-                    onClick={() => toggle(permKey(s.key, a))}
-                  />
-                ))}
-              {s.actions.some((a) => a !== 'view' && a !== 'viewAll') && (
-                <span className="w-px h-5 bg-line-2 mx-1" />
-              )}
-              {s.actions
-                .filter((a) => a !== 'view' && a !== 'viewAll')
-                .map((a) => (
-                  <PermBtn
-                    key={a}
-                    label={ACTION_LABEL[a]}
-                    on={allowed.has(permKey(s.key, a))}
-                    busy={busy}
-                    onClick={() => toggle(permKey(s.key, a))}
-                  />
-                ))}
-            </div>
-          </div>
-        ))}
+    <div className="flex flex-col gap-5">
+      <ReportDeadlineCard />
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <CatalogCard kind="departments" />
+        <CatalogCard kind="positions" />
       </div>
     </div>
-  )
-}
-
-function PermBtn({
-  label,
-  on,
-  busy,
-  onClick,
-}: {
-  label: string
-  on: boolean
-  busy: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={busy}
-      className={`h-8 px-3 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-60 ${
-        on
-          ? 'bg-[#e2f2ef] text-green-d border-green-light'
-          : 'bg-white text-muted border-line-2 hover:bg-chip'
-      }`}
-    >
-      {label}
-    </button>
   )
 }
 
@@ -1382,15 +1222,6 @@ function ReportDeadlineCard() {
         Отчёт, отправленный после этого времени, помечается «с опозданием». Незаполненный за
         календарный день — «пропущен».
       </p>
-    </div>
-  )
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 py-2 border-b border-line last:border-0">
-      <span className="text-muted">{label}</span>
-      <span className="font-medium text-ink text-right">{value}</span>
     </div>
   )
 }
