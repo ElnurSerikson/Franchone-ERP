@@ -352,7 +352,7 @@ export const upsertObject = mutation({
       })
       return id
     }
-    return await ctx.db.insert('salesObjects', {
+    const objectId = await ctx.db.insert('salesObjects', {
       name: cleanName,
       type,
       status,
@@ -360,6 +360,16 @@ export const upsertObject = mutation({
       comment: cleanComment(comment),
       createdAt: Date.now(),
     })
+    if (month) {
+      await ctx.db.insert('salesObjectMonths', {
+        objectId,
+        month,
+        objectStatus: status,
+        status: 'not_selling',
+        managerPlans: cleanManagers.map((managerId) => ({ managerId, planDeals: 0 })),
+      })
+    }
+    return objectId
   },
 })
 

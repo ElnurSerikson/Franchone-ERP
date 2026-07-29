@@ -826,10 +826,14 @@ function SalesObjectsSetup() {
     year: 'numeric',
     timeZone: 'Asia/Almaty',
   })
-  const monthRowByObject = new Map(monthRows.map((row) => [row.objectId, row]))
+  const monthRowByObject = new Map(monthRows.map((row) => [String(row.objectId), row]))
+  const nextMonthStart = new Date(`${addMonth(month, 1)}-01T00:00:00+05:00`).getTime()
+  const existedInMonth = (object: { createdAt: number }) => object.createdAt < nextMonthStart
   const statusForMonth = (object: { _id: string; status: 'active' | 'paused' | 'archived' }) =>
-    monthRowByObject.get(object._id as Id<'salesObjects'>)?.objectStatus ?? object.status
-  const filteredObjects = objects.filter((object) => statusForMonth(object) === statusFilter)
+    monthRowByObject.get(object._id)?.objectStatus ?? object.status
+  const filteredObjects = objects.filter(
+    (object) => existedInMonth(object) && statusForMonth(object) === statusFilter,
+  )
   const statusFilterTabs: { value: typeof statusFilter; label: string }[] = [
     { value: 'active', label: 'Активен' },
     { value: 'paused', label: 'На паузе' },
@@ -946,7 +950,7 @@ function SalesObjectsSetup() {
                 effectiveStatus={statusForMonth(object)}
                 staff={staff}
                 month={month}
-                monthRow={monthRowByObject.get(object._id as Id<'salesObjects'>)}
+                monthRow={monthRowByObject.get(object._id)}
                 onSaveObject={saveObject}
                 onSaveMonth={saveMonth}
                 readOnly={isPastMonth}
@@ -1122,6 +1126,7 @@ function SalesObjectRow({
     type: 'franchise' | 'service' | 'product'
     status: 'active' | 'paused' | 'archived'
     managerIds: string[]
+    createdAt: number
     comment?: string
   }
   effectiveStatus: 'active' | 'paused' | 'archived'
