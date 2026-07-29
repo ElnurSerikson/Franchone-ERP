@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import { Sliders, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X, Briefcase, ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
@@ -814,13 +814,31 @@ function SalesObjectsSetup() {
   const [managerIds, setManagerIds] = useState<string[]>([])
   const [comment, setComment] = useState('')
   const [createOpen, setCreateOpen] = useState(false)
+  const [createShown, setCreateShown] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const isPastMonth = month < CURRENT_MONTH
 
+  useEffect(() => {
+    if (!createOpen) return undefined
+    const frame = requestAnimationFrame(() => setCreateShown(true))
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeCreateDrawer()
+    }
+    document.addEventListener('keydown', onKey)
+    return () => {
+      cancelAnimationFrame(frame)
+      document.removeEventListener('keydown', onKey)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [createOpen])
+
   const closeCreateDrawer = () => {
-    setCreateOpen(false)
-    setError('')
+    setCreateShown(false)
+    window.setTimeout(() => {
+      setCreateOpen(false)
+      setError('')
+    }, 200)
   }
 
   const add = async (event?: { preventDefault: () => void }) => {
@@ -841,7 +859,7 @@ function SalesObjectsSetup() {
       setName('')
       setManagerIds([])
       setComment('')
-      setCreateOpen(false)
+      closeCreateDrawer()
     } catch (e) {
       setError(errMessage(e, 'Не удалось создать объект продаж.'))
     } finally {
@@ -867,6 +885,7 @@ function SalesObjectsSetup() {
           onClick={() => {
             if (isPastMonth) return
             setError('')
+            setCreateShown(false)
             setCreateOpen(true)
           }}
           disabled={isPastMonth}
@@ -915,9 +934,15 @@ function SalesObjectsSetup() {
             type="button"
             aria-label="Закрыть создание объекта продаж"
             onClick={closeCreateDrawer}
-            className="absolute inset-0 bg-black/30"
+            className={`absolute inset-0 bg-black/30 transition-opacity duration-200 ${
+              createShown ? 'opacity-100' : 'opacity-0'
+            }`}
           />
-          <div className="relative w-full max-w-md h-full bg-bg shadow-soft flex flex-col">
+          <div
+            className={`relative w-full max-w-md h-full bg-bg shadow-soft flex flex-col transition-transform duration-200 ease-out ${
+              createShown ? 'translate-x-0' : 'translate-x-full'
+            }`}
+          >
             <div className="shrink-0 bg-white border-b border-line px-5 sm:px-6 py-4 flex items-start gap-3">
               <div className="w-10 h-10 rounded-xl bg-[#e2f2ef] text-green-d grid place-items-center shrink-0">
                 <Plus size={19} />
