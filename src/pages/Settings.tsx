@@ -1006,12 +1006,6 @@ function SalesObjectsSetup() {
                   <ManagerChecks staff={staff} selected={managerIds} onChange={setManagerIds} />
                 </div>
                 <div>
-                  <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Дата создания</label>
-                  <div className="w-full h-10 px-3 rounded-lg border border-line-2 bg-chip text-sm font-semibold text-ink flex items-center">
-                    {createDateLabel}
-                  </div>
-                </div>
-                <div>
                   <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Комментарий</label>
                   <textarea
                     value={comment}
@@ -1020,6 +1014,10 @@ function SalesObjectsSetup() {
                     rows={4}
                     className="w-full px-3 py-2.5 rounded-lg border border-line-2 text-sm focus:outline-none focus:border-green-light resize-y"
                   />
+                </div>
+                <div>
+                  <label className="block text-[11px] uppercase font-bold text-muted mb-1.5">Дата создания</label>
+                  <div className="text-sm font-semibold text-muted">{createDateLabel}</div>
                 </div>
               </div>
 
