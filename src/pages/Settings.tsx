@@ -809,7 +809,7 @@ function SalesObjectsSetup() {
   const saveObject = useMutation(api.sales.upsertObject)
   const saveMonth = useMutation(api.sales.upsertMonth)
 
-  const [statusFilter, setStatusFilter] = useState<'active' | 'paused' | 'archived'>('active')
+  const [statusFilter, setStatusFilter] = useState<'active' | 'paused' | 'archived' | 'all'>('active')
   const [name, setName] = useState('')
   const [type, setType] = useState<'franchise' | 'service' | 'product'>('franchise')
   const [createStatus, setCreateStatus] = useState<'active' | 'paused' | 'archived'>('active')
@@ -832,12 +832,14 @@ function SalesObjectsSetup() {
   const statusForMonth = (object: { _id: string; status: 'active' | 'paused' | 'archived' }) =>
     monthRowByObject.get(object._id)?.objectStatus ?? object.status
   const filteredObjects = objects.filter(
-    (object) => existedInMonth(object) && statusForMonth(object) === statusFilter,
+    (object) =>
+      existedInMonth(object) && (statusFilter === 'all' || statusForMonth(object) === statusFilter),
   )
   const statusFilterTabs: { value: typeof statusFilter; label: string }[] = [
     { value: 'active', label: 'Активен' },
     { value: 'paused', label: 'На паузе' },
     { value: 'archived', label: 'Архив' },
+    { value: 'all', label: 'Все' },
   ]
 
   useEffect(() => {
