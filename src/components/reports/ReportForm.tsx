@@ -491,7 +491,7 @@ function SalesForm({ report, date, readOnly }: { report: Report | null; date: st
     selected ? { date, objectId: selected as Id<'salesObjects'> } : 'skip',
   )
 
-  if (objects === undefined || daily === undefined) {
+  if (objects === undefined) {
     return (
       <div className="py-8 grid place-items-center text-muted">
         <Loader2 className="animate-spin" size={18} />
@@ -507,6 +507,14 @@ function SalesForm({ report, date, readOnly }: { report: Report | null; date: st
           Для выбранного месяца вам не назначены объекты продаж. Объект появится здесь после
           настройки месяца владельцем.
         </p>
+      </div>
+    )
+  }
+
+  if (daily === undefined) {
+    return (
+      <div className="py-8 grid place-items-center text-muted">
+        <Loader2 className="animate-spin" size={18} />
       </div>
     )
   }
