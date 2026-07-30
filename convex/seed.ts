@@ -1,9 +1,10 @@
-import { mutation } from './_generated/server'
+import { internalMutation } from './_generated/server'
 import type { Id } from './_generated/dataModel'
 
 // Наполнение базы демо-данными FRANCHONE. Идемпотентно: если сотрудники
-// уже есть — ничего не делает. Запуск: `npx convex run seed:run`
-// (или кнопкой из приложения позже).
+// уже есть — ничего не делает. Запуск: `npx convex run seed:run`.
+// internalMutation, а не mutation: запись в боевую базу без проверки прав
+// не должна быть доступна снаружи (см. шапку setup.ts).
 
 type Role = 'owner' | 'head' | 'employee'
 type Position = 'smm' | 'targetolog' | 'sales' | 'packer'
@@ -55,7 +56,7 @@ const TASKS: Array<{ title: string; description?: string; status: TaskStatus; pr
   { title: 'Карусель «5 мифов о франчайзинге»', status: 'in_progress', priority: 'medium', assignee: 'u2', reporter: 'u1', deadline: '2026-07-17', tags: ['SMM', 'Контент'], checklist: [{ text: 'Дизайн 8 слайдов', done: true }], attachments: 1, comments: 2, kpiRef: 'FRANCHONE · Карусели' },
 ]
 
-export const run = mutation({
+export const run = internalMutation({
   args: {},
   handler: async (ctx) => {
     const already = await ctx.db.query('employees').first()

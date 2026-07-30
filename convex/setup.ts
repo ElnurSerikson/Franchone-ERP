@@ -1,10 +1,19 @@
-import { mutation } from './_generated/server'
+// Сервисные операции: разовые настройки, миграции, сиды и сбросы. Прав здесь
+// не проверяет никто — значит наружу их отдавать нельзя. Все функции файла
+// объявлены как internalMutation: публичная mutation вызывается по HTTP любым,
+// кто знает URL деплоя, а он зашит в бандл сайта. Так `resetTeam` снёс бы
+// боевую команду со всеми отчётами одним запросом с улицы.
+//
+// Запуск — из CLI, у него есть админский доступ к internal-функциям:
+//   npx convex run setup:seedCatalogs
+//   npx convex run setup:addHiddenEmployee '{"email":"…","name":"…","position":"smm"}'
+import { internalMutation } from './_generated/server'
 import { v } from 'convex/values'
 import type { Doc } from './_generated/dataModel'
 
 // Одноразовая настройка: назначить владельцу email для входа и привести
 // все email сотрудников к нижнему регистру (email = логин).
-export const bootstrapOwner = mutation({
+export const bootstrapOwner = internalMutation({
   args: { email: v.string() },
   handler: async (ctx, { email }) => {
     const target = email.toLowerCase().trim()
@@ -39,7 +48,7 @@ type Seed = {
   kpiRef?: string
 }
 
-export const reseedTasks = mutation({
+export const reseedTasks = internalMutation({
   args: {},
   handler: async (ctx) => {
     for (const t of ['taskComments', 'taskEvents', 'taskAttachments', 'tasks'] as const) {
@@ -104,7 +113,7 @@ export const reseedTasks = mutation({
 
 // Перекраска аватаров под новую фирменную бирюзовую палитру (#057269).
 // Одноразовая миграция данных в БД (старые зелёные оттенки → новые).
-export const recolorAvatars = mutation({
+export const recolorAvatars = internalMutation({
   args: {},
   handler: async (ctx) => {
     const map: Record<string, string> = {
@@ -128,7 +137,7 @@ export const recolorAvatars = mutation({
 // Контент-KPI (SMM) за текущий месяц — аккаунты FRANCHONE + ANUAR × форматы.
 // Данные соответствуют KPI_SMM (Excel заказчика). employeeId — Ануар (владелец);
 // в расчёте KPI не используется (computeSmm суммирует все строки глобально).
-export const seedSmm = mutation({
+export const seedSmm = internalMutation({
   args: {},
   handler: async (ctx) => {
     for (const r of await ctx.db.query('smmMetrics').collect()) await ctx.db.delete(r._id)
@@ -164,7 +173,7 @@ export const seedSmm = mutation({
 
 // ДЕМО: мок-данные рекламных кампаний для таба «Таргетолог».
 // Удаляется мутацией setup:clearCampaigns по команде.
-export const seedCampaigns = mutation({
+export const seedCampaigns = internalMutation({
   args: {},
   handler: async (ctx) => {
     for (const c of await ctx.db.query('campaigns').collect()) await ctx.db.delete(c._id)
@@ -205,7 +214,7 @@ export const seedCampaigns = mutation({
 })
 
 // Удалить все кампании (снять демо-данные таргетолога).
-export const clearCampaigns = mutation({
+export const clearCampaigns = internalMutation({
   args: {},
   handler: async (ctx) => {
     const all = await ctx.db.query('campaigns').collect()
@@ -234,7 +243,7 @@ export const clearCampaigns = mutation({
 //
 // Владельцев не удаляем ни при каких условиях — это единственный вход в
 // систему, и потерять его нельзя.
-export const resetForProduction = mutation({
+export const resetForProduction = internalMutation({
   args: {},
   handler: async (ctx) => {
     const employees = await ctx.db.query('employees').collect()
@@ -306,7 +315,7 @@ export const resetForProduction = mutation({
 })
 
 // Разовая уборка: планы кампаний, которых уже нет в реестре.
-export const dropOrphanPlans = mutation({
+export const dropOrphanPlans = internalMutation({
   args: {},
   handler: async (ctx) => {
     let deleted = 0
@@ -323,7 +332,7 @@ export const dropOrphanPlans = mutation({
 // ДЕМО: продажные ежедневные отчёты за текущий месяц (для таба «Отдел продаж»).
 // Привязаны к владельцу — в дисциплине/«Мой отчёт» не показываются, только в KPI.
 // Удаляются мутацией setup:clearSalesDemo по команде.
-export const seedSalesDemo = mutation({
+export const seedSalesDemo = internalMutation({
   args: {},
   handler: async (ctx) => {
     const owner = await ctx.db
@@ -365,7 +374,7 @@ export const seedSalesDemo = mutation({
 })
 
 // Снять демо-данные продаж (продажные отчёты владельца).
-export const clearSalesDemo = mutation({
+export const clearSalesDemo = internalMutation({
   args: {},
   handler: async (ctx) => {
     const owner = await ctx.db
@@ -404,7 +413,7 @@ function smmDemoLines(day: number) {
   ].filter((l) => l.count > 0)
 }
 
-export const seedSmmReports = mutation({
+export const seedSmmReports = internalMutation({
   args: {},
   handler: async (ctx) => {
     const emps = await ctx.db.query('employees').collect()
@@ -472,7 +481,7 @@ const WB_CAMPAIGNS = [
   { code: 'AN-003', account: 'ANUAR', brand: 'Консультации', campaign: 'Консультации' },
 ]
 
-export const applyKpiWorkbooks = mutation({
+export const applyKpiWorkbooks = internalMutation({
   args: {},
   handler: async (ctx) => {
     // 1. Дашборды: оклады и веса KPI таргетолога.
@@ -555,7 +564,7 @@ export const applyKpiWorkbooks = mutation({
   },
 })
 
-export const clearSmmReports = mutation({
+export const clearSmmReports = internalMutation({
   args: {},
   handler: async (ctx) => {
     const emps = await ctx.db.query('employees').collect()
@@ -579,7 +588,7 @@ export const clearSmmReports = mutation({
 // Сделать аккаунт скрытым владельцем (служебный/разработчик): полный доступ
 // по роли owner, но невидим во всех списках фронта. Вход и роль работают
 // (currentEmployee/isInvited матчат по email независимо от hidden).
-export const makeHiddenAdmin = mutation({
+export const makeHiddenAdmin = internalMutation({
   args: { email: v.string() },
   handler: async (ctx, { email }) => {
     const e = await ctx.db
@@ -595,7 +604,7 @@ export const makeHiddenAdmin = mutation({
 // Сброс команды под реальный старт: стирает демо-данные (задачи, кампании,
 // SMM-метрики, ежедневные отчёты, входы) и старых сотрудников, создаёт
 // реальную стартовую команду (владелец + AI-разработчик). Auth-таблицы не трогаем.
-export const resetTeam = mutation({
+export const resetTeam = internalMutation({
   args: {},
   handler: async (ctx) => {
     // 1. Зависимые демо-данные
@@ -651,7 +660,7 @@ export const resetTeam = mutation({
 
 // Демо-отчёты для раздела «Отчёты» (§3). Наполняет сетку дисциплины
 // за последние 14 дней с разным статусом (в срок / с опозданием / пропуск).
-export const seedReports = mutation({
+export const seedReports = internalMutation({
   args: {},
   handler: async (ctx) => {
     const existing = await ctx.db.query('dailyReports').collect()
@@ -754,7 +763,7 @@ export const seedReports = mutation({
 })
 
 // Демо-входы для раздела «Активность». Ерлан — «давно не заходил».
-export const seedActivity = mutation({
+export const seedActivity = internalMutation({
   args: {},
   handler: async (ctx) => {
     const existing = await ctx.db.query('loginEvents').collect()
@@ -795,7 +804,7 @@ export const seedActivity = mutation({
 // у владельца elnur.serikson. Нужен, чтобы владелец зашёл «как сотрудник» и
 // проверил кабинет отчётов. Запуск:
 // npx convex run setup:addHiddenEmployee '{"email":"almnurken@gmail.com","name":"Алмнуркен","position":"smm"}'
-export const addHiddenEmployee = mutation({
+export const addHiddenEmployee = internalMutation({
   args: {
     email: v.string(),
     name: v.string(),
@@ -844,7 +853,7 @@ export const addHiddenEmployee = mutation({
 // проверки нового модуля без попадания тестового аккаунта в обычные списки.
 // Запуск:
 // npx convex run setup:seedHiddenSalesObjects '{"email":"almnurken@gmail.com","month":"2026-07"}'
-export const seedHiddenSalesObjects = mutation({
+export const seedHiddenSalesObjects = internalMutation({
   args: {
     email: v.optional(v.string()),
     month: v.optional(v.string()),
@@ -962,7 +971,7 @@ export const seedHiddenSalesObjects = mutation({
 // — оклад на человека: из settings по должности, если у сотрудника ещё 0.
 // Факты не трогаем — они уже в ежедневных отчётах и привязаны к employeeId.
 // Идемпотентна: повторный запуск не дублирует.
-export const migrateToPerEmployeeKpi = mutation({
+export const migrateToPerEmployeeKpi = internalMutation({
   args: {},
   handler: async (ctx) => {
     const emps = await ctx.db.query('employees').collect()
@@ -1029,7 +1038,7 @@ export const migrateToPerEmployeeKpi = mutation({
 // Дисциплине и включить его отчёты в общий факт (для сквозного теста);
 // hidden=true — снова спрятать и исключить из KPI. Запуск:
 // npx convex run setup:setEmployeeHidden '{"email":"almnurken@gmail.com","hidden":false}'
-export const setEmployeeHidden = mutation({
+export const setEmployeeHidden = internalMutation({
   args: { email: v.string(), hidden: v.boolean() },
   handler: async (ctx, { email, hidden }) => {
     const low = email.toLowerCase().trim()
@@ -1046,7 +1055,7 @@ export const setEmployeeHidden = mutation({
 // Заполнить справочники должностей и отделов из текущих данных (§11, Stage B).
 // Идемпотентна. Встроенные должности (smm/targetolog/sales) помечаем builtin —
 // на них завязан KPI, удалять нельзя.
-export const seedCatalogs = mutation({
+export const seedCatalogs = internalMutation({
   args: {},
   handler: async (ctx) => {
     const POSITIONS = [
@@ -1083,7 +1092,7 @@ export const seedCatalogs = mutation({
 // Одноразово: привести position каждого отчёта к фактическому разделу данных
 // (smm/targetolog/sales). Чинит старые отчёты, где position «застрял» от
 // прежней должности сотрудника, из-за чего форма рисовалась пустой.
-export const syncReportPositions = mutation({
+export const syncReportPositions = internalMutation({
   args: {},
   handler: async (ctx) => {
     const changes: { date: string; from: string; to: string }[] = []
@@ -1100,7 +1109,7 @@ export const syncReportPositions = mutation({
 
 // Одноразово: выставить дедлайн ежедневных отчётов на 23:50 (в БД мог остаться
 // старый 20:00, а он перекрывает умолчание). Запуск: npx convex run setup:setReportDeadline
-export const setReportDeadline = mutation({
+export const setReportDeadline = internalMutation({
   args: { time: v.optional(v.string()) },
   handler: async (ctx, { time }) => {
     const value = time ?? '23:50'
