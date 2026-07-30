@@ -1121,3 +1121,159 @@ export const setReportDeadline = internalMutation({
     return { reportDeadlineTime: value, existed: !!row }
   },
 })
+
+// Сменить должность сотрудника по email, не трогая больше ничего: ни статус,
+// ни видимость, ни отдел. Подпись берём из справочника positions — если задать
+// её руками, slug и ярлык разойдутся, и в карточке будет одно, а в расчёте KPI
+// другое. Запуск: npx convex run setup:setEmployeePosition '{"email":"…","position":"targetolog"}'
+export const setEmployeePosition = internalMutation({
+  args: { email: v.string(), position: v.string() },
+  handler: async (ctx, { email, position }) => {
+    const low = email.toLowerCase().trim()
+    const emp = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (!emp) throw new Error(`Сотрудник ${low} не найден`)
+    const pos = await ctx.db
+      .query('positions')
+      .withIndex('by_slug', (q) => q.eq('slug', position))
+      .first()
+    if (!pos) throw new Error(`Должности «${position}» нет в справочнике positions`)
+    await ctx.db.patch(emp._id, { position: pos.slug, positionLabel: pos.label })
+    // Имена полей — только ASCII: Convex не сериализует кириллические ключи.
+    return {
+      name: emp.name,
+      email: low,
+      from: `${emp.position} (${emp.positionLabel})`,
+      to: `${pos.slug} (${pos.label})`,
+    }
+  },
+})
+
+// ——— Превращение DEV-деплоймента в песочницу ———
+// После разделения сред на dev осталась копия боевых данных: настоящая команда,
+// её отчёты и зарплаты. Для разработки это лишнее и небезопасно. Оставляем два
+// служебных аккаунта разработчика (они же перестают быть скрытыми — прятать их
+// было нужно, только пока dev обслуживал живых пользователей), всё остальное
+// личное удаляем. Справочники, кампании и объекты продаж остаются: они не
+// персональные и нужны, чтобы было на чём тестировать.
+//
+// ЗАЩИТА ОТ ЗАПУСКА НА ПРОДЕ: функция сверяет адрес деплоймента и на проде
+// падает, ничего не тронув. Плюс она internal — сама по себе не выполняется
+// никогда, только по явной команде `npx convex run setup:makeDevSandbox`.
+const DEV_DEPLOYMENT = 'affable-kookabura-929'
+const DEV_KEEP_EMAILS = ['elnur.serikson@gmail.com', 'almnurken@gmail.com']
+
+export const makeDevSandbox = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(
+        `Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий деплоймент: ${url || 'неизвестен'}`,
+      )
+    }
+
+    const employees = await ctx.db.query('employees').collect()
+    const keep = employees.filter((e) => DEV_KEEP_EMAILS.includes(e.email.toLowerCase()))
+    const drop = employees.filter((e) => !DEV_KEEP_EMAILS.includes(e.email.toLowerCase()))
+    const dropIds = new Set(drop.map((e) => e._id))
+
+    // 1. Служебные аккаунты становятся обычными видимыми сотрудниками.
+    for (const e of keep) {
+      await ctx.db.patch(e._id, { hidden: false, status: 'active' })
+    }
+
+    // 2. Личные данные удаляемых: отчёты, планы, входы.
+    let removed = 0
+    for (const table of ['dailyReports', 'loginEvents', 'salesObjectReports', 'salesPlans'] as const) {
+      for (const row of await ctx.db.query(table).collect()) {
+        if (dropIds.has(row.employeeId)) {
+          await ctx.db.delete(row._id)
+          removed++
+        }
+      }
+    }
+    for (const table of ['smmMetrics', 'campaignPlans'] as const) {
+      for (const row of await ctx.db.query(table).collect()) {
+        if (row.employeeId && dropIds.has(row.employeeId)) {
+          await ctx.db.delete(row._id)
+          removed++
+        }
+      }
+    }
+
+    // 3. Задачи, где удаляемый — исполнитель или постановщик: вместе с
+    // перепиской, историей и вложениями, иначе останутся битые ссылки.
+    let tasksRemoved = 0
+    for (const t of await ctx.db.query('tasks').collect()) {
+      if (!dropIds.has(t.assigneeId) && !dropIds.has(t.reporterId)) continue
+      for (const c of await ctx.db
+        .query('taskComments')
+        .withIndex('by_task', (q) => q.eq('taskId', t._id))
+        .collect()) {
+        await ctx.db.delete(c._id)
+      }
+      for (const ev of await ctx.db
+        .query('taskEvents')
+        .withIndex('by_task', (q) => q.eq('taskId', t._id))
+        .collect()) {
+        await ctx.db.delete(ev._id)
+      }
+      for (const a of await ctx.db
+        .query('taskAttachments')
+        .withIndex('by_task', (q) => q.eq('taskId', t._id))
+        .collect()) {
+        if (a.storageId) await ctx.storage.delete(a.storageId)
+        await ctx.db.delete(a._id)
+      }
+      await ctx.db.delete(t._id)
+      tasksRemoved++
+    }
+
+    // 4. Ссылки на удаляемых в объектах продаж — вычищаем, сами объекты
+    // оставляем: они пригодятся для тестов.
+    for (const o of await ctx.db.query('salesObjects').collect()) {
+      const next = o.managerIds.filter((id) => !dropIds.has(id))
+      if (next.length !== o.managerIds.length) await ctx.db.patch(o._id, { managerIds: next })
+    }
+    for (const m of await ctx.db.query('salesObjectMonths').collect()) {
+      const next = m.managerPlans.filter((p) => !dropIds.has(p.managerId))
+      if (next.length !== m.managerPlans.length) await ctx.db.patch(m._id, { managerPlans: next })
+    }
+
+    // 5. Учётки входа удаляемых: без строки в employees вход и так закрыт
+    // (инвайт-гейт), но держать чужие почты в dev незачем.
+    const dropEmails = new Set(drop.map((e) => e.email.toLowerCase()))
+    const users = await ctx.db.query('users').collect()
+    const dropUserIds = new Set(
+      users.filter((u) => u.email && dropEmails.has(u.email.toLowerCase())).map((u) => u._id),
+    )
+    const dropSessionIds = new Set<string>()
+    for (const s of await ctx.db.query('authSessions').collect()) {
+      if (dropUserIds.has(s.userId)) {
+        dropSessionIds.add(s._id)
+        await ctx.db.delete(s._id)
+      }
+    }
+    for (const t of await ctx.db.query('authRefreshTokens').collect()) {
+      if (dropSessionIds.has(t.sessionId)) await ctx.db.delete(t._id)
+    }
+    for (const a of await ctx.db.query('authAccounts').collect()) {
+      if (dropUserIds.has(a.userId)) await ctx.db.delete(a._id)
+    }
+    for (const id of dropUserIds) await ctx.db.delete(id)
+
+    // 6. Сами сотрудники — последними, когда на них уже никто не ссылается.
+    for (const e of drop) await ctx.db.delete(e._id)
+
+    return {
+      deployment: url,
+      kept: keep.map((e) => `${e.name} <${e.email}> (${e.role})`),
+      removedEmployees: drop.map((e) => e.name),
+      removedPersonalRows: removed,
+      removedTasks: tasksRemoved,
+    }
+  },
+})
