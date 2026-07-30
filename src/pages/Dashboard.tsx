@@ -25,6 +25,7 @@ import { errMessage } from '@/lib/errors'
 import type { Employee, Task } from '@/types'
 
 const DUE_SOON_DAYS = 3
+const SHOW_PERSONAL_WORKLOAD = false
 
 // Дашборд один, начинка разная: руководство видит команду, сотрудник — себя
 // (§4 ТЗ: «сотрудник должен видеть только собственные показатели»).
@@ -63,37 +64,45 @@ function PersonalView({ me }: { me: Employee }) {
 
       {me.position === 'sales' && <SalesDashboardBlock role={me.role} me={me} />}
 
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
-        {plan ? (
-          <>
-            <StatCard highlight label="Мой KPI" value={pct(plan.kpi, 1)} foot="за текущий месяц" icon={TrendingUp} />
-            <StatCard
-              label="Заработано"
-              value={kzt(plan.earned)}
-              foot={`предварительно · оклад ${kzt(plan.salary)}`}
-              icon={Wallet}
-            />
-          </>
-        ) : (
-          <StatCard highlight label="Задачи на сегодня" value={String(dueToday)} foot={`ближайшие ${DUE_SOON_DAYS} дня: ${dueSoon}`} icon={CheckSquare} />
-        )}
-        <StatCard
-          label="Активные задачи"
-          value={String(counts.active)}
-          foot={counts.overdue > 0 ? `просрочено: ${counts.overdue}` : 'просрочек нет'}
-          icon={CheckSquare}
-        />
-        <StatCard
-          label="Заполняемость отчётов"
-          value={disc?.reporting ? pct(disc.fillRate) : '—'}
-          foot={
-            disc?.reporting
-              ? `в срок ${disc.onTime} · опозданий ${disc.late} · пропусков ${disc.missed}`
-              : 'отчёт не предусмотрен'
-          }
-          icon={ClipboardList}
-        />
-      </div>
+      {(plan || SHOW_PERSONAL_WORKLOAD) && (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
+          {plan ? (
+            <>
+              <StatCard highlight label="Мой KPI" value={pct(plan.kpi, 1)} foot="за текущий месяц" icon={TrendingUp} />
+              <StatCard
+                label="Заработано"
+                value={kzt(plan.earned)}
+                foot={`предварительно · оклад ${kzt(plan.salary)}`}
+                icon={Wallet}
+              />
+            </>
+          ) : (
+            SHOW_PERSONAL_WORKLOAD && (
+              <StatCard highlight label="Задачи на сегодня" value={String(dueToday)} foot={`ближайшие ${DUE_SOON_DAYS} дня: ${dueSoon}`} icon={CheckSquare} />
+            )
+          )}
+          {SHOW_PERSONAL_WORKLOAD && (
+            <>
+              <StatCard
+                label="Активные задачи"
+                value={String(counts.active)}
+                foot={counts.overdue > 0 ? `просрочено: ${counts.overdue}` : 'просрочек нет'}
+                icon={CheckSquare}
+              />
+              <StatCard
+                label="Заполняемость отчётов"
+                value={disc?.reporting ? pct(disc.fillRate) : '—'}
+                foot={
+                  disc?.reporting
+                    ? `в срок ${disc.onTime} · опозданий ${disc.late} · пропусков ${disc.missed}`
+                    : 'отчёт не предусмотрен'
+                }
+                icon={ClipboardList}
+              />
+            </>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2 mb-5">
         {plan && (
@@ -115,48 +124,52 @@ function PersonalView({ me }: { me: Employee }) {
           </div>
         )}
 
-        <div className="card p-5">
-          <h3 className="sec-title mb-1">Задачи</h3>
-          <p className="text-xs text-muted mb-4">успеваемость за {formatMonth(CURRENT_MONTH)}</p>
+        {SHOW_PERSONAL_WORKLOAD && (
+          <div className="card p-5">
+            <h3 className="sec-title mb-1">Задачи</h3>
+            <p className="text-xs text-muted mb-4">успеваемость за {formatMonth(CURRENT_MONTH)}</p>
 
-          {/* Ближайшая работа — §4 «на сегодня / приближается / просрочено». */}
-          <div className="grid grid-cols-3 gap-2 mb-5">
-            <Mini label="На сегодня" value={dueToday} />
-            <Mini label={`Ближайшие ${DUE_SOON_DAYS} дня`} value={dueSoon} />
-            <Mini label="Просрочено" value={counts.overdue} tone={counts.overdue > 0 ? 'red' : undefined} />
-          </div>
+            {/* Ближайшая работа — §4 «на сегодня / приближается / просрочено». */}
+            <div className="grid grid-cols-3 gap-2 mb-5">
+              <Mini label="На сегодня" value={dueToday} />
+              <Mini label={`Ближайшие ${DUE_SOON_DAYS} дня`} value={dueSoon} />
+              <Mini label="Просрочено" value={counts.overdue} tone={counts.overdue > 0 ? 'red' : undefined} />
+            </div>
 
-          {/* Прогресс-бары успеваемости — §1: процент выполнения и соблюдения сроков. */}
-          <Meter
-            label="Выполнено"
-            pctValue={stats.completionPct}
-            caption={`${stats.done} из ${stats.total} ${plural(stats.total, 'задачи', 'задач', 'задач')}`}
-          />
-          <div className="mt-3">
+            {/* Прогресс-бары успеваемости — §1: процент выполнения и соблюдения сроков. */}
             <Meter
-              label="Соблюдение сроков"
-              pctValue={stats.onTimePct}
-              caption={stats.done ? `вовремя ${stats.onTime} · с опозданием ${stats.late}` : 'нет выполненных'}
+              label="Выполнено"
+              pctValue={stats.completionPct}
+              caption={`${stats.done} из ${stats.total} ${plural(stats.total, 'задачи', 'задач', 'задач')}`}
             />
+            <div className="mt-3">
+              <Meter
+                label="Соблюдение сроков"
+                pctValue={stats.onTimePct}
+                caption={stats.done ? `вовремя ${stats.onTime} · с опозданием ${stats.late}` : 'нет выполненных'}
+              />
+            </div>
+            {stats.total === 0 && (
+              <p className="text-[11px] text-muted-2 mt-3">
+                На этот месяц задач со сроком не назначено.
+              </p>
+            )}
           </div>
-          {stats.total === 0 && (
-            <p className="text-[11px] text-muted-2 mt-3">
-              На этот месяц задач со сроком не назначено.
-            </p>
-          )}
-        </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {disc?.reporting && (
-          <ReportStrip
-            title="Отчётность"
-            caption={`последние ${disc.dates.length} дней`}
-            cells={disc.cells}
-          />
-        )}
-        <OverdueList tasks={overdue} title="Просроченные задачи" />
-      </div>
+      {SHOW_PERSONAL_WORKLOAD && (
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+          {disc?.reporting && (
+            <ReportStrip
+              title="Отчётность"
+              caption={`последние ${disc.dates.length} дней`}
+              cells={disc.cells}
+            />
+          )}
+          <OverdueList tasks={overdue} title="Просроченные задачи" />
+        </div>
+      )}
     </>
   )
 }
