@@ -204,7 +204,6 @@ async function ensureAssignedObject(
   }
   if (
     !setting ||
-    setting.status !== 'selling' ||
     !setting.managerPlans.some((p) => p.managerId === employeeId)
   ) {
     throw new ConvexError('Этот объект продаж не назначен вам в выбранном месяце')
@@ -380,11 +379,12 @@ export const upsertObject = mutation({
       createdAt: Date.now(),
     })
     if (month) {
+      const monthStatus = status === 'active' ? 'selling' : 'not_selling'
       await ctx.db.insert('salesObjectMonths', {
         objectId,
         month,
         objectStatus: status,
-        status: 'not_selling',
+        status: monthStatus,
         managerPlans: cleanManagers.map((managerId) => ({ managerId, planDeals: 0 })),
       })
     }
@@ -444,7 +444,6 @@ export const assignedObjects = query({
       .collect()
     const out = []
     for (const row of rows) {
-      if (row.status !== 'selling') continue
       const plan = row.managerPlans.find((p) => p.managerId === me._id)
       if (!plan) continue
       const object = await ctx.db.get(row.objectId)
@@ -497,12 +496,9 @@ export const dayForEmployee = query({
       .withIndex('by_month', (q) => q.eq('month', month))
       .collect()
     for (const row of monthRows) {
-      if (
-        row.status === 'selling' &&
-        row.managerPlans.some((p) => p.managerId === employeeId)
-      ) {
-        objectIds.add(row.objectId)
-      }
+      const object = await ctx.db.get(row.objectId)
+      if (!object || (row.objectStatus ?? object.status) !== 'active') continue
+      if (row.managerPlans.some((p) => p.managerId === employeeId)) objectIds.add(row.objectId)
     }
 
     const closed = await isMonthClosed(ctx, month)
@@ -519,7 +515,7 @@ export const dayForEmployee = query({
       const planDeals = planForEmployee(setting, employeeId)
       const report = reports.find((r) => r.objectId === objectId) ?? null
       const effectiveObjectStatus = setting?.objectStatus ?? object.status
-      if (!report && (effectiveObjectStatus !== 'active' || setting?.status !== 'selling')) continue
+      if (!report && (effectiveObjectStatus !== 'active' || !setting)) continue
       out.push({ object, report, planDeals })
     }
     out.sort((a, b) => a.object.name.localeCompare(b.object.name, 'ru'))
@@ -722,7 +718,7 @@ export const summary = query({
       .filter((o) => {
         const setting = settingByObject.get(o._id)
         const effectiveObjectStatus = setting?.objectStatus ?? o.status
-        if (setting?.status === 'selling') {
+        if (setting) {
           return effectiveObjectStatus === 'active' && setting.managerPlans.some((p) => visibleEmployeeIds.has(p.managerId))
         }
         return effectiveObjectStatus === 'active'
@@ -732,7 +728,7 @@ export const summary = query({
         name: o.name,
         type: o.type,
         status: o.status,
-        selling: settingByObject.get(o._id)?.status === 'selling',
+        selling: (settingByObject.get(o._id)?.objectStatus ?? o.status) === 'active',
       }))
 
     const reports = (
