@@ -329,12 +329,15 @@ export default defineSchema({
     key: v.string(),
     leadWeight: v.number(), // вес заявок (0.7)
     cplWeight: v.number(), // вес CPL (0.3)
-    // Базы выплат — ячейка «Оклад» на дашбордах KPI_SMM / KPI_TARGETOLOG.
-    // Оклад привязан к должности, а не к человеку: KPI считается по отделу.
+    // УСТАРЕЛО. Оклады по должностям — из времён, когда KPI считался по отделу.
+    // Теперь оклад персональный (employees.salary), и payroll читает только его.
+    // Поля оставлены, чтобы не ломать старые записи и миграции в setup.ts;
+    // писать в них нельзя — расчёт их не видит, и правка «сохранится» вхолостую.
     salarySmm: v.optional(v.number()),
     salaryTargetolog: v.optional(v.number()),
     salarySales: v.optional(v.number()),
-    // План выручки отдела продаж на месяц: KPI = МИН(факт/план; 1).
+    // УСТАРЕЛО вместе с ними: план выручки продаж теперь в salesPlans (на
+    // сотрудника и месяц), см. sales.setPlan.
     planRevenueSales: v.optional(v.number()),
     reportMonth: v.string(),
     reportDeadlineTime: v.optional(v.string()), // дедлайн дневного отчёта, «HH:MM» (Алматы)

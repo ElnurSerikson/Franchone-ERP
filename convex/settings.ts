@@ -3,6 +3,9 @@ import { v } from 'convex/values'
 import { currentEmployee, isManager, requireEmployee } from './lib'
 
 // Значения по умолчанию — из дашбордов KPI_SMM.xlsx и KPI_TARGETOLOG.xlsx.
+// Живые здесь только веса и настройки отчётности: оклады и план продаж стали
+// персональными (employees.salary, salesPlans) и оставлены ради старых записей
+// и миграций — payroll их не читает, см. комментарий в schema.ts.
 const DEFAULTS = {
   leadWeight: 0.7,
   cplWeight: 0.3,

@@ -718,31 +718,47 @@ function SmmKpiSetup() {
   )
 }
 
-// ——— Таргетолог: веса заявок и CPL ———
+// ——— Таргетолог: персональный оклад + веса заявок и CPL ———
+// Оклад здесь персональный (employees.salary) — его читает payroll. Веса
+// заявок и CPL остаются общими: они описывают саму модель KPI должности,
+// а не конкретного человека.
 function TargetologKpiSetup() {
   const settings = useQuery(api.settings.get, {})
   const update = useMutation(api.settings.update)
-  const [draft, setDraft] = useState<{
-    leadWeight: number
-    cplWeight: number
-    salaryTargetolog: number
-  } | null>(null)
+  const updateEmployee = useMutation(api.employees.update)
+  const { activeEmployees } = useData()
+  const staff = activeEmployees.filter((e) => e.position === 'targetolog' && e.role !== 'owner')
+  const [empId, setEmpId] = useState('')
+  const selected = empId || staff[0]?.id || ''
+  const selectedEmp = staff.find((e) => e.id === selected)
+
+  const [draft, setDraft] = useState<{ leadWeight: number; cplWeight: number } | null>(null)
+  const [salary, setSalary] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
 
   const cur = draft ?? {
     leadWeight: settings?.leadWeight ?? DEFAULT_WEIGHTS.leadWeight,
     cplWeight: settings?.cplWeight ?? DEFAULT_WEIGHTS.cplWeight,
-    salaryTargetolog: settings?.salaryTargetolog ?? 0,
   }
   const sum = cur.leadWeight + cur.cplWeight
+  const curSalary = salary ?? selectedEmp?.salary ?? 0
+  const dirty = draft !== null || salary !== null
 
   const save = async () => {
     setSaving(true)
+    setError('')
     try {
-      await update(cur)
+      if (draft) await update(draft)
+      if (salary !== null && selected) {
+        await updateEmployee({ id: selected as Id<'employees'>, patch: { salary } })
+      }
       setDraft(null)
+      setSalary(null)
       setSaved(true)
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось сохранить настройки.'))
     } finally {
       setSaving(false)
     }
@@ -758,7 +774,7 @@ function TargetologKpiSetup() {
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Sliders size={18} className="text-green" />
         <h3 className="sec-title flex-1">KPI · Таргетолог</h3>
-        <SaveBar dirty={!!draft} saving={saving} saved={saved} onSave={save} />
+        <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />
       </div>
 
       <FormulaNote>
@@ -767,13 +783,36 @@ function TargetologKpiSetup() {
         <b>оклад × KPI</b>.
       </FormulaNote>
 
-      <div className="mb-4">
-        <SalaryField
-          value={cur.salaryTargetolog}
-          onChange={(v) => set({ salaryTargetolog: v })}
-          hint="база выплаты для должности"
-        />
-      </div>
+      {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
+
+      {staff.length === 0 ? (
+        <p className="text-sm text-muted mb-4">Нет действующих таргетологов.</p>
+      ) : (
+        <>
+          <div className="mb-4">
+            <EmployeePicker
+              staff={staff}
+              value={selected}
+              onChange={(v) => {
+                setEmpId(v)
+                setSalary(null)
+                setSaved(false)
+              }}
+            />
+          </div>
+
+          <div className="mb-4">
+            <SalaryField
+              value={curSalary}
+              onChange={(v) => {
+                setSalary(v)
+                setSaved(false)
+              }}
+              hint="персональный оклад сотрудника"
+            />
+          </div>
+        </>
+      )}
 
       <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">
         Набор показателей
@@ -801,7 +840,8 @@ function TargetologKpiSetup() {
       </div>
       <p className={`text-[11px] mt-3 ${Math.abs(sum - 1) < 0.001 ? 'text-muted-2' : 'text-[#c53030]'}`}>
         Сумма весов = {pct(sum)}. Планы бюджета и заявок задаются по каждой кампании —
-        в «Отчётности → Кампании».
+        в «Отчётности → Кампании». Там же кампания закрепляется за таргетологом: без
+        этого её план не дойдёт до KPI и выплат.
       </p>
     </div>
   )

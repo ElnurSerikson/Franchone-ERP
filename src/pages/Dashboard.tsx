@@ -5,6 +5,7 @@ import {
   ChevronLeft, ChevronRight, Loader2,
 } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
+import type { Id } from '../../convex/_generated/dataModel'
 import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
 import Avatar from '@/components/ui/Avatar'
@@ -400,6 +401,12 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
   if (data === null) return null
 
   const byId = new Map(employees.map((e) => [e.id, e]))
+  // Сотрудник без плана KPI просто исчезал из таблицы, и понять, почему в
+  // выплатах пусто, было нельзя. Называем таких поимённо: почти всегда это
+  // значит, что план на месяц ещё не задан или не закреплён за человеком.
+  const shown = new Set((data?.rows ?? []).map((r) => r.employeeId as string))
+  const missing =
+    data && !data.closed ? employees.filter((e) => e.role !== 'owner' && !shown.has(e.id)) : []
   const run = async (fn: () => Promise<unknown>) => {
     setBusy(true)
     setError('')
@@ -510,7 +517,7 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
                   <td className={`${td} text-right`}>
                     <SalaryCell
                       value={r.salary}
-                      position={r.position}
+                      employeeId={r.employeeId}
                       // Закрытый месяц уже начислен — оклад в нём не правим.
                       editable={data.canManage && !data.closed}
                     />
@@ -534,6 +541,18 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
       </div>
       )}
 
+      {missing.length > 0 && (
+        <div className="px-4 py-3 border-t border-line bg-[#fff6e6]">
+          <div className="text-[11px] font-semibold text-[#b7791f] mb-1">
+            Без плана на {formatMonth(month)} — в расчёт не попали
+          </div>
+          <div className="text-[11px] text-ink-2">
+            {missing.map((e) => `${e.name} (${e.positionLabel})`).join(', ')}. Задайте план в
+            Настройках, а по кампаниям — закрепите его за таргетологом в «Отчётности → Кампании».
+          </div>
+        </div>
+      )}
+
       {data !== undefined && (
         <div className="px-4 py-3 border-t border-line text-[11px] text-muted">
           {data.closed
@@ -548,30 +567,26 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
   )
 }
 
-// Оклад правится прямо в таблице. Он привязан к должности, а не к человеку,
-// поэтому правка меняет базу всему отделу — об этом говорит подсказка.
-const SALARY_KEY: Record<string, 'salarySmm' | 'salaryTargetolog' | 'salarySales'> = {
-  smm: 'salarySmm',
-  targetolog: 'salaryTargetolog',
-  sales: 'salarySales',
-}
-
+// Оклад правится прямо в таблице. Он персональный (employees.salary) — именно
+// оттуда его берёт payroll.computeMonth. Раньше ячейка писала в
+// settings.salarySmm/Targetolog/Sales: те поля не читает никто, кроме старых
+// миграций, поэтому правка «сохранялась», а выплата не менялась.
 function SalaryCell({
   value,
-  position,
+  employeeId,
   editable,
 }: {
   value: number
-  position: string
+  employeeId: Id<'employees'>
   editable: boolean
 }) {
-  const update = useMutation(api.settings.update)
-  const key = SALARY_KEY[position]
+  const update = useMutation(api.employees.update)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(String(value))
   const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
 
-  if (!editable || !key) {
+  if (!editable) {
     return <span className="tabular-nums">{kzt(value)}</span>
   }
 
@@ -580,8 +595,12 @@ function SalaryCell({
     setEditing(false)
     if (!Number.isFinite(next) || next < 0 || next === value) return
     setSaving(true)
+    setError('')
     try {
-      await update({ [key]: next })
+      await update({ id: employeeId, patch: { salary: next } })
+    } catch (e) {
+      // Оклад меняет только владелец — молча терять отказ сервера нельзя.
+      setError(errMessage(e, 'Не удалось изменить оклад.'))
     } finally {
       setSaving(false)
     }
@@ -610,19 +629,22 @@ function SalaryCell({
   }
 
   return (
-    <button
-      type="button"
-      onClick={() => {
-        setDraft(String(value))
-        setEditing(true)
-      }}
-      disabled={saving}
-      title="Изменить оклад должности"
-      className="inline-flex items-center gap-1.5 px-2 py-1 -mr-2 rounded-lg tabular-nums hover:bg-chip transition-colors group"
-    >
-      {kzt(value)}
-      <Pencil size={12} className="text-muted-2 group-hover:text-green" />
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setDraft(String(value))
+          setEditing(true)
+        }}
+        disabled={saving}
+        title="Изменить оклад сотрудника"
+        className="inline-flex items-center gap-1.5 px-2 py-1 -mr-2 rounded-lg tabular-nums hover:bg-chip transition-colors group"
+      >
+        {kzt(value)}
+        <Pencil size={12} className="text-muted-2 group-hover:text-green" />
+      </button>
+      {error && <div className="text-[11px] text-[#c53030] mt-1">{error}</div>}
+    </>
   )
 }
 

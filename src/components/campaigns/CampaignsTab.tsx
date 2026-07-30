@@ -4,6 +4,7 @@ import { Plus, ChevronLeft, ChevronRight, Loader2, Megaphone } from 'lucide-reac
 import { api } from '../../../convex/_generated/api'
 import type { Doc } from '../../../convex/_generated/dataModel'
 import CampaignDrawer from './CampaignDrawer'
+import { useData } from '@/lib/useData'
 import { kzt, num, pct } from '@/lib/format'
 import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
 import { TODAY } from '@/lib/constants'
@@ -26,9 +27,16 @@ export default function CampaignsTab() {
   const [open, setOpen] = useState<{ campaign: Campaign | null } | null>(null)
   const registry = useQuery(api.campaigns.registry, {})
   const plans = useQuery(api.campaigns.plans, { month })
+  const { employees } = useData()
   const atCurrent = month >= CURRENT_MONTH
 
-  const planOf = (c: Campaign) => plans?.find((p) => p.campaignId === c._id)
+  // Планов на кампанию может быть несколько — по одному на таргетолога.
+  // В реестре показываем закреплённый; бесхозный — только если другого нет.
+  const planOf = (c: Campaign) => {
+    const rows = (plans ?? []).filter((p) => p.campaignId === c._id)
+    return rows.find((p) => p.employeeId) ?? rows[0]
+  }
+  const nameOf = (id?: string) => employees.find((e) => e.id === id)?.name
   const loading = registry === undefined || plans === undefined
 
   return (
@@ -106,13 +114,14 @@ export default function CampaignsTab() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[820px]">
+            <table className="w-full min-w-[960px]">
               <thead>
                 <tr className={theadRow}>
                   <th className={th}>ID</th>
                   <th className={th}>Кампания</th>
                   <th className={th}>Аккаунт</th>
                   <th className={th}>Деньги</th>
+                  <th className={th}>Ответственный</th>
                   <th className={thRight}>План бюджета</th>
                   <th className={thRight}>План заявок</th>
                   <th className={thRight}>Вес</th>
@@ -146,6 +155,19 @@ export default function CampaignsTab() {
                         >
                           {c.moneySource}
                         </span>
+                      </td>
+                      <td className={td}>
+                        {p?.employeeId ? (
+                          <span className="whitespace-nowrap">{nameOf(p.employeeId) ?? '—'}</span>
+                        ) : (
+                          // План без владельца до начислений не доходит — видно сразу.
+                          <span
+                            className="chip bg-[#fff6e6] text-[#b7791f] whitespace-nowrap"
+                            title="План не закреплён за таргетологом и не попадёт в KPI"
+                          >
+                            Не назначен
+                          </span>
+                        )}
                       </td>
                       <td className={`${td} text-right tabular-nums`}>
                         {p?.planBudget ? kzt(p.planBudget) : <span className="text-muted-2">—</span>}

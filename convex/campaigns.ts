@@ -107,8 +107,9 @@ export const plans = query({
 
 export const setPlan = mutation({
   args: {
-    // План кампании персональный (у таргетолога). Пока таргетолога нет, план
-    // создаётся без владельца и будет привязан к нему при добавлении в команду.
+    // План кампании персональный: KPI считается по человеку, поэтому план без
+    // владельца до начислений не доходит (payroll.computeMonth пропускает его).
+    // Пустым он остаётся только у кампаний, заведённых до найма таргетолога.
     employeeId: v.optional(v.id('employees')),
     campaignId: v.id('campaigns'),
     month: v.string(),
@@ -126,9 +127,27 @@ export const setPlan = mutation({
       .query('campaignPlans')
       .withIndex('by_campaign', (q) => q.eq('campaignId', campaignId))
       .collect()
-    const row = existing.find((p) => p.month === month && p.employeeId === employeeId)
-    if (row) await ctx.db.patch(row._id, vals)
-    else await ctx.db.insert('campaignPlans', { employeeId, campaignId, month, ...vals })
+    const sameMonth = existing.filter((p) => p.month === month)
+    const row = sameMonth.find((p) => p.employeeId === employeeId)
+    if (row) {
+      await ctx.db.patch(row._id, vals)
+      return
+    }
+    // Смена ответственного — это правка существующей строки, а не новый план:
+    // вторая строка на ту же кампанию и месяц ничего бы не начисляла, но
+    // осталась бы в реестре и путала. Подхватываем ту, что уже есть:
+    // назначая владельца — бесхозную (такие остались от кампаний, заведённых
+    // до найма таргетолога); снимая — единственную имеющуюся.
+    const reuse = employeeId
+      ? sameMonth.find((p) => !p.employeeId)
+      : sameMonth.length === 1
+        ? sameMonth[0]
+        : undefined
+    if (reuse) {
+      await ctx.db.patch(reuse._id, { ...vals, employeeId })
+      return
+    }
+    await ctx.db.insert('campaignPlans', { employeeId, campaignId, month, ...vals })
   },
 })
 

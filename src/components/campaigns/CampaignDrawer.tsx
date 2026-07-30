@@ -6,6 +6,7 @@ import type { Doc, Id } from '../../../convex/_generated/dataModel'
 import Select from '@/components/ui/Select'
 import DatePicker from '@/components/ui/DatePicker'
 import { useApp } from '@/store'
+import { useData } from '@/lib/useData'
 import { kzt } from '@/lib/format'
 import { formatMonth } from '@/lib/month'
 import { CAMPAIGN_GOALS, goalMeta, type CampaignGoalSlug } from '../../../convex/campaignGoals'
@@ -68,8 +69,23 @@ export default function CampaignDrawer({
   const setPlan = useMutation(api.campaigns.setPlan)
   const plans = useQuery(api.campaigns.plans, { month })
   const registry = useQuery(api.campaigns.registry, {})
+  const { activeEmployees } = useData()
+  const targetologs = activeEmployees.filter(
+    (e) => e.position === 'targetolog' && e.role !== 'owner',
+  )
 
-  const plan = plans?.find((p) => p.campaignId === campaign?._id)
+  // Владелец плана. null — ещё не выбирали руками, значит подставляем разумное:
+  // того, за кем план уже закреплён, а если таргетолог в команде один — его.
+  const [planOwner, setPlanOwner] = useState<string | null>(null)
+  const planRows = (plans ?? []).filter((p) => p.campaignId === campaign?._id)
+  const defaultOwner =
+    (planRows.find((p) => p.employeeId)?.employeeId as string | undefined) ??
+    (targetologs.length === 1 ? targetologs[0].id : '')
+  const owner = planOwner ?? defaultOwner
+  // Своя строка владельца, иначе — старая бесхозная: её цифры и подхватит
+  // setPlan, когда план впервые закрепят за человеком.
+  const plan =
+    planRows.find((p) => (p.employeeId ?? '') === owner) ?? planRows.find((p) => !p.employeeId)
 
   const [f, setF] = useState<Form>(
     campaign
@@ -117,11 +133,11 @@ export default function CampaignDrawer({
 
   useEffect(() => setShown(true), [])
   // План приезжает отдельным запросом — подставляем, когда он загрузился.
+  // Смена ответственного тоже сюда: у каждого таргетолога свой план.
   useEffect(() => {
-    if (!plan) return
-    setPlanBudget(plan.planBudget)
-    setPlanLeads(plan.planLeads)
-    setWeight(plan.weight)
+    setPlanBudget(plan?.planBudget ?? 0)
+    setPlanLeads(plan?.planLeads ?? 0)
+    setWeight(plan?.weight ?? 0)
   }, [plan])
 
   const close = () => {
@@ -183,7 +199,14 @@ export default function CampaignDrawer({
         })
       }
       if (canEditPlan && id) {
-        await setPlan({ campaignId: id, month, planBudget, planLeads, weight })
+        await setPlan({
+          campaignId: id,
+          month,
+          planBudget,
+          planLeads,
+          weight,
+          ...(owner ? { employeeId: owner as Id<'employees'> } : {}),
+        })
       }
       close()
     } catch (e) {
@@ -418,6 +441,27 @@ export default function CampaignDrawer({
             )}
 
             <div className="flex flex-col gap-4">
+              <Field label="Ответственный таргетолог">
+                {targetologs.length === 0 ? (
+                  <p className="text-[11px] text-muted-2">
+                    В команде нет действующих таргетологов — закрепить план не за кем.
+                  </p>
+                ) : (
+                  <Select
+                    value={owner}
+                    disabled={!canEditPlan}
+                    onChange={setPlanOwner}
+                    placeholder="Не назначен"
+                    options={[
+                      { value: '', label: 'Не назначен' },
+                      ...targetologs.map((e) => ({ value: e.id, label: e.name })),
+                    ]}
+                  />
+                )}
+                <p className="text-[11px] text-muted-2 mt-1">
+                  KPI считается по человеку: план идёт в начисления тому, за кем закреплён.
+                </p>
+              </Field>
               <Field label="План бюджета, ₸">
                 <input
                   type="number"
@@ -464,6 +508,11 @@ export default function CampaignDrawer({
             {planBudget > 0 && planLeads === 0 && (
               <p className="text-[11px] text-[#c53030] mt-3">
                 Без плана ({gm.metric.toLowerCase()}) кампания не попадёт в итоговый KPI.
+              </p>
+            )}
+            {!owner && targetologs.length > 0 && (planBudget > 0 || planLeads > 0) && (
+              <p className="text-[11px] text-[#c53030] mt-3">
+                План никому не назначен — он не дойдёт до KPI и выплат.
               </p>
             )}
           </div>
