@@ -720,8 +720,7 @@ export const summary = query({
       .collect()
     const settingByObject = new Map(monthRows.map((r) => [r.objectId, r]))
 
-    const visibleObjects = objects
-      .filter((o) => !objectId || o._id === objectId)
+    const objectOptions = objects
       .filter((o) => {
         const setting = settingByObject.get(o._id)
         if (setting?.status === 'selling') {
@@ -845,7 +844,7 @@ export const summary = query({
       totals: buildAnalytics(totals, totalPlanDeals),
       objectRows,
       managerRows,
-      objects: visibleObjects,
+      objects: objectOptions,
     }
   },
 })
