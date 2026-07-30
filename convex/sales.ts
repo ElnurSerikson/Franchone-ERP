@@ -407,9 +407,7 @@ export const upsertMonth = mutation({
     const object = await ctx.db.get(objectId)
     if (!object) throw new ConvexError('Объект продаж не найден')
     const effectiveObjectStatus = objectStatus ?? object.status
-    if (effectiveObjectStatus === 'archived' && status === 'selling') {
-      throw new ConvexError('Архивный объект нельзя включить в продажи месяца')
-    }
+    const effectiveMonthStatus = effectiveObjectStatus === 'active' ? status : 'not_selling'
     const salesIds = new Set((await salesEmployees(ctx, me.role === 'owner')).map((e) => e._id))
     const clean = managerPlans
       .filter((p) => salesIds.has(p.managerId))
@@ -419,13 +417,13 @@ export const upsertMonth = mutation({
       }))
     const existing = await monthSetting(ctx, objectId, month)
     if (existing) {
-      await ctx.db.patch(existing._id, { objectStatus: effectiveObjectStatus, status, managerPlans: clean })
+      await ctx.db.patch(existing._id, { objectStatus: effectiveObjectStatus, status: effectiveMonthStatus, managerPlans: clean })
     } else {
       await ctx.db.insert('salesObjectMonths', {
         objectId,
         month,
         objectStatus: effectiveObjectStatus,
-        status,
+        status: effectiveMonthStatus,
         managerPlans: clean,
       })
     }
@@ -723,10 +721,11 @@ export const summary = query({
     const objectOptions = objects
       .filter((o) => {
         const setting = settingByObject.get(o._id)
+        const effectiveObjectStatus = setting?.objectStatus ?? o.status
         if (setting?.status === 'selling') {
-          return setting.managerPlans.some((p) => visibleEmployeeIds.has(p.managerId))
+          return effectiveObjectStatus === 'active' && setting.managerPlans.some((p) => visibleEmployeeIds.has(p.managerId))
         }
-        return o.status !== 'archived'
+        return effectiveObjectStatus === 'active'
       })
       .map((o) => ({
         _id: o._id,

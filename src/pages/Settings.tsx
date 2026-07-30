@@ -1284,6 +1284,8 @@ function SalesObjectRow({
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const canSell = status === 'active'
+  const sellingInMonth = selling && canSell
 
   const save = async () => {
     if (readOnly) return
@@ -1304,7 +1306,7 @@ function SalesObjectRow({
         objectId: object._id as Id<'salesObjects'>,
         month,
         objectStatus: status,
-        status: selling && status !== 'archived' ? 'selling' : 'not_selling',
+        status: sellingInMonth ? 'selling' : 'not_selling',
         managerPlans: managerIds.map((id) => ({
           managerId: id as Id<'employees'>,
           planDeals: Math.max(0, Math.floor(plans[id] || 0)),
@@ -1359,7 +1361,11 @@ function SalesObjectRow({
           <div className="text-[11px] font-semibold uppercase tracking-wide text-muted mb-1">Статус</div>
           <Select
             value={status}
-            onChange={(v) => setStatus(v as typeof status)}
+            onChange={(v) => {
+              const nextStatus = v as typeof status
+              setStatus(nextStatus)
+              if (nextStatus !== 'active') setSelling(false)
+            }}
             disabled={readOnly}
             options={[
               { value: 'active', label: 'Активен' },
@@ -1387,14 +1393,14 @@ function SalesObjectRow({
       <div className="mt-4 flex items-center gap-2 flex-wrap">
         <button
           onClick={() => setSelling((v) => !v)}
-          disabled={status === 'archived' || readOnly}
+          disabled={!canSell || readOnly}
           className={`h-9 px-3 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-40 ${
-            selling && status !== 'archived'
+            sellingInMonth
               ? 'bg-[#e2f2ef] text-green-d border-green-light'
               : 'bg-white text-muted border-line-2 hover:bg-chip'
           }`}
         >
-          {selling && status !== 'archived' ? 'Продаётся в месяце' : 'Не продаётся в месяце'}
+          {sellingInMonth ? 'Продаётся в месяце' : 'Не продаётся в месяце'}
         </button>
         <span className="h-9 px-3 rounded-lg bg-chip inline-flex items-center text-xs font-semibold text-muted">
           План сделок: {num(managerIds.reduce((s, id) => s + (plans[id] || 0), 0))}
