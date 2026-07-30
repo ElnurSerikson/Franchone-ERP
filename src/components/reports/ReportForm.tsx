@@ -622,9 +622,9 @@ function SalesObjectEditor({
             className="mt-1.5"
           />
         </div>
-        <div className="rounded-xl bg-chip px-3 py-2">
+        <div className="h-[38px] self-end rounded-lg bg-chip px-3 flex items-center justify-between gap-3">
           <div className="text-[11px] text-muted uppercase tracking-wide">План сделок</div>
-          <div className="text-lg font-bold text-green-d">{num(object.planDeals)}</div>
+          <div className="text-base font-bold text-green-d tabular-nums">{num(object.planDeals)}</div>
         </div>
       </div>
 
