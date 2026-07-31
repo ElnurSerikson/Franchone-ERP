@@ -37,9 +37,13 @@ export type RegistryRow = {
 
 export default function CampaignDrawer({
   campaign,
+  presetObjectId,
   onClose,
 }: {
   campaign: RegistryRow | null
+  // Объект, выбранный заранее: когда кампанию заводят из карточки объекта
+  // продаж, спрашивать его ещё раз незачем.
+  presetObjectId?: Id<'salesObjects'>
   onClose: () => void
 }) {
   const isEdit = !!campaign
@@ -53,7 +57,7 @@ export default function CampaignDrawer({
   )
 
   const [code, setCode] = useState(campaign?.code ?? '')
-  const [objectId, setObjectId] = useState<string>(campaign?.objectId ?? '')
+  const [objectId, setObjectId] = useState<string>(campaign?.objectId ?? presetObjectId ?? '')
   const [goal, setGoal] = useState<string>(campaign?.goal ?? '')
   const [account, setAccount] = useState<string>(campaign?.account ?? 'FRANCHONE')
   const [moneySource, setMoneySource] = useState<string>(campaign?.moneySource ?? 'FRANCHONE')

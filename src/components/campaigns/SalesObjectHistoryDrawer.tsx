@@ -1,5 +1,8 @@
-import { useQuery } from 'convex/react'
-import { X, Loader2, Megaphone } from 'lucide-react'
+import { useState } from 'react'
+import { useMutation, useQuery } from 'convex/react'
+import { X, Loader2, Megaphone, Plus, Link2 } from 'lucide-react'
+import CampaignDrawer from './CampaignDrawer'
+import { errMessage } from '@/lib/errors'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
 import LineChart, { type ChartSeries } from '@/components/ui/LineChart'
@@ -50,6 +53,29 @@ export default function SalesObjectHistoryDrawer({
   onClose: () => void
 }) {
   const data = useQuery(api.target.objectHistory, { objectId })
+  // Реестр нужен, чтобы предложить уже существующие кампании: у части из них
+  // объект не выбран, и владельцу проще привязать их отсюда, чем искать в
+  // реестре и открывать каждую карточку.
+  const registry = useQuery(api.target.registry, {})
+  const update = useMutation(api.target.updateCampaign)
+  const [creating, setCreating] = useState(false)
+  const [picking, setPicking] = useState(false)
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
+
+  const linkable = (registry ?? []).filter((c) => c.objectId !== objectId)
+  const link = async (id: Id<'campaigns'>) => {
+    setBusy(id)
+    setError('')
+    try {
+      await update({ id, objectId })
+      setPicking(false)
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось привязать кампанию.'))
+    } finally {
+      setBusy('')
+    }
+  }
 
   const series: ChartSeries[] = ((data?.series ?? []) as SeriesRow[]).map((s) => ({
     id: s.campaignId,
@@ -77,12 +103,73 @@ export default function SalesObjectHistoryDrawer({
             </h2>
             <p className="text-[11px] text-muted">Кампании и история показателей за всё время</p>
           </div>
+          <button
+            onClick={() => setPicking((v) => !v)}
+            className="btn btn-ghost h-9 px-3 text-xs shrink-0"
+            title="Привязать существующую кампанию"
+          >
+            <Link2 size={14} /> Привязать
+          </button>
+          <button
+            onClick={() => setCreating(true)}
+            className="btn btn-green h-9 px-3 text-xs shrink-0"
+            title="Завести кампанию на этот объект"
+          >
+            <Plus size={14} /> Кампания
+          </button>
           <button onClick={onClose} className="ico-btn w-9 h-9" aria-label="Закрыть">
             <X size={16} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5 flex flex-col gap-5">
+          {error && <p className="text-sm text-[#c53030]">{error}</p>}
+
+          {picking && (
+            <section className="card p-5">
+              <h3 className="sec-title mb-1">Привязать существующую кампанию</h3>
+              <p className="text-xs text-muted mb-4">
+                Кампании без объекта показаны первыми. Если у кампании уже есть другой объект,
+                привязка перенесёт её сюда вместе со всей накопленной историей.
+              </p>
+              {linkable.length === 0 ? (
+                <p className="text-sm text-muted">Свободных кампаний нет — заведите новую.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {[...linkable]
+                    .sort((a, b) => Number(!!a.objectId) - Number(!!b.objectId))
+                    .map((c) => (
+                      <div
+                        key={c._id}
+                        className="flex items-center gap-2 rounded-xl border border-line p-2.5"
+                      >
+                        <span className="chip bg-[#e2f2ef] text-green-d whitespace-nowrap">
+                          {c.code}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm text-ink truncate">
+                            {goalMeta(c.goal).label}
+                          </div>
+                          <div className="text-[11px] text-muted truncate">
+                            {c.objectName ? `сейчас: ${c.objectName}` : 'объект не выбран'} ·{' '}
+                            {c.account} · {c.status}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => link(c._id)}
+                          disabled={busy === c._id}
+                          className="btn btn-ghost h-8 px-3 text-xs shrink-0 disabled:opacity-60"
+                        >
+                          {busy === c._id ? <Loader2 size={13} className="animate-spin" /> : null}
+                          Привязать
+                        </button>
+                      </div>
+                    ))}
+                </div>
+              )}
+            </section>
+          )}
+
           {data === undefined ? (
             <div className="py-10 grid place-items-center text-muted">
               <Loader2 className="animate-spin" size={18} />
@@ -91,8 +178,8 @@ export default function SalesObjectHistoryDrawer({
             <div className="card p-8 text-center">
               <div className="sec-title mb-1">На этот объект реклама не запускалась</div>
               <p className="text-sm text-muted max-w-md mx-auto">
-                Кампании появятся здесь, как только таргетолог заведёт их в реестре и выберет
-                этот объект продаж.
+                Заведите кампанию кнопкой сверху или привяжите уже существующую — например ту,
+                у которой объект ещё не выбран.
               </p>
             </div>
           ) : (
@@ -218,6 +305,14 @@ export default function SalesObjectHistoryDrawer({
           )}
         </div>
       </div>
+
+      {creating && (
+        <CampaignDrawer
+          campaign={null}
+          presetObjectId={objectId}
+          onClose={() => setCreating(false)}
+        />
+      )}
     </div>
   )
 }
