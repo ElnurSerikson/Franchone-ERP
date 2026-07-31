@@ -4,13 +4,7 @@ import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, hiddenEmployeeIds } from './lib'
 import { viewScope } from './permissions'
-import {
-  computeSmmMath,
-  computeTargetologMath,
-  computeSalesMath,
-  payoutOf,
-  DEFAULT_WEIGHTS,
-} from './kpiMath'
+import { computeSmmMath, computeSalesMath, payoutOf } from './kpiMath'
 
 // Месяц в часовом поясе Алматы (YYYY-MM).
 function businessMonth(at = Date.now()): string {
@@ -37,15 +31,6 @@ export async function isMonthClosed(ctx: QueryCtx | MutationCtx, month: string):
 // Живой расчёт по текущим данным. Для закрытого месяца им не пользуемся —
 // там показываем снапшот, иначе смысл фиксации теряется.
 async function computeMonth(ctx: QueryCtx | MutationCtx, month: string) {
-  const s = await ctx.db
-    .query('settings')
-    .withIndex('by_key', (q) => q.eq('key', 'global'))
-    .first()
-  const weights = {
-    leadWeight: s?.leadWeight ?? DEFAULT_WEIGHTS.leadWeight,
-    cplWeight: s?.cplWeight ?? DEFAULT_WEIGHTS.cplWeight,
-  }
-
   // Скрытые аккаунты (тестовые) не участвуют в KPI/начислениях.
   const hidden = await hiddenEmployeeIds(ctx)
   const reports = (await ctx.db.query('dailyReports').collect()).filter(
@@ -64,11 +49,6 @@ async function computeMonth(ctx: QueryCtx | MutationCtx, month: string) {
   for (const m of (await ctx.db.query('smmMetrics').collect()).filter((m) => m.month === month)) {
     if (!m.employeeId) continue
     ;(smmByEmp.get(m.employeeId) ?? smmByEmp.set(m.employeeId, []).get(m.employeeId)!).push(m)
-  }
-  const campByEmp = new Map<string, Doc<'campaignPlans'>[]>()
-  for (const p of await ctx.db.query('campaignPlans').withIndex('by_month', (q) => q.eq('month', month)).collect()) {
-    if (!p.employeeId) continue
-    ;(campByEmp.get(p.employeeId) ?? campByEmp.set(p.employeeId, []).get(p.employeeId)!).push(p)
   }
   const salesPlanByEmp = new Map<string, number>()
   for (const p of await ctx.db.query('salesPlans').withIndex('by_month', (q) => q.eq('month', month)).collect()) {
@@ -115,37 +95,14 @@ async function computeMonth(ctx: QueryCtx | MutationCtx, month: string) {
         factTotal = smm.totalFact
       }
     } else if (e.position === 'targetolog') {
-      const plans = campByEmp.get(e._id) ?? []
-      const adFacts = new Map<string, { budget: number; leads: number }>()
-      for (const r of mine) {
-        if (!r.targetolog) continue
-        for (const line of r.targetolog) {
-          const acc = adFacts.get(line.code) ?? { budget: 0, leads: 0 }
-          acc.budget += line.budget
-          acc.leads += line.leads
-          adFacts.set(line.code, acc)
-        }
-      }
-      const campaigns = []
-      for (const p of plans) {
-        const c = await ctx.db.get(p.campaignId)
-        if (!c || c.archived) continue
-        const f = adFacts.get(c.code) ?? { budget: 0, leads: 0 }
-        campaigns.push({
-          moneySource: c.moneySource,
-          weight: p.weight,
-          planBudget: p.planBudget,
-          planLeads: p.planLeads,
-          factBudget: f.budget,
-          factLeads: f.leads,
-        })
-      }
-      if (campaigns.length > 0) {
-        const t = computeTargetologMath(campaigns, weights)
-        kpi = t.totalKpi
-        planTotal = campaigns.reduce((x, c) => x + c.planLeads, 0)
-        factTotal = t.totalLeads
-      }
+      // KPI у таргетолога отменён: новое ТЗ его модуля описывает только учёт
+      // факта (бюджет, результат, цена) и не содержит ни плана, ни цели по
+      // цене — сравнивать не с чем. Оклад выплачивается полностью.
+      //
+      // Прежний расчёт по планам и весам кампаний удалён намеренно: он читал
+      // dailyReports.targetolog, куда новая форма отчёта больше не пишет, и
+      // потому молча выдавал ноль на любой открученный бюджет.
+      kpi = 1
     } else if (e.position === 'sales') {
       const plan = salesPlanByEmp.get(e._id) ?? 0
       if (plan > 0) {

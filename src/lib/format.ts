@@ -6,6 +6,16 @@ export const kzt = (n: number) =>
 export const num = (n: number, digits = 0) =>
   new Intl.NumberFormat('ru-RU', { maximumFractionDigits: digits }).format(n)
 
+// Реклама считается в долларах (ТЗ таргетолога §15). Всегда два знака после
+// точки и никогда не округляем до целого доллара: $3.30, а не $3. На вход —
+// центы, потому что в базе деньги лежат целыми центами.
+export const usd = (cents: number) =>
+  '$' + (cents / 100).toFixed(2)
+
+// Цена результата: у нулевого результата цены нет — показываем словами, а не
+// $0.00, иначе бесплатный результат не отличить от отсутствующего.
+export const usdCost = (cents: number | null) => (cents === null ? 'Нет результата' : usd(cents))
+
 export const pct = (x: number, digits = 0) =>
   new Intl.NumberFormat('ru-RU', {
     maximumFractionDigits: digits,
@@ -20,6 +30,13 @@ export function plural(n: number, one: string, few: string, many: string): strin
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few
   return many
 }
+
+// Полная дата в формате ТЗ таргетолога §15: «28 июля 2026».
+export const longDate = (iso: string) =>
+  new Date(`${iso}T12:00:00+05:00`)
+    .toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })
+    // Русская локаль добавляет «г.», а ТЗ просит ровно «28 июля 2026».
+    .replace(/\s*г\.$/, '')
 
 export const shortDate = (iso: string) =>
   new Date(iso).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })

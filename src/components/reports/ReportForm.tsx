@@ -3,11 +3,12 @@ import { useMutation, useQuery } from 'convex/react'
 import { api } from '../../../convex/_generated/api'
 import type { Doc, Id } from '../../../convex/_generated/dataModel'
 import { Loader2, Save, Check, Clock, PencilLine, History, ChevronDown, Lock } from 'lucide-react'
-import type { SmmRow, TargetologRow } from '@/types'
+import type { SmmRow } from '@/types'
+import type { Submission } from '../../../convex/reports'
 import { REPORTING_POSITIONS, REPORT_PAGES, CONTENT_TYPES } from '@/lib/constants'
-import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
-import { goalMeta } from '../../../convex/campaignGoals'
-import { kzt, num } from '@/lib/format'
+import { REPORT_STATUS, reportTime } from '@/lib/reports'
+import { goalMeta, dollarsToCents, resultCostCents } from '../../../convex/campaignGoals'
+import { num, usd, usdCost } from '@/lib/format'
 import { errMessage } from '@/lib/errors'
 import { useMediaQuery } from '@/lib/useMediaQuery'
 import DatePicker from '../ui/DatePicker'
@@ -78,12 +79,20 @@ export default function ReportForm() {
 
   // Форму показываем по фактическому содержимому отчёта, а не по текущей
   // должности сотрудника. Если человек сменил должность, его прошлые цифры
-  // лежат под старым разделом (smm/targetolog/sales) — рисуем ту форму, где
-  // данные реально есть, иначе поля были бы пустыми, хотя отчёт сдан. Пустой
+  // лежат под старым разделом (smm/sales) — рисуем ту форму, где данные
+  // реально есть, иначе поля были бы пустыми, хотя отчёт сдан. Пустой
   // (переоткрытый) или новый день — по текущей должности.
+  //
+  // Таргетолог — исключение: его отчёты переехали в отдельные таблицы модуля
+  // (targetReports), про которые легаси-строка dailyReports ничего не знает.
+  // Не сделай мы этой оговорки — у бывшего продажника или SMM при переключении
+  // даты открывалась бы чужая форма вместо его собственной.
   const r = data.report
   const formPos: string =
-    (r?.smm ? 'smm' : r?.targetolog ? 'targetolog' : r?.sales ? 'sales' : null) ?? data.position
+    data.position === 'targetolog'
+      ? 'targetolog'
+      : ((r?.smm ? 'smm' : r?.targetolog ? 'targetolog' : r?.sales ? 'sales' : null) ??
+        data.position)
 
   if (!reporting)
     return (
@@ -100,7 +109,7 @@ export default function ReportForm() {
     <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px] items-start">
       <div className="flex flex-col gap-5 min-w-0">
         <StatusBanner
-          report={data.report}
+          submission={data.submission}
           today={data.today}
           date={data.date}
           earliest={data.earliestDate}
@@ -114,7 +123,7 @@ export default function ReportForm() {
             из report один раз при монтировании. */}
         <div className="card p-5" key={`${data.date}:${formPos}`}>
           {formPos === 'smm' && <SmmForm report={data.report} date={data.date} readOnly={!data.editable} />}
-          {formPos === 'targetolog' && <TargetologForm report={data.report} date={data.date} readOnly={!data.editable} />}
+          {formPos === 'targetolog' && <TargetologForm date={data.date} />}
           {formPos === 'sales' && <SalesForm report={data.report} date={data.date} readOnly={!data.editable} />}
         </div>
       </div>
@@ -125,7 +134,7 @@ export default function ReportForm() {
 
 // ——— Баннер статуса + выбор даты отчёта ———
 function StatusBanner({
-  report,
+  submission,
   today,
   date,
   earliest,
@@ -134,7 +143,9 @@ function StatusBanner({
   reopened,
   onDate,
 }: {
-  report: Report | null
+  // Факт сдачи, а не документ отчёта: у таргетолога отчёт лежит в своих
+  // таблицах, и общий для всех должностей признак — только он.
+  submission: Submission | null
   today: string
   date: string
   earliest: string
@@ -174,7 +185,7 @@ function StatusBanner({
     )
   }
 
-  if (!report) {
+  if (!submission) {
     // Пропущенный прошлый день сотруднику уже не отредактировать: после дедлайна
     // его вносит только владелец. Сегодня до 23:50 — ещё можно сдать вовремя.
     const color = editable ? '#d69e2e' : '#c53030'
@@ -199,7 +210,7 @@ function StatusBanner({
     )
   }
 
-  const st = REPORT_STATUS[report.onTime ? 'onTime' : 'late']
+  const st = REPORT_STATUS[submission.onTime ? 'onTime' : 'late']
   return (
     <div className="card p-4 flex items-center gap-3 flex-wrap border-l-4" style={{ borderLeftColor: st.dot }}>
       <span
@@ -213,12 +224,12 @@ function StatusBanner({
           Отчёт отправлен · <span style={{ color: st.dot }}>{st.label.toLowerCase()}</span>
         </div>
         <div className="text-sm text-muted">
-          {longDate(date)} · {reportTime(report.submittedAt)}
+          {longDate(date)} · {reportTime(submission.submittedAt)}
         </div>
       </div>
-      {report.editCount > 0 && report.editedAt && (
+      {submission.editCount > 0 && submission.editedAt && (
         <span className="chip bg-chip text-muted-2 shrink-0">
-          <PencilLine size={12} /> изм. {report.editCount}×
+          <PencilLine size={12} /> изм. {submission.editCount}×
         </span>
       )}
       {picker}
@@ -234,7 +245,9 @@ function FormShell({
   saving,
   saved,
   readOnly = false,
+  readOnlyHint,
   onSave,
+  extraAction,
   children,
 }: {
   title: string
@@ -243,7 +256,14 @@ function FormShell({
   saving: boolean
   saved: boolean
   readOnly?: boolean
+  // Почему форма закрыта. По умолчанию — прошедший дедлайн. null означает, что
+  // причину объясняет сама форма: у таргетолога это «отчёт отправлен», и
+  // говорить про дедлайн было бы прямой неправдой — он ещё не наступил.
+  readOnlyHint?: string | null
   onSave: () => void
+  // Дополнительная кнопка справа от «Сохранить» — нужна отчёту таргетолога,
+  // где черновик и отправка это разные действия.
+  extraAction?: ReactNode
   children: ReactNode
 }) {
   return (
@@ -258,16 +278,23 @@ function FormShell({
             <Lock size={12} /> Только просмотр
           </span>
         ) : (
-          <button onClick={onSave} disabled={saving} className="btn btn-green disabled:opacity-60 shrink-0">
-            {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
-            {edited ? 'Сохранить' : 'Отправить'}
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={onSave}
+              disabled={saving}
+              className={`btn disabled:opacity-60 ${extraAction ? 'btn-ghost' : 'btn-green'}`}
+            >
+              {saving ? <Loader2 size={15} className="animate-spin" /> : <Save size={15} />}
+              {extraAction ? 'Сохранить черновик' : edited ? 'Сохранить' : 'Отправить'}
+            </button>
+            {extraAction}
+          </div>
         )}
       </div>
       {children}
-      {readOnly && (
+      {readOnly && readOnlyHint !== null && (
         <div className="text-[11px] text-muted-2 mt-3">
-          Дедлайн этого дня прошёл — правки вносит только владелец.
+          {readOnlyHint ?? 'Дедлайн этого дня прошёл — правки вносит только владелец.'}
         </div>
       )}
       {saved && !readOnly && (
@@ -379,92 +406,146 @@ function SmmForm({ report, date, readOnly }: { report: Report | null; date: stri
 // Строки не набираются руками: это все активные кампании из реестра, как в
 // KPI_TARGETOLOG.xlsx, где кампания выбирается по ID, а не пишется текстом.
 // Свободный текст невозможно сматчить с планом, и факт не дошёл бы до KPI.
-function TargetologForm({ report, date, readOnly }: { report: Report | null; date: string; readOnly: boolean }) {
-  const submit = useMutation(api.reports.submit)
-  const campaigns = useQuery(api.campaigns.registry, { activeOnly: true })
-  // Строки, а не числа: иначе поле нельзя очистить, см. NumInput.
-  const [vals, setVals] = useState<Record<string, { budget: string; leads: string }>>(() => {
-    const from: Record<string, { budget: string; leads: string }> = {}
-    for (const r of report?.targetolog ?? [])
-      from[r.code] = { budget: String(r.budget), leads: String(r.leads) }
-    return from
-  })
-  const [saving, setSaving] = useState(false)
+// ——— Таргетолог: ежедневный отчёт по новому ТЗ (§9) ———
+// Таргетолог вводит только бюджет и результат — цена всегда производная.
+// Внизу суммируется ТОЛЬКО бюджет: результаты разных целей (сообщения, лиды,
+// охваты, переходы) — разные единицы, складывать их нельзя (§8, §9.1).
+function TargetologForm({ date }: { date: string }) {
+  const data = useQuery(api.target.day, { date })
+  const save = useMutation(api.target.save)
+  const [vals, setVals] = useState<Record<string, { budget: string; result: string }>>({})
+  const [comment, setComment] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [error, setError] = useState('')
 
-  const list = campaigns ?? []
-  const get = (code: string) => vals[code] ?? { budget: '', leads: '' }
-  const setVal = (code: string, patch: Partial<{ budget: string; leads: string }>) =>
-    setVals((v) => ({ ...v, [code]: { ...get(code), ...patch } }))
-  const numOf = (code: string) => ({
-    budget: Number(get(code).budget) || 0,
-    leads: Number(get(code).leads) || 0,
-  })
-
-  const sumB = list.reduce((s, c) => s + numOf(c.code).budget, 0)
-  const sumL = list.reduce((s, c) => s + numOf(c.code).leads, 0)
-
-  const save = async () => {
-    if (readOnly) return
-    setSaving(true)
-    try {
-      const rows: TargetologRow[] = list.map((c) => ({ code: c.code, ...numOf(c.code) }))
-      await submit({ date, targetolog: rows })
-      setSaved(true)
-    } finally {
-      setSaving(false)
-    }
+  if (data === undefined) {
+    return (
+      <div className="py-8 grid place-items-center text-muted">
+        <Loader2 className="animate-spin" size={18} />
+      </div>
+    )
   }
 
-  if (campaigns !== undefined && list.length === 0) {
+  if (data.rows.length === 0) {
     return (
       <div className="card p-10 text-center">
-        <div className="sec-title mb-1.5">В реестре нет активных кампаний</div>
+        <div className="sec-title mb-1.5">Нет кампаний за эту дату</div>
         <p className="text-sm text-muted max-w-md mx-auto">
-          Отчёт заполняется по кампаниям из реестра. Заведите кампанию — она сразу появится
-          здесь строкой.
+          В форме показываются кампании, которые были активны в выбранный день. Заведите
+          кампанию в реестре — она появится здесь строкой.
         </p>
       </div>
     )
   }
 
+  const readOnly = !data.editable
+  // Значения держим строками: у числового поля со значением 0 бэкспейс
+  // возвращает ноль и следующая цифра дописывается к нему.
+  const get = (id: string, row: { budgetCents: number; result: number; filled: boolean }) =>
+    vals[id] ?? {
+      budget: row.filled ? (row.budgetCents / 100).toFixed(2) : '',
+      result: row.filled ? String(row.result) : '',
+    }
+  const setVal = (id: string, patch: Partial<{ budget: string; result: string }>) =>
+    setVals((v) => ({ ...v, [id]: { ...(v[id] ?? { budget: '', result: '' }), ...patch } }))
+
+  const parsed = data.rows.map((r) => {
+    const raw = get(r.campaignId as string, r)
+    return {
+      row: r,
+      raw,
+      budgetCents: dollarsToCents(Number(raw.budget) || 0),
+      result: Math.max(0, Math.floor(Number(raw.result) || 0)),
+    }
+  })
+  const totalBudgetCents = parsed.reduce((s, p) => s + p.budgetCents, 0)
+  const currentComment = comment ?? data.comment
+
+  const send = async (submit: boolean) => {
+    if (readOnly) return
+    setBusy(true)
+    setError('')
+    try {
+      await save({
+        date,
+        comment: currentComment || undefined,
+        submit,
+        rows: parsed.map((p) => ({
+          campaignId: p.row.campaignId,
+          budgetCents: p.budgetCents,
+          result: p.result,
+        })),
+      })
+      setSaved(true)
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось сохранить отчёт.'))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <FormShell
       title="Отчёт таргетолога"
-      hint="Бюджет и результат по метрике каждой кампании за сегодня. Метрика зависит от цели кампании; цена считается сама; кампания не крутилась — оставьте 0"
-      edited={!!report}
-      saving={saving}
+      hint="Бюджет в долларах и результат по цели каждой кампании. Цена считается сама; кампания не крутилась — оставьте 0"
+      edited={data.submittedAt !== null}
+      saving={busy}
       saved={saved}
       readOnly={readOnly}
-      onSave={save}
+      readOnlyHint={data.submittedAt !== null ? null : undefined}
+      onSave={() => send(false)}
+      extraAction={
+        readOnly ? null : (
+          <button onClick={() => send(true)} disabled={busy} className="btn btn-green h-9 px-4 text-sm disabled:opacity-60">
+            Отправить отчёт
+          </button>
+        )
+      }
     >
+      {data.submittedAt !== null && (
+        <div className="rounded-xl bg-[#e2f2ef] px-4 py-3 mb-4 text-sm text-green-d">
+          Отчёт отправлен — изменить его может только администратор, с указанием причины.
+        </div>
+      )}
+
       <div className="overflow-x-auto">
-        <div className="min-w-[560px]">
-          <div className="grid grid-cols-[92px_1fr_104px_74px_96px] gap-2 px-1 mb-1.5">
+        <div className="min-w-[600px]">
+          <div className="grid grid-cols-[76px_1fr_96px_84px_136px] gap-2 px-1 mb-1.5">
             <Lbl>ID</Lbl>
-            <Lbl>Кампания · метрика</Lbl>
-            <Lbl right>Бюджет ₸</Lbl>
+            <Lbl>Объект · цель</Lbl>
+            <Lbl right>Бюджет, $</Lbl>
             <Lbl right>Результат</Lbl>
             <Lbl right>Цена</Lbl>
           </div>
           <div className="flex flex-col gap-2">
-            {list.map((c) => {
-              const val = get(c.code)
-              const n = numOf(c.code)
-              const gm = goalMeta(c.goal)
+            {parsed.map(({ row, raw, budgetCents, result }) => {
+              const gm = goalMeta(row.goal ?? undefined)
+              const id = row.campaignId as string
               return (
-                <div key={c.code} className="grid grid-cols-[92px_1fr_104px_74px_96px] gap-2 items-center">
-                  <span className="chip bg-[#e2f2ef] text-green-d justify-center">{c.code}</span>
+                <div key={id} className="grid grid-cols-[76px_1fr_96px_84px_136px] gap-2 items-center">
+                  <span className="chip bg-[#e2f2ef] text-green-d justify-center">{row.code}</span>
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-ink truncate">{c.campaign}</div>
+                    <div className="text-sm font-medium text-ink truncate">
+                      {row.objectName ?? row.campaign}
+                    </div>
                     <div className="text-[11px] text-muted truncate">
-                      <span className="text-green-d font-medium">{gm.metric}</span> · {c.brand}
+                      <span className="text-green-d font-medium">{gm.metric}</span> · {row.account} ·{' '}
+                      {row.moneySource}
                     </div>
                   </div>
-                  <NumInput value={val.budget} onChange={(v) => setVal(c.code, { budget: v })} disabled={readOnly} />
-                  <NumInput value={val.leads} onChange={(v) => setVal(c.code, { leads: v })} disabled={readOnly} />
-                  <div className="h-[38px] flex items-center justify-end px-2 text-sm font-semibold text-ink-2 rounded-lg bg-chip">
-                    {n.leads > 0 ? kzt(cpl(n.budget, n.leads)) : '—'}
+                  <NumInput
+                    value={raw.budget}
+                    onChange={(v) => setVal(id, { budget: v })}
+                    disabled={readOnly}
+                  />
+                  <NumInput
+                    value={raw.result}
+                    onChange={(v) => setVal(id, { result: v })}
+                    disabled={readOnly}
+                  />
+                  <div className="h-[38px] flex items-center justify-end px-2.5 text-sm font-semibold text-ink-2 rounded-lg bg-chip whitespace-nowrap">
+                    {usdCost(resultCostCents(budgetCents, result, row.goal ?? undefined))}
                   </div>
                 </div>
               )
@@ -472,11 +553,25 @@ function TargetologForm({ report, date, readOnly }: { report: Report | null; dat
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-line">
-        <Summary label="Бюджет" value={kzt(sumB)} />
-        <Summary label="Результат" value={num(sumL)} />
-        <Summary label="Средняя цена" value={sumL > 0 ? kzt(sumB / sumL) : '—'} accent />
+
+      {/* §9.1: общий результат и средняя цена по всем строкам не выводятся. */}
+      <div className="mt-4 pt-3 border-t border-line flex items-center justify-between gap-3 flex-wrap">
+        <span className="text-sm text-muted">Общий бюджет за день</span>
+        <span className="text-lg font-bold text-ink tabular-nums">{usd(totalBudgetCents)}</span>
       </div>
+
+      <div className="mt-3">
+        <Lbl>Комментарий</Lbl>
+        <textarea
+          rows={2}
+          className={`${txtCls} h-auto py-2 resize-y mt-1 disabled:bg-chip disabled:text-muted`}
+          placeholder="Необязательно"
+          value={currentComment}
+          disabled={readOnly}
+          onChange={(e) => setComment(e.target.value)}
+        />
+      </div>
+      {error && <div className="text-sm text-[#c53030] mt-3">{error}</div>}
     </FormShell>
   )
 }
@@ -536,7 +631,7 @@ function SalesForm({ report, date, readOnly }: { report: Report | null; date: st
   )
 }
 
-type SalesAssignedObject = Doc<'salesObjects'> & { planDeals: number }
+type SalesAssignedObject = Doc<'salesObjects'> & { planDeals: number; submitted: boolean }
 type SalesDaily = Doc<'salesObjectReports'> | null
 
 function SalesObjectEditor({
@@ -561,7 +656,6 @@ function SalesObjectEditor({
   const submit = useMutation(api.sales.submitDaily)
   const [f, setF] = useState({
     newLeads: daily ? String(daily.newLeads) : '',
-    processedLeads: daily ? String(daily.processedLeads) : '',
     newConsultations: daily ? String(daily.newConsultations) : '',
     repeatConsultations: daily ? String(daily.repeatConsultations) : '',
     newMeetings: daily ? String(daily.newMeetings) : '',
@@ -574,6 +668,10 @@ function SalesObjectEditor({
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+
+  // Только что сохранённый объект считаем сданным, не дожидаясь ответа сервера:
+  // иначе галочка появлялась бы с задержкой на круг перезапроса.
+  const doneCount = objects.filter((o) => o.submitted || (saved && o._id === object._id)).length
 
   const setNum = (k: Exclude<keyof typeof f, 'comment'>, v: string) =>
     setF((p) => ({ ...p, [k]: v }))
@@ -592,7 +690,6 @@ function SalesObjectEditor({
         date,
         objectId: object._id as Id<'salesObjects'>,
         newLeads: toInt(f.newLeads),
-        processedLeads: toInt(f.processedLeads),
         newConsultations: toInt(f.newConsultations),
         repeatConsultations: toInt(f.repeatConsultations),
         newMeetings: toInt(f.newMeetings),
@@ -620,17 +717,25 @@ function SalesObjectEditor({
       readOnly={readOnly}
       onSave={save}
     >
+      {/* Сдача видна сразу: галочка и светло-зелёный фон у заполненных объектов
+          плюс общий счётчик (дополнение 1.4, п.8). */}
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+        <Lbl>Объект продаж</Lbl>
+        <span
+          className={`chip ${
+            doneCount === objects.length ? 'bg-[#e2f2ef] text-green-d' : 'bg-chip text-ink-2'
+          }`}
+        >
+          Сдано отчётов: {doneCount} из {objects.length}
+        </span>
+      </div>
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px] mb-4">
-        <div>
-          <Lbl>Объект продаж</Lbl>
-          <Select
-            value={selected}
-            onChange={onSelect}
-            options={objects.map((o) => ({ value: o._id, label: o.name }))}
-            className="mt-1.5"
-          />
-        </div>
-        <div className="h-[38px] self-end rounded-lg bg-chip px-3 flex items-center justify-between gap-3">
+        <Select
+          value={selected}
+          onChange={onSelect}
+          options={objects.map((o) => ({ value: o._id, label: o.name, done: o.submitted }))}
+        />
+        <div className="h-[38px] rounded-lg bg-chip px-3 flex items-center justify-between gap-3">
           <div className="text-[11px] text-muted uppercase tracking-wide">План сделок</div>
           <div className="text-base font-bold text-green-d tabular-nums">{num(object.planDeals)}</div>
         </div>
@@ -643,10 +748,9 @@ function SalesObjectEditor({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <NumField label="Новые заявки *" value={f.newLeads} onChange={(v) => setNum('newLeads', v)} disabled={readOnly} />
-            <NumField label="Обработано новых заявок" value={f.processedLeads} onChange={(v) => setNum('processedLeads', v)} disabled={readOnly} />
             <NumField label="Новые консультации" value={f.newConsultations} onChange={(v) => setNum('newConsultations', v)} disabled={readOnly} />
             <NumField label="Новые встречи / Zoom" value={f.newMeetings} onChange={(v) => setNum('newMeetings', v)} disabled={readOnly} />
-            <NumField label="Новые предоплаты" value={f.newPrepayments} onChange={(v) => setNum('newPrepayments', v)} disabled={readOnly} />
+            <NumField label="Новые подписанные договоры" value={f.newPrepayments} onChange={(v) => setNum('newPrepayments', v)} disabled={readOnly} />
             <NumField label="Новые сделки" value={f.newDeals} onChange={(v) => setNum('newDeals', v)} disabled={readOnly} />
           </div>
         </div>
@@ -682,7 +786,7 @@ function SalesObjectEditor({
 }
 
 // ——— История (правая колонка; на телефоне/планшете — сворачивается) ———
-function HistoryPanel({ history }: { history: Report[] }) {
+function HistoryPanel({ history }: { history: Submission[] }) {
   const collapsible = useMediaQuery('(max-width: 1023px)') // < lg: колонка стекается вниз
   const [open, setOpen] = useState(false)
   const show = !collapsible || open
@@ -711,7 +815,7 @@ function HistoryPanel({ history }: { history: Report[] }) {
             const st = REPORT_STATUS[h.onTime ? 'onTime' : 'late']
             return (
               <div
-                key={h._id}
+                key={h.date}
                 className="flex items-center justify-between gap-2 py-2.5 border-b border-line last:border-0"
               >
                 <div className="min-w-0">
@@ -745,15 +849,6 @@ function Lbl({ children, right }: { children: ReactNode; right?: boolean }) {
     >
       {children}
     </span>
-  )
-}
-
-function Summary({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div>
-      <div className="text-[11px] text-muted uppercase tracking-wide mb-0.5">{label}</div>
-      <div className={`text-base font-bold ${accent ? 'text-green-d' : 'text-ink'}`}>{value}</div>
-    </div>
   )
 }
 

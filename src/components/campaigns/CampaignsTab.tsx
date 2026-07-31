@@ -1,17 +1,20 @@
 import { useState } from 'react'
-import { useQuery } from 'convex/react'
-import { Plus, ChevronLeft, ChevronRight, Loader2, Megaphone } from 'lucide-react'
+import { useMutation, useQuery } from 'convex/react'
+import { Plus, Loader2, Megaphone, ArrowUp, ArrowDown } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import type { Doc } from '../../../convex/_generated/dataModel'
-import CampaignDrawer from './CampaignDrawer'
-import { useData } from '@/lib/useData'
-import { kzt, num, pct } from '@/lib/format'
-import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
-import { TODAY } from '@/lib/constants'
-import DatePicker from '@/components/ui/DatePicker'
-import { th, thRight, td, theadRow } from '@/lib/table'
+import CampaignDrawer, { type RegistryRow } from './CampaignDrawer'
+import Select from '@/components/ui/Select'
+import { goalMeta } from '../../../convex/campaignGoals'
+import { errMessage } from '@/lib/errors'
+import { th, td, theadRow } from '@/lib/table'
+import { longDate } from '@/lib/format'
 
-type Campaign = Doc<'campaigns'>
+// Реестр рекламных кампаний (ТЗ таргетолога §7.3). Кампании автоматически
+// группируются: активные → пауза → завершённые. Статус меняется прямо в
+// таблице, без открытия карточки; внутри группы порядок двигается стрелками.
+// Планов и весов здесь нет — новое ТЗ их не предусматривает.
+
+const STATUSES = ['Активна', 'Пауза', 'Завершена'] as const
 
 const STATUS_CHIP: Record<string, string> = {
   Активна: 'bg-[#e2f2ef] text-green-d',
@@ -19,293 +22,172 @@ const STATUS_CHIP: Record<string, string> = {
   Завершена: 'bg-chip text-muted',
 }
 
-// Реестр рекламных кампаний: карточка живёт месяцами, план задаётся на месяц.
-// Правки идут через drawer справа — там же и план, чтобы не разводить по экранам.
-export default function CampaignsTab() {
-  const [month, setMonth] = useState(CURRENT_MONTH)
-  const [mode, setMode] = useState<'month' | 'period'>('month')
-  const [open, setOpen] = useState<{ campaign: Campaign | null } | null>(null)
-  const registry = useQuery(api.campaigns.registry, {})
-  const plans = useQuery(api.campaigns.plans, { month })
-  const { employees } = useData()
-  const atCurrent = month >= CURRENT_MONTH
+const GROUP_TITLE: Record<string, string> = {
+  Активна: 'Активные',
+  Пауза: 'На паузе',
+  Завершена: 'Завершённые',
+}
 
-  // Планов на кампанию может быть несколько — по одному на таргетолога.
-  // В реестре показываем закреплённый; бесхозный — только если другого нет.
-  const planOf = (c: Campaign) => {
-    const rows = (plans ?? []).filter((p) => p.campaignId === c._id)
-    return rows.find((p) => p.employeeId) ?? rows[0]
+export default function CampaignsTab() {
+  const registry = useQuery(api.target.registry, {})
+  const setStatus = useMutation(api.target.setStatus)
+  const reorder = useMutation(api.target.reorder)
+  const [open, setOpen] = useState<{ campaign: RegistryRow | null } | null>(null)
+  const [error, setError] = useState('')
+
+  const run = async (fn: () => Promise<unknown>) => {
+    setError('')
+    try {
+      await fn()
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось изменить кампанию.'))
+    }
   }
-  const nameOf = (id?: string) => employees.find((e) => e.id === id)?.name
-  const loading = registry === undefined || plans === undefined
+
+  if (registry === undefined) {
+    return (
+      <div className="card p-10 grid place-items-center text-muted">
+        <Loader2 className="animate-spin" size={20} />
+      </div>
+    )
+  }
+
+  const rows = registry as RegistryRow[]
 
   return (
     <>
-      {/* §3.2: показатели собираются за месяц и за произвольный период. */}
-      <div className="flex items-center gap-1 p-1 bg-chip rounded-xl w-fit mb-4">
-        {(
-          [
-            ['month', 'За месяц'],
-            ['period', 'За период'],
-          ] as const
-        ).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => setMode(id)}
-            className={`h-9 px-4 rounded-lg text-sm font-semibold transition-colors ${
-              mode === id
-                ? 'bg-white text-ink shadow-card'
-                : 'bg-line text-ink-2/70 hover:bg-line-2 hover:text-ink'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {mode === 'period' ? (
-        <PeriodView />
-      ) : (
-        <>
-      {/* Тулбар вне карточки: шапка таблицы должна быть первой строкой,
-          как в «Команде», а не второй после заголовка. */}
-      <div className="flex items-center gap-1.5 flex-wrap mb-5">
-        <button
-          onClick={() => setMonth(addMonth(month, -1))}
-          className="ico-btn w-10 h-10"
-          title="Предыдущий месяц"
-          aria-label="Предыдущий месяц"
-        >
-          <ChevronLeft size={16} />
-        </button>
-        <div className="btn btn-ghost min-w-[132px] justify-center cursor-default select-none">
-          {formatMonth(month)}
-        </div>
-        <button
-          onClick={() => setMonth(addMonth(month, 1))}
-          disabled={atCurrent}
-          className="ico-btn w-10 h-10 disabled:opacity-40 disabled:cursor-default disabled:hover:bg-white"
-          title={atCurrent ? 'Текущий месяц' : 'Следующий месяц'}
-          aria-label="Следующий месяц"
-        >
-          <ChevronRight size={16} />
-        </button>
+      <div className="flex items-center gap-3 flex-wrap mb-5">
         <div className="flex-1" />
         <button onClick={() => setOpen({ campaign: null })} className="btn btn-green">
           <Plus size={16} /> Добавить кампанию
         </button>
       </div>
 
-      <div className="card overflow-hidden">
-        {loading ? (
-          <div className="p-10 grid place-items-center text-muted">
-            <Loader2 className="animate-spin" size={20} />
-          </div>
-        ) : registry.length === 0 ? (
-          <div className="p-10 text-center">
-            <span className="w-12 h-12 rounded-full bg-chip text-muted grid place-items-center mx-auto mb-3">
-              <Megaphone size={20} />
-            </span>
-            <div className="sec-title mb-1">В реестре пока нет кампаний</div>
-            <p className="text-sm text-muted max-w-md mx-auto">
-              Заведите кампанию — она сразу появится строкой в ежедневном отчёте таргетолога,
-              а её план ляжет в расчёт KPI.
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[960px]">
-              <thead>
-                <tr className={theadRow}>
-                  <th className={th}>ID</th>
-                  <th className={th}>Кампания</th>
-                  <th className={th}>Аккаунт</th>
-                  <th className={th}>Деньги</th>
-                  <th className={th}>Ответственный</th>
-                  <th className={thRight}>План бюджета</th>
-                  <th className={thRight}>План заявок</th>
-                  <th className={thRight}>Вес</th>
-                  <th className={th}>Статус</th>
-                </tr>
-              </thead>
-              <tbody>
-                {registry.map((c) => {
-                  const p = planOf(c)
-                  return (
-                    <tr
-                      key={c._id}
-                      onClick={() => setOpen({ campaign: c })}
-                      className="hover:bg-chip/40 transition-colors cursor-pointer"
-                    >
-                      <td className={td}>
-                        <span className="chip bg-[#e2f2ef] text-green-d">{c.code}</span>
-                      </td>
-                      <td className={td}>
-                        <div className="font-medium text-ink whitespace-nowrap">{c.campaign}</div>
-                        <div className="text-[11px] text-muted whitespace-nowrap">{c.brand}</div>
-                      </td>
-                      <td className={td}>{c.account}</td>
-                      <td className={td}>
-                        <span
-                          className={`chip ${
-                            c.moneySource === 'FRANCHONE'
-                              ? 'bg-[#e2f2ef] text-green-d'
-                              : 'bg-chip text-ink-2'
-                          }`}
-                        >
-                          {c.moneySource}
-                        </span>
-                      </td>
-                      <td className={td}>
-                        {p?.employeeId ? (
-                          <span className="whitespace-nowrap">{nameOf(p.employeeId) ?? '—'}</span>
-                        ) : (
-                          // План без владельца до начислений не доходит — видно сразу.
-                          <span
-                            className="chip bg-[#fff6e6] text-[#b7791f] whitespace-nowrap"
-                            title="План не закреплён за таргетологом и не попадёт в KPI"
-                          >
-                            Не назначен
-                          </span>
-                        )}
-                      </td>
-                      <td className={`${td} text-right tabular-nums`}>
-                        {p?.planBudget ? kzt(p.planBudget) : <span className="text-muted-2">—</span>}
-                      </td>
-                      <td className={`${td} text-right tabular-nums`}>
-                        {p?.planLeads ? num(p.planLeads) : <span className="text-muted-2">—</span>}
-                      </td>
-                      <td className={`${td} text-right tabular-nums`}>
-                        {p?.weight ? pct(p.weight) : <span className="text-muted-2">—</span>}
-                      </td>
-                      <td className={td}>
-                        <span className={`chip ${STATUS_CHIP[c.status] ?? 'bg-chip text-ink-2'}`}>
-                          {c.status}
-                        </span>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+      {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
 
-      </div>
-        </>
-      )}
-
-      {open && (
-        <CampaignDrawer campaign={open.campaign} month={month} onClose={() => setOpen(null)} />
-      )}
-    </>
-  )
-}
-
-// Факт по кампаниям за произвольный отрезок дат. Плана здесь нет — он
-// месячный и к отрезку неприменим; показываем расход, заявки и CPL.
-function PeriodView() {
-  const [from, setFrom] = useState(`${CURRENT_MONTH}-01`)
-  const [to, setTo] = useState(TODAY)
-  const data = useQuery(api.campaigns.factsForPeriod, from <= to ? { from, to } : 'skip')
-
-  return (
-    <>
-      <div className="flex items-end gap-2 flex-wrap mb-5">
-        <div>
-          <div className="text-[11px] text-muted mb-1.5">С</div>
-          <div className="w-[172px]">
-            <DatePicker value={from} onChange={setFrom} max={to} />
-          </div>
-        </div>
-        <div>
-          <div className="text-[11px] text-muted mb-1.5">По</div>
-          <div className="w-[172px]">
-            <DatePicker value={to} onChange={setTo} min={from} max={TODAY} />
-          </div>
-        </div>
-      </div>
-
-      {from > to ? (
-        <div className="card p-10 text-center text-sm text-muted">
-          Начало периода позже его конца — поменяйте даты местами.
-        </div>
-      ) : data === undefined ? (
-        <div className="card p-10 grid place-items-center text-muted">
-          <Loader2 className="animate-spin" size={20} />
-        </div>
-      ) : data.rows.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="card p-10 text-center">
-          <div className="sec-title mb-1">За этот период нет данных</div>
+          <span className="w-12 h-12 rounded-full bg-chip text-muted grid place-items-center mx-auto mb-3">
+            <Megaphone size={20} />
+          </span>
+          <div className="sec-title mb-1">В реестре пока нет кампаний</div>
           <p className="text-sm text-muted max-w-md mx-auto">
-            Показатели собираются из ежедневных отчётов таргетолога. За выбранные даты отчётов
-            пока нет.
+            Заведите кампанию — она сразу появится строкой в ежедневном отчёте таргетолога и
+            начнёт копить историю по своему объекту продаж.
           </p>
         </div>
       ) : (
-        <div className="card overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px]">
-              <thead>
-                <tr className={theadRow}>
-                  <th className={th}>ID</th>
-                  <th className={th}>Кампания</th>
-                  <th className={th}>Деньги</th>
-                  <th className={thRight}>Дней с данными</th>
-                  <th className={thRight}>Расход</th>
-                  <th className={thRight}>Заявки</th>
-                  <th className={thRight}>CPL</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.rows.map((r) => (
-                  <tr key={r.code} className="hover:bg-chip/40 transition-colors">
-                    <td className={td}>
-                      <span className="chip bg-[#e2f2ef] text-green-d">{r.code}</span>
-                    </td>
-                    <td className={td}>
-                      <div className="font-medium text-ink whitespace-nowrap">{r.campaign}</div>
-                      <div className="text-[11px] text-muted whitespace-nowrap">{r.brand}</div>
-                    </td>
-                    <td className={td}>
-                      <span
-                        className={`chip ${
-                          r.moneySource === 'FRANCHONE'
-                            ? 'bg-[#e2f2ef] text-green-d'
-                            : 'bg-chip text-ink-2'
-                        }`}
-                      >
-                        {r.moneySource}
-                      </span>
-                    </td>
-                    <td className={`${td} text-right tabular-nums`}>{num(r.days)}</td>
-                    <td className={`${td} text-right tabular-nums`}>{kzt(r.budget)}</td>
-                    <td className={`${td} text-right tabular-nums`}>{num(r.leads)}</td>
-                    <td className={`${td} text-right tabular-nums`}>
-                      {r.leads ? kzt(r.cpl) : <span className="text-muted-2">—</span>}
-                    </td>
-                  </tr>
-                ))}
-                {/* §3.2 требует и суммарные показатели по всем кампаниям. */}
-                <tr className="bg-chip/40">
-                  <td className={`${td} font-semibold text-ink`} colSpan={4}>
-                    Итого по всем кампаниям
-                  </td>
-                  <td className={`${td} text-right font-bold text-ink tabular-nums`}>
-                    {kzt(data.budget)}
-                  </td>
-                  <td className={`${td} text-right font-bold text-ink tabular-nums`}>
-                    {num(data.leads)}
-                  </td>
-                  <td className={`${td} text-right font-bold text-green-d tabular-nums`}>
-                    {data.leads ? kzt(data.cpl) : '—'}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+        <div className="flex flex-col gap-5">
+          {STATUSES.map((status) => {
+            const group = rows.filter((r) => r.status === status)
+            if (group.length === 0) return null
+            return (
+              <section key={status}>
+                {/* Заголовок группы вынесен из карточки: иначе над зелёной
+                    шапкой таблицы оставалась белая полоса. Карточка начинается
+                    сразу строкой колонок — как в «Команде». */}
+                <div className="flex items-center gap-2 mb-3">
+                  <h3 className="sec-title">{GROUP_TITLE[status]}</h3>
+                  <span className="chip bg-chip text-muted-2">{group.length}</span>
+                </div>
+                <div className="card overflow-hidden overflow-x-auto">
+                  <table className="w-full min-w-[840px]">
+                    <thead>
+                      <tr className={theadRow}>
+                        <th className={th}>ID</th>
+                        <th className={th}>Объект продаж</th>
+                        <th className={th}>Цель</th>
+                        <th className={th}>Аккаунт</th>
+                        <th className={th}>Деньги</th>
+                        <th className={th}>Запуск</th>
+                        <th className={th}>Статус</th>
+                        <th className={th}>Порядок</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {group.map((c, i) => (
+                        <tr key={c._id} className="hover:bg-chip/40 transition-colors">
+                          <td className={`${td} cursor-pointer`} onClick={() => setOpen({ campaign: c })}>
+                            <span className="chip bg-[#e2f2ef] text-green-d whitespace-nowrap">{c.code}</span>
+                          </td>
+                          <td className={`${td} cursor-pointer`} onClick={() => setOpen({ campaign: c })}>
+                            {c.objectName ? (
+                              <span className="font-medium text-ink whitespace-nowrap">{c.objectName}</span>
+                            ) : (
+                              // Кампании, заведённые до связки со справочником:
+                              // без объекта они выпадают из аналитики по объектам.
+                              <span
+                                className="chip bg-[#fff6e6] text-[#b7791f] whitespace-nowrap"
+                                title="Кампания не привязана к объекту продаж"
+                              >
+                                Объект не выбран
+                              </span>
+                            )}
+                          </td>
+                          <td className={td}>
+                            {/* Показываем единицу результата, а не полное название цели:
+                                «Сообщения WhatsApp» вместо «Максимум переписок WhatsApp».
+                                Соответствие один к одному, зато строка вдвое короче — иначе
+                                таблица распирается и колонка «Порядок» уезжает за край. */}
+                            <span className="text-ink-2 whitespace-nowrap">{goalMeta(c.goal).metric}</span>
+                          </td>
+                          <td className={td}>{c.account}</td>
+                          <td className={td}>
+                            <span
+                              className={`chip ${
+                                c.moneySource === 'FRANCHONE'
+                                  ? 'bg-[#e2f2ef] text-green-d'
+                                  : 'bg-chip text-ink-2'
+                              }`}
+                            >
+                              {c.moneySource}
+                            </span>
+                          </td>
+                          <td className={`${td} whitespace-nowrap`}>{c.startedAt ? longDate(c.startedAt) : '—'}</td>
+                          <td className={td}>
+                            {/* §7.3: статус меняется прямо в таблице. */}
+                            <Select
+                              value={c.status}
+                              onChange={(v) => run(() => setStatus({ id: c._id, status: v as typeof STATUSES[number] }))}
+                              options={STATUSES.map((s) => ({ value: s, label: s }))}
+                              variant="ghost"
+                              className={`chip ${STATUS_CHIP[c.status] ?? 'bg-chip text-ink-2'}`}
+                            />
+                          </td>
+                          <td className={td}>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => run(() => reorder({ id: c._id, direction: 'up' }))}
+                                disabled={i === 0}
+                                className="ico-btn w-8 h-8 disabled:opacity-30 disabled:hover:bg-white"
+                                title="Выше"
+                                aria-label="Переместить выше"
+                              >
+                                <ArrowUp size={14} />
+                              </button>
+                              <button
+                                onClick={() => run(() => reorder({ id: c._id, direction: 'down' }))}
+                                disabled={i === group.length - 1}
+                                className="ico-btn w-8 h-8 disabled:opacity-30 disabled:hover:bg-white"
+                                title="Ниже"
+                                aria-label="Переместить ниже"
+                              >
+                                <ArrowDown size={14} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )
+          })}
         </div>
       )}
+
+      {open && <CampaignDrawer campaign={open.campaign} onClose={() => setOpen(null)} />}
     </>
   )
 }

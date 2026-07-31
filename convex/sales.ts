@@ -27,11 +27,13 @@ const managerPlansV = v.array(
   }),
 )
 
+// «Обработано новых заявок» убрано (дополнение 1.4, п.6): ручной ввод отменён,
+// разрыв считается как «Не доведено до консультации» = заявки − консультации.
+// В схеме поле осталось опциональным — стирать историю нельзя.
 const salesReportArgs = {
   date: v.string(),
   objectId: v.id('salesObjects'),
   newLeads: v.number(),
-  processedLeads: v.number(),
   newConsultations: v.number(),
   repeatConsultations: v.number(),
   newMeetings: v.number(),
@@ -45,7 +47,6 @@ const salesReportArgs = {
 type SalesReportFields = Pick<
   Doc<'salesObjectReports'>,
   | 'newLeads'
-  | 'processedLeads'
   | 'newConsultations'
   | 'repeatConsultations'
   | 'newMeetings'
@@ -59,7 +60,6 @@ type SalesTotals = SalesReportFields
 
 const zeroTotals = (): SalesTotals => ({
   newLeads: 0,
-  processedLeads: 0,
   newConsultations: 0,
   repeatConsultations: 0,
   newMeetings: 0,
@@ -118,35 +118,44 @@ function addTotals(into: SalesTotals, row: SalesReportFields) {
   for (const key of FIELD_KEYS) into[key] += row[key]
 }
 
+// Прочерк там, где делить не на что: «выполнение плана» без плана — это
+// «не задано», а не «ноль процентов».
 function ratio(num: number, den: number): number | null {
   return den === 0 ? null : num / den
 }
 
+// В LIVE-воронке правило другое (дополнение 1.4, п.3): при нулевом знаменателе
+// показываем 0%, а не прочерк. Только здесь — в остальных местах модуля
+// продаж прочерк сохраняется.
+function funnelRatio(num: number, den: number): number {
+  return den === 0 ? 0 : num / den
+}
+
 function buildAnalytics(t: SalesTotals, planDeals: number) {
-  const totalConsultations = t.newConsultations + t.repeatConsultations
-  const totalMeetings = t.newMeetings + t.repeatMeetings
-  const totalInteractions = totalConsultations + totalMeetings
+  // Блок активности — ровно четыре цифры (дополнение 1.4, п.7). Заявки,
+  // договоры и сделки взаимодействиями не считаются и в сумму не входят.
+  const totalRepeatTouches = t.repeatConsultations + t.repeatMeetings
+  const totalInteractions =
+    t.newConsultations + t.newMeetings + t.repeatConsultations + t.repeatMeetings
   return {
     ...t,
     planDeals,
     planCompletion: ratio(t.newDeals, planDeals),
-    unprocessedLeads: t.newLeads - t.processedLeads,
+    // Первая измеримая ступень после заявки — консультация; разрыв между ними
+    // и есть недоведённые заявки. Отдельного ручного ввода больше нет.
+    notReachedConsultation: Math.max(0, t.newLeads - t.newConsultations),
     conversions: {
-      consultation: ratio(t.newConsultations, t.newLeads),
-      meeting: ratio(t.newMeetings, t.newConsultations),
-      prepayment: ratio(t.newPrepayments, t.newMeetings),
-      deal: ratio(t.newDeals, t.newPrepayments),
-      total: ratio(t.newDeals, t.newLeads),
+      consultation: funnelRatio(t.newConsultations, t.newLeads),
+      meeting: funnelRatio(t.newMeetings, t.newConsultations),
+      contract: funnelRatio(t.newPrepayments, t.newMeetings),
+      deal: funnelRatio(t.newDeals, t.newPrepayments),
+      total: funnelRatio(t.newDeals, t.newLeads),
     },
     activity: {
-      totalConsultations,
-      avgConsultationsPerClient: ratio(totalConsultations, t.newConsultations),
-      repeatConsultationShare: ratio(t.repeatConsultations, totalConsultations),
-      totalMeetings,
-      avgMeetingsPerClient: ratio(totalMeetings, t.newMeetings),
-      repeatMeetingShare: ratio(t.repeatMeetings, totalMeetings),
+      repeatConsultations: t.repeatConsultations,
+      repeatMeetings: t.repeatMeetings,
+      totalRepeatTouches,
       totalInteractions,
-      interactionsPerDeal: ratio(totalInteractions, t.newDeals),
     },
   }
 }
@@ -377,6 +386,9 @@ export const upsertObject = mutation({
       managerIds: cleanManagers,
       comment: cleanComment(comment),
       createdAt: Date.now(),
+      // Автор объекта (§6.2 ТЗ таргетолога): справочник общий, и по истории
+      // должно быть видно, кто его завёл.
+      createdBy: me._id,
     })
     if (month) {
       const monthStatus = status === 'active' ? 'selling' : 'not_selling'
@@ -442,13 +454,26 @@ export const assignedObjects = query({
       .query('salesObjectMonths')
       .withIndex('by_month', (q) => q.eq('month', month))
       .collect()
+    // Какие объекты за эту дату уже сданы — по ним в форме рисуется галочка
+    // и считается счётчик «Сдано отчётов: X из Y» (дополнение 1.4, п.8).
+    const submitted = new Set(
+      (
+        await ctx.db
+          .query('salesObjectReports')
+          .withIndex('by_employee', (q) => q.eq('employeeId', me._id))
+          .collect()
+      )
+        .filter((r) => r.date === date)
+        .map((r) => r.objectId as string),
+    )
+
     const out = []
     for (const row of rows) {
       const plan = row.managerPlans.find((p) => p.managerId === me._id)
       if (!plan) continue
       const object = await ctx.db.get(row.objectId)
       if (!object || (row.objectStatus ?? object.status) !== 'active') continue
-      out.push({ ...object, planDeals: plan.planDeals })
+      out.push({ ...object, planDeals: plan.planDeals, submitted: submitted.has(object._id) })
     }
     out.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
     return out
@@ -543,12 +568,11 @@ export const submitDaily = mutation({
     await ensureAssignedObject(ctx, me._id, args.objectId, month)
 
     assertWholeNonNegative(args.newLeads, 'Новые заявки')
-    assertWholeNonNegative(args.processedLeads, 'Обработано новых заявок')
     assertWholeNonNegative(args.newConsultations, 'Новые консультации')
     assertWholeNonNegative(args.repeatConsultations, 'Повторные консультации')
     assertWholeNonNegative(args.newMeetings, 'Новые встречи / Zoom')
     assertWholeNonNegative(args.repeatMeetings, 'Повторные встречи / Zoom')
-    assertWholeNonNegative(args.newPrepayments, 'Новые предоплаты')
+    assertWholeNonNegative(args.newPrepayments, 'Новые подписанные договоры')
     assertWholeNonNegative(args.newDeals, 'Новые сделки')
     assertMoney(args.revenue)
 
@@ -561,7 +585,6 @@ export const submitDaily = mutation({
     const now = Date.now()
     const payload = {
       newLeads: args.newLeads,
-      processedLeads: args.processedLeads,
       newConsultations: args.newConsultations,
       repeatConsultations: args.repeatConsultations,
       newMeetings: args.newMeetings,
@@ -610,12 +633,11 @@ export const ownerSetDaily = mutation({
     }
 
     assertWholeNonNegative(args.newLeads, 'Новые заявки')
-    assertWholeNonNegative(args.processedLeads, 'Обработано новых заявок')
     assertWholeNonNegative(args.newConsultations, 'Новые консультации')
     assertWholeNonNegative(args.repeatConsultations, 'Повторные консультации')
     assertWholeNonNegative(args.newMeetings, 'Новые встречи / Zoom')
     assertWholeNonNegative(args.repeatMeetings, 'Повторные встречи / Zoom')
-    assertWholeNonNegative(args.newPrepayments, 'Новые предоплаты')
+    assertWholeNonNegative(args.newPrepayments, 'Новые подписанные договоры')
     assertWholeNonNegative(args.newDeals, 'Новые сделки')
     assertMoney(args.revenue)
 
@@ -630,7 +652,6 @@ export const ownerSetDaily = mutation({
     const now = Date.now()
     const payload = {
       newLeads: args.newLeads,
-      processedLeads: args.processedLeads,
       newConsultations: args.newConsultations,
       repeatConsultations: args.repeatConsultations,
       newMeetings: args.newMeetings,

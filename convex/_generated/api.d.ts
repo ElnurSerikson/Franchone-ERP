@@ -30,6 +30,7 @@ import type * as seed from "../seed.js";
 import type * as settings from "../settings.js";
 import type * as setup from "../setup.js";
 import type * as smm from "../smm.js";
+import type * as target from "../target.js";
 import type * as tasks from "../tasks.js";
 import type * as users from "../users.js";
 
@@ -62,6 +63,7 @@ declare const fullApi: ApiFromModules<{
   settings: typeof settings;
   setup: typeof setup;
   smm: typeof smm;
+  target: typeof target;
   tasks: typeof tasks;
   users: typeof users;
 }>;

@@ -8,6 +8,10 @@ export interface SelectOption {
   value: string
   label: string
   dot?: string // необязательный цветной кружок слева
+  // Пункт «уже готов»: зелёная галочка справа и светло-зелёный фон строки.
+  // Нужен для выбора объекта продаж, чтобы менеджер сразу видел, по каким
+  // объектам отчёт за дату уже сдан.
+  done?: boolean
 }
 
 export default function Select({
@@ -54,11 +58,19 @@ export default function Select({
       }}
       className={`w-full flex items-center gap-2 px-2.5 rounded-lg text-sm text-left transition-colors ${
         big ? 'h-12' : 'h-9'
-      } ${o.value === value ? 'bg-green/10 text-green-d font-semibold' : 'text-ink-2 hover:bg-chip'}`}
+      } ${
+        o.value === value
+          ? 'bg-green/10 text-green-d font-semibold'
+          : o.done
+            ? 'bg-[#e2f2ef] text-green-d hover:bg-[#d5ebe6]'
+            : 'text-ink-2 hover:bg-chip'
+      }`}
     >
       {o.dot && <span className="w-2 h-2 rounded-full shrink-0" style={{ background: o.dot }} />}
       <span className="flex-1 truncate">{o.label}</span>
-      {o.value === value && <Check size={15} className="text-green shrink-0" />}
+      {/* Галочка выбранного пункта и галочка «сдано» — один и тот же знак,
+          дважды его рисовать не нужно. */}
+      {(o.value === value || o.done) && <Check size={15} className="text-green shrink-0" />}
     </button>
   )
 

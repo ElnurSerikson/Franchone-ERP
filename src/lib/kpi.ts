@@ -7,7 +7,6 @@
 import type { Campaign, SmmMetric } from '@/types'
 import {
   computeSmmMath,
-  computeTargetologMath,
   computeSalesMath,
   payoutOf,
   DEFAULT_WEIGHTS,
@@ -69,12 +68,9 @@ export interface TargetologResult {
   avgCpl: number
 }
 
-export function computeTargetolog(
-  campaigns: Campaign[],
-  weights: KpiWeights = DEFAULT_WEIGHTS,
-): TargetologResult {
-  return computeTargetologMath(campaigns, weights)
-}
+// УДАЛЕНО: computeTargetolog. KPI у таргетолога отменён — считать по планам
+// и весам кампаний больше нечего. Сама формула осталась в convex/kpiMath.ts
+// на случай, если заказчик вернёт модель с плановой ценой результата.
 
 // Разрез по источнику денег (FRANCHONE / Партнёр)
 export function spendBySource(campaigns: Campaign[]) {

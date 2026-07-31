@@ -9,7 +9,8 @@
 //   npx convex run setup:addHiddenEmployee '{"email":"…","name":"…","position":"smm"}'
 import { internalMutation } from './_generated/server'
 import { v } from 'convex/values'
-import type { Doc } from './_generated/dataModel'
+import type { Doc, Id } from './_generated/dataModel'
+import { resultCostCents } from './campaignGoals'
 
 // Одноразовая настройка: назначить владельцу email для входа и привести
 // все email сотрудников к нижнему регистру (email = логин).
@@ -1147,6 +1148,355 @@ export const setEmployeePosition = internalMutation({
       email: low,
       from: `${emp.position} (${emp.positionLabel})`,
       to: `${pos.slug} (${pos.label})`,
+    }
+  },
+})
+
+// Демо-данные отдела продаж для DEV: три объекта, назначенные на тестового
+// менеджера, планы месяца и история за три прошедших дня. Сегодняшний день
+// намеренно оставлен пустым — чтобы можно было вживую сдать отчёт и увидеть
+// галочки, счётчик «Сдано отчётов» и пересчёт LIVE-воронки.
+// Только для dev: на проде падает, ничего не тронув.
+export const seedDevSalesDemo = internalMutation({
+  args: { email: v.optional(v.string()) },
+  handler: async (ctx, { email }) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+
+    const low = (email ?? 'almnurken@gmail.com').toLowerCase().trim()
+    const manager = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (!manager) throw new Error(`Сотрудник ${low} не найден`)
+
+    // Модуль продаж завязан на должность: без неё объекты менеджеру не видны.
+    const pos = await ctx.db
+      .query('positions')
+      .withIndex('by_slug', (q) => q.eq('slug', 'sales'))
+      .first()
+    if (!pos) throw new Error('В справочнике нет должности sales')
+    await ctx.db.patch(manager._id, {
+      position: pos.slug,
+      positionLabel: pos.label,
+      status: 'active',
+      hidden: false,
+      // Оклад нужен, чтобы карточка «Заработано» показывала не ноль:
+      // выплата = оклад × KPI. Значение демонстрационное, только для dev.
+      salary: 400_000,
+    })
+
+    const today = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
+    const month = today.slice(0, 7)
+    const dayBefore = (n: number) =>
+      new Date(Date.parse(`${today}T00:00:00Z`) - n * 86400000).toISOString().slice(0, 10)
+
+    // 1. Объекты продаж: доводим до трёх, чтобы счётчик «X из 3» был нагляден.
+    const wanted: { name: string; type: 'franchise' | 'service' | 'product'; plan: number }[] = [
+      { name: 'Упаковка франшизы', type: 'service', plan: 2 },
+      { name: 'Консалтинг', type: 'service', plan: 3 },
+      { name: 'Greek Food', type: 'franchise', plan: 2 },
+    ]
+    const existing = await ctx.db.query('salesObjects').collect()
+    const objects: { id: Id<'salesObjects'>; name: string; plan: number }[] = []
+    for (const w of wanted) {
+      const found = existing.find((o) => o.name === w.name)
+      const id =
+        found?._id ??
+        (await ctx.db.insert('salesObjects', {
+          name: w.name,
+          type: w.type,
+          status: 'active',
+          managerIds: [],
+          createdAt: Date.now(),
+        }))
+      const row = await ctx.db.get(id)
+      const managerIds = row && row.managerIds.includes(manager._id) ? row.managerIds : [manager._id]
+      await ctx.db.patch(id, { status: 'active', managerIds })
+      objects.push({ id, name: w.name, plan: w.plan })
+    }
+
+    // 2. Месяц продаж: объект продаётся, у менеджера есть план сделок.
+    for (const o of objects) {
+      const setting = await ctx.db
+        .query('salesObjectMonths')
+        .withIndex('by_object_month', (q) => q.eq('objectId', o.id).eq('month', month))
+        .first()
+      const fields = {
+        objectStatus: 'active' as const,
+        status: 'selling' as const,
+        managerPlans: [{ managerId: manager._id, planDeals: o.plan }],
+      }
+      if (setting) await ctx.db.patch(setting._id, fields)
+      else await ctx.db.insert('salesObjectMonths', { objectId: o.id, month, ...fields })
+    }
+
+    // 3. История за три прошедших дня по первым двум объектам. Сегодня не
+    // трогаем — этот день сдаёт живой человек через интерфейс.
+    const history = [
+      { day: 3, obj: 0, newLeads: 6, newConsultations: 4, repeatConsultations: 2, newMeetings: 2, repeatMeetings: 1, newPrepayments: 1, newDeals: 1, revenue: 1_500_000 },
+      { day: 2, obj: 0, newLeads: 4, newConsultations: 3, repeatConsultations: 1, newMeetings: 1, repeatMeetings: 0, newPrepayments: 0, newDeals: 0, revenue: 0 },
+      { day: 2, obj: 1, newLeads: 7, newConsultations: 5, repeatConsultations: 3, newMeetings: 3, repeatMeetings: 2, newPrepayments: 1, newDeals: 1, revenue: 900_000 },
+      { day: 1, obj: 1, newLeads: 5, newConsultations: 2, repeatConsultations: 1, newMeetings: 1, repeatMeetings: 0, newPrepayments: 0, newDeals: 0, revenue: 0 },
+    ]
+    let reports = 0
+    const byDate = new Map<string, { leads: number; meetings: number; sales: number; revenue: number }>()
+    for (const h of history) {
+      const date = dayBefore(h.day)
+      const objectId = objects[h.obj].id
+      const dup = await ctx.db
+        .query('salesObjectReports')
+        .withIndex('by_employee_date_object', (q) =>
+          q.eq('employeeId', manager._id).eq('date', date).eq('objectId', objectId),
+        )
+        .first()
+      if (dup) continue
+      await ctx.db.insert('salesObjectReports', {
+        employeeId: manager._id,
+        objectId,
+        date,
+        month: date.slice(0, 7),
+        newLeads: h.newLeads,
+        newConsultations: h.newConsultations,
+        repeatConsultations: h.repeatConsultations,
+        newMeetings: h.newMeetings,
+        repeatMeetings: h.repeatMeetings,
+        newPrepayments: h.newPrepayments,
+        newDeals: h.newDeals,
+        revenue: h.revenue,
+        submittedAt: Date.parse(`${date}T18:00:00+05:00`),
+        editCount: 0,
+      })
+      reports++
+      const agg = byDate.get(date) ?? { leads: 0, meetings: 0, sales: 0, revenue: 0 }
+      agg.leads += h.newLeads
+      agg.meetings += h.newMeetings
+      agg.sales += h.newDeals
+      agg.revenue += h.revenue
+      byDate.set(date, agg)
+    }
+
+    // 4. Легаси-агрегат дня: из него считаются KPI и сетка дисциплины.
+    for (const [date, agg] of byDate) {
+      const existingDay = await ctx.db
+        .query('dailyReports')
+        .withIndex('by_employee_date', (q) => q.eq('employeeId', manager._id).eq('date', date))
+        .first()
+      const payload = {
+        sales: { ...agg, note: 'Синхронизировано из объектных отчётов продаж' },
+        position: 'sales' as const,
+      }
+      if (existingDay) await ctx.db.patch(existingDay._id, payload)
+      else
+        await ctx.db.insert('dailyReports', {
+          employeeId: manager._id,
+          date,
+          ...payload,
+          submittedAt: Date.parse(`${date}T18:00:00+05:00`),
+          onTime: true,
+          editCount: 0,
+          history: [
+            { at: Date.parse(`${date}T18:00:00+05:00`), byId: manager._id, action: 'submitted' as const },
+          ],
+        })
+    }
+
+    // 5. План выручки — чтобы у менеджера считался личный KPI и заработок.
+    const plan = await ctx.db
+      .query('salesPlans')
+      .withIndex('by_employee', (q) => q.eq('employeeId', manager._id))
+      .collect()
+    const planRow = plan.find((p) => p.month === month)
+    if (planRow) await ctx.db.patch(planRow._id, { planRevenue: 5_000_000 })
+    else await ctx.db.insert('salesPlans', { employeeId: manager._id, month, planRevenue: 5_000_000 })
+
+    return {
+      deployment: url,
+      manager: `${manager.name} <${low}> → ${pos.label}`,
+      month,
+      today,
+      objects: objects.map((o) => `${o.name} (план ${o.plan})`),
+      historyReports: reports,
+      planRevenue: 5_000_000,
+      note: 'Сегодняшний день пуст — сдайте отчёт через интерфейс',
+    }
+  },
+})
+
+// Привязка существующих рекламных кампаний к объектам продаж.
+// ТЗ таргетолога требует объект у каждой кампании (§7.1 «обязательно», §14
+// «объект не выбран — не разрешать сохранять»), а §2.2 заменяет им прежние
+// «бренд» и «категорию». Названия объектов взяты из §6.1, где ТЗ само их
+// перечисляет — они почти дословно совпадают с брендами кампаний.
+// Недостающие объекты создаём, существующие переиспользуем по имени.
+// Только для dev: на проде падает, ничего не тронув.
+const CAMPAIGN_OBJECT_MAP: { code: string; object: string }[] = [
+  { code: 'FR-001', object: 'Подбор франшизы' },
+  { code: 'FR-002', object: 'Брокеридж' },
+  { code: 'FR-003', object: 'Invite' },
+  // Обе кампании ведут личный бренд основателя — в §6.1 это «Продвижение / контент».
+  { code: 'FR-004', object: 'Продвижение / контент' },
+  { code: 'FR-005', object: 'Продвижение / контент' },
+  { code: 'AN-001', object: 'Упаковка франшизы' },
+  // «Настройки продаж» в §6.1 нет, но это реальная услуга аккаунта ANUAR.
+  { code: 'AN-002', object: 'Настройка продаж' },
+  // Кампания называется «Консультации», в справочнике объект уже есть.
+  { code: 'AN-003', object: 'Консалтинг' },
+]
+
+export const linkCampaignsToObjects = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+
+    const objects = await ctx.db.query('salesObjects').collect()
+    const byName = new Map(objects.map((o) => [o.name, o._id]))
+    const created: string[] = []
+    const linked: string[] = []
+    const missing: string[] = []
+
+    for (const { code, object } of CAMPAIGN_OBJECT_MAP) {
+      const campaign = await ctx.db
+        .query('campaigns')
+        .withIndex('by_code', (q) => q.eq('code', code))
+        .first()
+      if (!campaign) {
+        missing.push(code)
+        continue
+      }
+
+      let objectId = byName.get(object)
+      if (!objectId) {
+        objectId = await ctx.db.insert('salesObjects', {
+          name: object,
+          type: 'service',
+          status: 'active',
+          // Менеджеров не назначаем: объект заведён под рекламу. Если по нему
+          // начнут продавать — владелец назначит их в настройках месяца.
+          managerIds: [],
+          createdAt: Date.now(),
+        })
+        byName.set(object, objectId)
+        created.push(object)
+      }
+
+      if (campaign.objectId !== objectId) {
+        await ctx.db.patch(campaign._id, { objectId })
+        linked.push(`${code} → ${object}`)
+      }
+    }
+
+    const unlinked = (await ctx.db.query('campaigns').collect()).filter(
+      (c) => !c.archived && !c.objectId,
+    )
+    return {
+      deployment: url,
+      createdObjects: created,
+      linked,
+      campaignsNotFound: missing,
+      stillWithoutObject: unlinked.map((c) => c.code),
+    }
+  },
+})
+
+// Демо-отчёт таргетолога за вчера: заполняет новые таблицы модуля, чтобы
+// вживую увидеть цену по каждой цели, «Нет результата» при нулевом результате
+// и цену за 1000 охватов. Значения подобраны так, чтобы каждая формула из §8
+// была представлена. Только для dev.
+export const seedDevTargetReport = internalMutation({
+  args: { email: v.optional(v.string()), date: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+
+    const low = (args.email ?? 'almnurken@gmail.com').toLowerCase().trim()
+    const author = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (!author) throw new Error(`Сотрудник ${low} не найден`)
+
+    const today = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
+    const date =
+      args.date ?? new Date(Date.parse(`${today}T00:00:00Z`) - 86400000).toISOString().slice(0, 10)
+
+    // Бюджет в центах, результат в единицах цели. AN-003 намеренно с нулевым
+    // результатом — это и есть случай «Нет результата».
+    const plan: { code: string; budgetCents: number; result: number }[] = [
+      { code: 'AN-001', budgetCents: 1240, result: 4 },
+      { code: 'AN-002', budgetCents: 860, result: 2 },
+      { code: 'AN-003', budgetCents: 430, result: 0 },
+      { code: 'FR-001', budgetCents: 1980, result: 6 },
+      { code: 'FR-002', budgetCents: 500, result: 1 },
+      { code: 'FR-003', budgetCents: 720, result: 3 },
+      { code: 'FR-004', budgetCents: 900, result: 45 },
+      { code: 'FR-005', budgetCents: 876, result: 32961 },
+    ]
+
+    const existing = await ctx.db
+      .query('targetReports')
+      .withIndex('by_employee_date', (q) => q.eq('employeeId', author._id).eq('date', date))
+      .first()
+    const reportId =
+      existing?._id ??
+      (await ctx.db.insert('targetReports', {
+        employeeId: author._id,
+        date,
+        month: date.slice(0, 7),
+        comment: 'Демо-данные для проверки модуля',
+      }))
+    for (const old of await ctx.db
+      .query('targetReportRows')
+      .withIndex('by_report', (q) => q.eq('reportId', reportId))
+      .collect()) {
+      await ctx.db.delete(old._id)
+    }
+
+    const written: string[] = []
+    const skipped: string[] = []
+    let totalCents = 0
+    for (const p of plan) {
+      const campaign = await ctx.db
+        .query('campaigns')
+        .withIndex('by_code', (q) => q.eq('code', p.code))
+        .first()
+      if (!campaign) {
+        skipped.push(p.code)
+        continue
+      }
+      await ctx.db.insert('targetReportRows', {
+        reportId,
+        campaignId: campaign._id,
+        date,
+        budgetCents: p.budgetCents,
+        result: p.result,
+      })
+      totalCents += p.budgetCents
+      const cost = resultCostCents(p.budgetCents, p.result, campaign.goal)
+      written.push(
+        `${p.code}: $${(p.budgetCents / 100).toFixed(2)} / ${p.result} → ${
+          cost === null ? 'Нет результата' : '$' + (cost / 100).toFixed(2)
+        }`,
+      )
+    }
+
+    // Отправляем: так виден и заблокированный отчёт, и запись в истории.
+    await ctx.db.patch(reportId, { submittedAt: Date.parse(`${date}T18:30:00+05:00`) })
+
+    return {
+      deployment: url,
+      author: author.name,
+      date,
+      rows: written,
+      campaignsNotFound: skipped,
+      totalBudget: `$${(totalCents / 100).toFixed(2)}`,
     }
   },
 })

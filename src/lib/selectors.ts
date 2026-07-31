@@ -1,30 +1,5 @@
-import type { Campaign, Employee, SmmMetric, Task } from '@/types'
-import { computeSmm, computeTargetolog, payout } from './kpi'
+import type { Employee, Task } from '@/types'
 import { TODAY } from './constants'
-
-export interface EmployeeKpi {
-  employee: Employee
-  kpi: number | null // null = модель KPI ещё не настроена
-  payout: number | null
-}
-
-export function employeeKpi(
-  emp: Employee,
-  smmMetrics: SmmMetric[],
-  campaigns: Campaign[],
-): EmployeeKpi {
-  if (emp.role === 'owner') return { employee: emp, kpi: null, payout: null }
-  if (emp.position === 'smm') {
-    const kpi = computeSmm(smmMetrics).totalKpi
-    return { employee: emp, kpi, payout: payout(emp.salary, kpi) }
-  }
-  if (emp.position === 'targetolog') {
-    const kpi = computeTargetolog(campaigns).totalKpi
-    return { employee: emp, kpi, payout: payout(emp.salary, kpi) }
-  }
-  // Продажи / Упаковка — KPI-модель в разработке
-  return { employee: emp, kpi: null, payout: null }
-}
 
 // Задача без срока не бывает просроченной, срочной или «на сегодня» —
 // её просто не по чему сравнивать с датой.
@@ -104,4 +79,32 @@ export function taskStatsByEmployee(tasks: Task[], employees: Employee[]): TaskS
       }
     })
     .filter((s) => s.total > 0)
+}
+
+// Личный план месяца из авторитетного расчёта начислений (одна строка
+// сотрудника). null — модели/плана KPI нет, блоки не показываем.
+export function personalPlan(
+  me: Employee,
+  row?: { kpi: number; payout: number; salary: number; planTotal?: number; factTotal?: number },
+) {
+  if (!row) return null
+  const target = row.planTotal ?? 0
+  const fact = row.factTotal ?? 0
+  const caption =
+    me.position === 'smm'
+      ? 'публикаций по плану месяца'
+      : me.position === 'targetolog'
+        ? 'заявок по плану месяца'
+        : me.position === 'sales'
+          ? 'выручка по плану месяца, ₸'
+          : 'план месяца'
+  return {
+    kpi: row.kpi,
+    ratio: target ? Math.min(fact / target, 1) : 0,
+    fact,
+    target,
+    caption,
+    salary: row.salary,
+    earned: row.payout,
+  }
 }

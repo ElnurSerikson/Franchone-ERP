@@ -39,8 +39,9 @@ export type MoneySource = 'FRANCHONE' | 'Партнёр'
 export interface Campaign {
   id: string
   account: string
-  category: string
-  brand: string
+  // Устарели: их роль выполняет объект продаж (ТЗ таргетолога §2.2).
+  category?: string
+  brand?: string
   campaign: string
   moneySource: MoneySource
   goal?: string // цель кампании (slug); определяет метрику отчёта

@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { Sliders, Users2, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X, Briefcase, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Sliders, Users2, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X, Briefcase, ChevronLeft, ChevronRight, Megaphone } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
 import Select from '@/components/ui/Select'
+import SalesObjectHistoryDrawer from '@/components/campaigns/SalesObjectHistoryDrawer'
 import { useData } from '@/lib/useData'
-import { DEFAULT_WEIGHTS } from '@/lib/kpi'
 import type { Id } from '../../convex/_generated/dataModel'
 import { num, pct } from '@/lib/format'
 import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
@@ -19,12 +19,13 @@ const cellCls =
 // §5 ТЗ: «формулы расчёта и набор KPI настраиваются отдельно для каждой
 // должности». Поэтому настройки сгруппированы по должности, а не по типу
 // параметра: у каждой своя формула, свой оклад и свой набор показателей.
-type SettingsTab = 'general' | 'smm' | 'targetolog' | 'sales'
+type SettingsTab = 'general' | 'smm' | 'sales'
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'general', label: 'Общие' },
   { id: 'smm', label: 'SMM' },
-  { id: 'targetolog', label: 'Таргетолог' },
-  { id: 'sales', label: 'Отдел продаж' },
+  // Отдельной вкладки «Таргетолог» больше нет: его секция переехала сюда,
+  // потому что обе должности крутятся вокруг одного справочника объектов.
+  { id: 'sales', label: 'Объекты продаж' },
 ]
 
 export default function Settings() {
@@ -52,8 +53,12 @@ export default function Settings() {
 
       {tab === 'general' && <GeneralSettings />}
       {tab === 'smm' && <SmmKpiSetup />}
-      {tab === 'targetolog' && <TargetologKpiSetup />}
-      {tab === 'sales' && <SalesKpiSetup />}
+      {tab === 'sales' && (
+        <div className="flex flex-col gap-5">
+          <TargetologSalarySetup />
+          <SalesKpiSetup />
+        </div>
+      )}
     </>
   )
 }
@@ -718,13 +723,14 @@ function SmmKpiSetup() {
   )
 }
 
-// ——— Таргетолог: персональный оклад + веса заявок и CPL ———
-// Оклад здесь персональный (employees.salary) — его читает payroll. Веса
-// заявок и CPL остаются общими: они описывают саму модель KPI должности,
-// а не конкретного человека.
-function TargetologKpiSetup() {
-  const settings = useQuery(api.settings.get, {})
-  const update = useMutation(api.settings.update)
+// ——— Таргетолог: только оклад ———
+// KPI у этой должности больше нет. Новое ТЗ модуля таргетолога описывает его
+// работу как чистый учёт факта: потрачено столько, получено столько, цена
+// такая. Ни плана, ни цели по цене, ни весов там нет — сравнивать не с чем,
+// поэтому и процент выполнения вывести неоткуда. Прежние «вес заявок» и
+// «вес CPL» пришли из KPI_TARGETOLOG.xlsx и в документах заказчика не
+// встречаются ни разу; вместе с формулой они убраны.
+function TargetologSalarySetup() {
   const updateEmployee = useMutation(api.employees.update)
   const { activeEmployees } = useData()
   const staff = activeEmployees.filter((e) => e.position === 'targetolog' && e.role !== 'owner')
@@ -732,61 +738,45 @@ function TargetologKpiSetup() {
   const selected = empId || staff[0]?.id || ''
   const selectedEmp = staff.find((e) => e.id === selected)
 
-  const [draft, setDraft] = useState<{ leadWeight: number; cplWeight: number } | null>(null)
   const [salary, setSalary] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
-  const cur = draft ?? {
-    leadWeight: settings?.leadWeight ?? DEFAULT_WEIGHTS.leadWeight,
-    cplWeight: settings?.cplWeight ?? DEFAULT_WEIGHTS.cplWeight,
-  }
-  const sum = cur.leadWeight + cur.cplWeight
   const curSalary = salary ?? selectedEmp?.salary ?? 0
-  const dirty = draft !== null || salary !== null
 
   const save = async () => {
+    if (salary === null || !selected) return
     setSaving(true)
     setError('')
     try {
-      if (draft) await update(draft)
-      if (salary !== null && selected) {
-        await updateEmployee({ id: selected as Id<'employees'>, patch: { salary } })
-      }
-      setDraft(null)
+      await updateEmployee({ id: selected as Id<'employees'>, patch: { salary } })
       setSalary(null)
       setSaved(true)
     } catch (e) {
-      setError(errMessage(e, 'Не удалось сохранить настройки.'))
+      setError(errMessage(e, 'Не удалось сохранить оклад.'))
     } finally {
       setSaving(false)
     }
-  }
-
-  const set = (patch: Partial<typeof cur>) => {
-    setDraft({ ...cur, ...patch })
-    setSaved(false)
   }
 
   return (
     <div className="card p-5">
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Sliders size={18} className="text-green" />
-        <h3 className="sec-title flex-1">KPI · Таргетолог</h3>
-        <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />
+        <h3 className="sec-title flex-1">Оклад · Таргетолог</h3>
+        <SaveBar dirty={salary !== null} saving={saving} saved={saved} onSave={save} />
       </div>
 
       <FormulaNote>
-        По каждой кампании: <b>МИН(факт заявок ÷ план; 1) × вес заявок + МИН(план CPL ÷ факт
-        CPL; 1) × вес CPL</b>. Итог — среднее по кампаниям с учётом их весов, выплата —{' '}
-        <b>оклад × KPI</b>.
+        Оклад выплачивается <b>полностью</b>: KPI у должности не задан. Реклама учитывается по
+        факту — бюджет, результат и стоимость результата видны в «KPI → Таргетолог».
       </FormulaNote>
 
       {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
 
       {staff.length === 0 ? (
-        <p className="text-sm text-muted mb-4">Нет действующих таргетологов.</p>
+        <p className="text-sm text-muted">Нет действующих таргетологов.</p>
       ) : (
         <>
           <div className="mb-4">
@@ -801,48 +791,16 @@ function TargetologKpiSetup() {
             />
           </div>
 
-          <div className="mb-4">
-            <SalaryField
-              value={curSalary}
-              onChange={(v) => {
-                setSalary(v)
-                setSaved(false)
-              }}
-              hint="персональный оклад сотрудника"
-            />
-          </div>
+          <SalaryField
+            value={curSalary}
+            onChange={(v) => {
+              setSalary(v)
+              setSaved(false)
+            }}
+            hint="персональный оклад сотрудника"
+          />
         </>
       )}
-
-      <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">
-        Набор показателей
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        {(
-          [
-            ['leadWeight', 'Вес заявок'],
-            ['cplWeight', 'Вес CPL'],
-          ] as const
-        ).map(([key, label]) => (
-          <div key={key} className="rounded-2xl border border-line p-4">
-            <div className="text-sm text-muted mb-1">{label}</div>
-            <input
-              type="number"
-              step="0.05"
-              min={0}
-              max={1}
-              value={cur[key]}
-              onChange={(e) => set({ [key]: Number(e.target.value) || 0 })}
-              className="w-full h-9 px-2 rounded-lg border border-line-2 text-lg font-bold focus:outline-none focus:border-green-light"
-            />
-          </div>
-        ))}
-      </div>
-      <p className={`text-[11px] mt-3 ${Math.abs(sum - 1) < 0.001 ? 'text-muted-2' : 'text-[#c53030]'}`}>
-        Сумма весов = {pct(sum)}. Планы бюджета и заявок задаются по каждой кампании —
-        в «Отчётности → Кампании». Там же кампания закрепляется за таргетологом: без
-        этого её план не дойдёт до KPI и выплат.
-      </p>
     </div>
   )
 }
@@ -1323,6 +1281,7 @@ function SalesObjectRow({
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const save = async () => {
     if (readOnly) return
@@ -1359,6 +1318,12 @@ function SalesObjectRow({
 
   return (
     <div className="rounded-2xl border border-line bg-white p-4">
+      {historyOpen && (
+        <SalesObjectHistoryDrawer
+          objectId={object._id as Id<'salesObjects'>}
+          onClose={() => setHistoryOpen(false)}
+        />
+      )}
       {readOnly && (
         <div className="mb-3 rounded-lg bg-chip px-3 py-2 text-xs font-semibold text-muted">
           Просмотр прошлого периода
@@ -1427,6 +1392,17 @@ function SalesObjectRow({
         <span className="h-9 px-3 rounded-lg bg-chip inline-flex items-center text-xs font-semibold text-muted">
           План сделок: {num(managerIds.reduce((s, id) => s + (plans[id] || 0), 0))}
         </span>
+        {/* §6.3 ТЗ таргетолога: из карточки объекта администратор открывает
+            связанные кампании и историю показателей. Справочник общий, поэтому
+            рекламная история живёт здесь же, рядом с планами продаж. */}
+        <button
+          type="button"
+          onClick={() => setHistoryOpen(true)}
+          className="btn btn-ghost h-9 px-3 text-xs"
+          title="Связанные кампании и история показателей"
+        >
+          <Megaphone size={14} /> Кампании и показатели
+        </button>
       </div>
 
       <div className="mt-4">

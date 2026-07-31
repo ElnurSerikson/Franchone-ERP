@@ -86,6 +86,59 @@ function earliestReportDate(me: Doc<'employees'>, today: string): string {
 }
 
 // Мой отчёт за дату (по умолчанию сегодня) + короткая история.
+// Факт сдачи в едином виде — то, что нужно шапке, истории и сетке дисциплины.
+// Полный документ отчёта им не нужен, а форма его берёт отдельно.
+export type Submission = {
+  date: string
+  submittedAt: number
+  onTime: boolean
+  editCount: number
+  editedAt?: number
+  reopened?: boolean
+}
+
+// Отчёты таргетолога переехали в собственные таблицы модуля (targetReports) и
+// в dailyReports больше не пишутся. Без этой подмены он выглядел бы вечным
+// прогульщиком: шапка твердила бы «отчёт не заполнен» поверх отправленного,
+// история оставалась бы пустой, а заполняемость считалась бы по нулям.
+async function submissions(
+  ctx: QueryCtx,
+  e: Doc<'employees'>,
+  time: string,
+): Promise<Submission[]> {
+  if (e.position === 'targetolog') {
+    const rows = await ctx.db
+      .query('targetReports')
+      .withIndex('by_employee_date', (q) => q.eq('employeeId', e._id))
+      .collect()
+    return rows
+      .filter((r): r is typeof r & { submittedAt: number } => r.submittedAt !== undefined)
+      .map((r) => ({
+        date: r.date,
+        submittedAt: r.submittedAt,
+        onTime: r.submittedAt <= deadlineMs(r.date, time),
+        // Отправленный отчёт правит только администратор, и правка уходит в
+        // журнал аудита — счётчика правок у самой записи нет.
+        editCount: 0,
+      }))
+      .sort((a, b) => (a.date < b.date ? 1 : -1))
+  }
+  const rows = await ctx.db
+    .query('dailyReports')
+    .withIndex('by_employee', (q) => q.eq('employeeId', e._id))
+    .collect()
+  return rows
+    .map((r) => ({
+      date: r.date,
+      submittedAt: r.submittedAt,
+      onTime: effectiveOnTime(r, time),
+      editCount: r.editCount ?? 0,
+      editedAt: r.editedAt,
+      reopened: isReopened(r),
+    }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1))
+}
+
 export const mine = query({
   args: { date: v.optional(v.string()) },
   handler: async (ctx, { date }) => {
@@ -102,6 +155,7 @@ export const mine = query({
     all.sort((a, b) => (a.date < b.date ? 1 : -1)) // по дате, свежие сверху
     const normalizedAll = all.map((r) => ({ ...r, onTime: effectiveOnTime(r, time) }))
 
+    const sent = await submissions(ctx, me, time)
     const report = normalizedAll.find((r) => r.date === target) ?? null
     const reporting = me.role !== 'owner' && REPORTING.has(me.position)
     const closed = await isMonthClosed(ctx, target.slice(0, 7))
@@ -123,10 +177,13 @@ export const mine = query({
       deadlineTime: time,
       position: me.position,
       report,
+      // Факт сдачи за выбранный день и история — из единого источника, чтобы
+      // отчёты таргетолога не выпадали (см. submissions).
+      submission: sent.find((s) => s.date === target) ?? null,
       reopened: isReopened(report),
       editable,
       lockReason,
-      history: normalizedAll.slice(0, 21),
+      history: sent.slice(0, 21),
     }
   },
 })
@@ -238,11 +295,7 @@ async function disciplineRow(
   deadlinePassedToday: boolean,
   time: string,
 ) {
-  const reps = await ctx.db
-    .query('dailyReports')
-    .withIndex('by_employee', (q) => q.eq('employeeId', e._id))
-    .collect()
-  const byDate = new Map(reps.map((r) => [r.date, r]))
+  const byDate = new Map((await submissions(ctx, e, time)).map((r) => [r.date, r]))
 
   let onTime = 0
   let late = 0
@@ -256,18 +309,17 @@ async function disciplineRow(
     if (r) {
       // Переоткрытый день — отчёт удалён владельцем и ещё не пересдан: цифр
       // нет, засчитываем как пропуск, пока сотрудник (или владелец) не заполнит.
-      if (isReopened(r)) {
+      if (r.reopened) {
         missed++
         return { date: d, status: 'missed' as const, reopened: true }
       }
-      const reportOnTime = effectiveOnTime(r, time)
-      if (reportOnTime) onTime++
+      if (r.onTime) onTime++
       else late++
       return {
         date: d,
-        status: reportOnTime ? ('onTime' as const) : ('late' as const),
+        status: r.onTime ? ('onTime' as const) : ('late' as const),
         submittedAt: r.submittedAt,
-        edited: (r.editCount ?? 0) > 0,
+        edited: r.editCount > 0,
       }
     }
     if (d < today || (d === today && deadlinePassedToday)) {

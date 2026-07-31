@@ -84,8 +84,19 @@ export default defineSchema({
   campaigns: defineTable({
     code: v.string(), // человеко-читаемый ID, напр. FR-001
     account: v.string(),
-    category: v.string(),
-    brand: v.string(),
+    // Объект продаж, который рекламирует кампания. Справочник общий с отделом
+    // продаж (ТЗ таргетолога §6, §13) — так одна франшиза видна и в рекламных,
+    // и в продажных отчётах. optional: у кампаний, заведённых до связки, его
+    // ещё нет, и историю за прошлые месяцы терять нельзя.
+    objectId: v.optional(v.id('salesObjects')),
+    // Позиция внутри статусной группы реестра: таргетолог двигает кампании
+    // стрелками (§7.3). Меньше — выше.
+    sortOrder: v.optional(v.number()),
+    // УСТАРЕЛО. Свободные «Категория» и «Бренд / услуга» заменены объектом
+    // продаж (§2.2 — прямо исключены из первой версии). Оставлены
+    // необязательными ради старых карточек; в новых не заполняются.
+    category: v.optional(v.string()),
+    brand: v.optional(v.string()),
     campaign: v.string(),
     moneySource: v.union(v.literal('FRANCHONE'), v.literal('Партнёр')),
     // Цель кампании — задаётся при создании и неизменна; определяет метрику
@@ -106,7 +117,63 @@ export default defineSchema({
     // Софт-делит: кампания исчезает из всех списков, но запись и связанные
     // отчёты остаются в базе — чтобы расчёты прошлых месяцев не разъехались.
     archived: v.optional(v.boolean()),
-  }).index('by_code', ['code']),
+  })
+    .index('by_code', ['code'])
+    .index('by_object', ['objectId']),
+
+  // История статусов кампании (§5, §10.1): для каждого перехода Активна →
+  // Пауза → Завершена хранится дата и время. Нужна, чтобы через месяцы можно
+  // было восстановить, когда именно кампания работала.
+  campaignStatusHistory: defineTable({
+    campaignId: v.id('campaigns'),
+    from: v.optional(v.string()), // пусто — это первая запись при создании
+    to: v.string(),
+    at: v.number(),
+    byId: v.id('employees'),
+  }).index('by_campaign', ['campaignId']),
+
+  // Заголовок ежедневного отчёта таргетолога (§16: target_daily_reports).
+  // Отдельная сущность, а не блок внутри dailyReports: у отчёта своя
+  // блокировка после отправки и свой журнал административных правок.
+  targetReports: defineTable({
+    employeeId: v.id('employees'),
+    date: v.string(), // YYYY-MM-DD
+    month: v.string(), // YYYY-MM
+    submittedAt: v.optional(v.number()), // пусто — черновик, ещё не отправлен
+    comment: v.optional(v.string()),
+  })
+    .index('by_employee_date', ['employeeId', 'date'])
+    .index('by_month', ['month']),
+
+  // Строка отчёта: одна кампания за одну дату (§16: target_daily_report_rows).
+  // Бюджет — в ЦЕЛЫХ ЦЕНТАХ: §15 запрещает float для денег, а в Convex других
+  // числовых типов нет. Цена результата не хранится — она производная и
+  // считается из бюджета и результата, чтобы не разъехаться с ними.
+  targetReportRows: defineTable({
+    reportId: v.id('targetReports'),
+    campaignId: v.id('campaigns'),
+    date: v.string(), // дублируем для выборок по периоду без джойна
+    budgetCents: v.number(),
+    result: v.number(), // целое неотрицательное; единица зависит от цели
+  })
+    .index('by_report', ['reportId'])
+    .index('by_campaign', ['campaignId'])
+    .index('by_date', ['date']),
+
+  // Журнал административных исправлений (§9.3, §16). Отправленный отчёт
+  // правит только администратор и только с указанием причины; старое и новое
+  // значения сохраняются.
+  targetReportAudit: defineTable({
+    rowId: v.id('targetReportRows'),
+    campaignId: v.id('campaigns'),
+    at: v.number(),
+    byId: v.id('employees'),
+    reason: v.string(),
+    fromBudgetCents: v.number(),
+    toBudgetCents: v.number(),
+    fromResult: v.number(),
+    toResult: v.number(),
+  }).index('by_row', ['rowId']),
 
   // План на месяц по кампании (лист «Планы по месяцам»): план бюджета,
   // план заявок и вес в KPI. План CPL — производный, план/заявки.
@@ -145,6 +212,9 @@ export default defineSchema({
     status: v.union(v.literal('active'), v.literal('paused'), v.literal('archived')),
     managerIds: v.array(v.id('employees')),
     createdAt: v.number(),
+    // Кто завёл объект (§6.2 ТЗ таргетолога). optional: у объектов, созданных
+    // до появления поля, автора уже не восстановить.
+    createdBy: v.optional(v.id('employees')),
     comment: v.optional(v.string()),
   }).index('by_status', ['status']),
 
@@ -176,7 +246,10 @@ export default defineSchema({
     date: v.string(), // YYYY-MM-DD
     month: v.string(), // YYYY-MM
     newLeads: v.number(),
-    processedLeads: v.number(),
+    // Ручной ввод «Обработано новых заявок» отменён (дополнение 1.4, п.6):
+    // разрыв теперь считается как заявки − консультации. Поле оставлено
+    // опциональным — у старых отчётов значение есть, и стирать его нельзя.
+    processedLeads: v.optional(v.number()),
     newConsultations: v.number(),
     repeatConsultations: v.number(),
     newMeetings: v.number(),

@@ -226,7 +226,7 @@ function ReadContent({
   byCode,
 }: {
   report: Report
-  byCode: Map<string, { campaign: string; brand: string }>
+  byCode: Map<string, { campaign: string; brand?: string }>
 }) {
   return (
     <>
@@ -292,7 +292,7 @@ function ReadContent({
 
       {report.sales && (
         <div className="grid grid-cols-2 gap-3">
-          <Metric label="Обработано заявок" value={num(report.sales.leads)} />
+          <Metric label="Новые заявки" value={num(report.sales.leads)} />
           <Metric label="Звонки / встречи" value={num(report.sales.meetings)} />
           <Metric label="Продаж, шт" value={num(report.sales.sales)} />
           <Metric label="Сумма продаж" value={kzt(report.sales.revenue)} />
@@ -382,7 +382,6 @@ function SalesObjectReportRow({
   const [editing, setEditing] = useState(false)
   const [f, setF] = useState(() => ({
     newLeads: report ? String(report.newLeads) : '',
-    processedLeads: report ? String(report.processedLeads) : '',
     newConsultations: report ? String(report.newConsultations) : '',
     repeatConsultations: report ? String(report.repeatConsultations) : '',
     newMeetings: report ? String(report.newMeetings) : '',
@@ -411,7 +410,6 @@ function SalesObjectReportRow({
         date,
         objectId: object._id as Id<'salesObjects'>,
         newLeads: toInt(f.newLeads),
-        processedLeads: toInt(f.processedLeads),
         newConsultations: toInt(f.newConsultations),
         repeatConsultations: toInt(f.repeatConsultations),
         newMeetings: toInt(f.newMeetings),
@@ -452,7 +450,7 @@ function SalesObjectReportRow({
               <Metric label="Сделки" value={num(report.newDeals)} />
               <Metric label="Повт. консультации" value={num(report.repeatConsultations)} />
               <Metric label="Повт. встречи" value={num(report.repeatMeetings)} />
-              <Metric label="Предоплаты" value={num(report.newPrepayments)} />
+              <Metric label="Подписанные договоры" value={num(report.newPrepayments)} />
               <Metric label="Сумма" value={kzt(report.revenue)} />
             </div>
             {report.comment && (
@@ -471,12 +469,11 @@ function SalesObjectReportRow({
       <div className="font-semibold text-ink mb-3">{object.name}</div>
       <div className="grid grid-cols-2 gap-3">
         <EditField label="Новые заявки *" value={f.newLeads} onChange={(v) => setNum('newLeads', v)} />
-        <EditField label="Обработано новых" value={f.processedLeads} onChange={(v) => setNum('processedLeads', v)} />
         <EditField label="Новые консультации" value={f.newConsultations} onChange={(v) => setNum('newConsultations', v)} />
         <EditField label="Повторные консультации" value={f.repeatConsultations} onChange={(v) => setNum('repeatConsultations', v)} />
         <EditField label="Новые встречи / Zoom" value={f.newMeetings} onChange={(v) => setNum('newMeetings', v)} />
         <EditField label="Повторные встречи" value={f.repeatMeetings} onChange={(v) => setNum('repeatMeetings', v)} />
-        <EditField label="Предоплаты" value={f.newPrepayments} onChange={(v) => setNum('newPrepayments', v)} />
+        <EditField label="Подписанные договоры" value={f.newPrepayments} onChange={(v) => setNum('newPrepayments', v)} />
         <EditField label="Сделки" value={f.newDeals} onChange={(v) => setNum('newDeals', v)} />
         <div className="col-span-2">
           <EditField label="Фактически полученная сумма, ₸" value={f.revenue} onChange={(v) => setNum('revenue', v)} />
@@ -673,7 +670,7 @@ function OwnerEditor({
         <div className="grid grid-cols-2 gap-3">
           {(
             [
-              ['leads', 'Обработано заявок'],
+              ['leads', 'Новые заявки'],
               ['meetings', 'Звонки / встречи'],
               ['sales', 'Продаж, шт'],
               ['revenue', 'Сумма продаж'],

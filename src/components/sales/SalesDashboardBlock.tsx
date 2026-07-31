@@ -10,9 +10,11 @@ import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
 import { kzt, num, pct } from '@/lib/format'
 import { th, thRight, td, theadRow } from '@/lib/table'
 
+// newPrepayments — этап «Подписанные договоры» (дополнение 1.4, п.4).
+// Поле в базе не переименовывали: это переименование этапа, а не новый этап,
+// и вся накопленная история должна остаться на месте.
 type SalesTotals = {
   newLeads: number
-  processedLeads: number
   newConsultations: number
   repeatConsultations: number
   newMeetings: number
@@ -22,23 +24,20 @@ type SalesTotals = {
   revenue: number
   planDeals: number
   planCompletion: number | null
-  unprocessedLeads: number
+  notReachedConsultation: number
+  // Конверсии воронки — всегда число: при нулевом знаменателе 0% (п.3).
   conversions: {
-    consultation: number | null
-    meeting: number | null
-    prepayment: number | null
-    deal: number | null
-    total: number | null
+    consultation: number
+    meeting: number
+    contract: number
+    deal: number
+    total: number
   }
   activity: {
-    totalConsultations: number
-    avgConsultationsPerClient: number | null
-    repeatConsultationShare: number | null
-    totalMeetings: number
-    avgMeetingsPerClient: number | null
-    repeatMeetingShare: number | null
+    repeatConsultations: number
+    repeatMeetings: number
+    totalRepeatTouches: number
     totalInteractions: number
-    interactionsPerDeal: number | null
   }
 }
 
@@ -62,12 +61,17 @@ export default function SalesDashboardBlock({
   role,
   me,
   employees = [],
+  month: monthProp,
 }: {
   role: Role
   me: Employee
   employees?: Employee[]
+  // Месяц можно задать снаружи — тогда блок берёт его у страницы и своего
+  // переключателя не рисует. Два пикера периода на одном экране путают.
+  month?: string
 }) {
-  const [month, setMonth] = useState(CURRENT_MONTH)
+  const [ownMonth, setOwnMonth] = useState(CURRENT_MONTH)
+  const month = monthProp ?? ownMonth
   const [objectId, setObjectId] = useState('all')
   const [employeeId, setEmployeeId] = useState('all')
   const manager = role === 'owner' || role === 'head'
@@ -101,7 +105,7 @@ export default function SalesDashboardBlock({
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           <Filter size={17} className="text-green" />
           <h3 className="sec-title flex-1">Продажи · LIVE-воронка</h3>
-          <MonthSwitch month={month} onChange={setMonth} />
+          {monthProp === undefined && <MonthSwitch month={month} onChange={setOwnMonth} />}
         </div>
 
         <div className={`grid gap-3 mb-5 ${manager ? 'lg:grid-cols-3' : 'lg:grid-cols-2'}`}>
@@ -149,8 +153,8 @@ export default function SalesDashboardBlock({
           />
           <SalesStat
             icon={Inbox}
-            label="Не обработано"
-            value={num(totals.unprocessedLeads)}
+            label="Не доведено до консультации"
+            value={num(totals.notReachedConsultation)}
             foot={`Из ${num(totals.newLeads)} новых заявок`}
           />
         </div>
@@ -161,18 +165,18 @@ export default function SalesDashboardBlock({
             <FunnelCard label="Заявки" value={totals.newLeads} />
             <FunnelCard label="Консультации" value={totals.newConsultations} />
             <FunnelCard label="Встречи / Zoom" value={totals.newMeetings} />
-            <FunnelCard label="Предоплаты" value={totals.newPrepayments} />
+            <FunnelCard label="Подписанные договоры" value={totals.newPrepayments} />
             <FunnelCard label="Сделки" value={totals.newDeals} strong />
           </div>
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 mt-3 text-sm text-muted">
-            <span>→ {fmtPct(totals.conversions.consultation)}</span>
-            <span>→ {fmtPct(totals.conversions.meeting)}</span>
-            <span>→ {fmtPct(totals.conversions.prepayment)}</span>
-            <span>→ {fmtPct(totals.conversions.deal)}</span>
+            <span>→ {funnelPct(totals.conversions.consultation)}</span>
+            <span>→ {funnelPct(totals.conversions.meeting)}</span>
+            <span>→ {funnelPct(totals.conversions.contract)}</span>
+            <span>→ {funnelPct(totals.conversions.deal)}</span>
           </div>
           <div className="flex items-center gap-3 justify-between flex-wrap mt-4 text-sm text-muted">
-            <span>Обработано заявок: {num(totals.processedLeads)} из {num(totals.newLeads)}</span>
-            <span>Общая конверсия в сделку: {fmtPct(totals.conversions.total)}</span>
+            <span>Не доведено до консультации: {num(totals.notReachedConsultation)}</span>
+            <span>Общая конверсия в сделку: {funnelPct(totals.conversions.total)}</span>
           </div>
         </div>
       </section>
@@ -182,7 +186,7 @@ export default function SalesDashboardBlock({
       </section>
 
       <section className="card p-5">
-        <ActivityPanel totals={totals} managerRows={manager ? managerRows : []} />
+        <ActivityPanel totals={totals} />
       </section>
     </div>
   )
@@ -280,34 +284,20 @@ function SalesObjectsTable({ rows }: { rows: SalesRow[] }) {
   )
 }
 
-function ActivityPanel({ totals, managerRows }: { totals: SalesTotals; managerRows: SalesRow[] }) {
+// Блок активности — ровно четыре цифры (дополнение 1.4, п.7). Он не должен
+// повторять показатели и конверсии воронки, поэтому долей, средних и рейтинга
+// менеджеров здесь больше нет.
+function ActivityPanel({ totals }: { totals: SalesTotals }) {
+  const a = totals.activity
   return (
     <div>
-      <div className="text-lg font-semibold text-ink mb-4">Повторная активность</div>
-      <div className="grid grid-cols-2 gap-2 mb-4 md:grid-cols-3 xl:grid-cols-6">
-        <Mini label="Всего консультаций" value={num(totals.activity.totalConsultations)} />
-        <Mini label="Доля повторных" value={fmtPct(totals.activity.repeatConsultationShare)} />
-        <Mini label="Всего встреч" value={num(totals.activity.totalMeetings)} />
-        <Mini label="Повторных встреч" value={fmtPct(totals.activity.repeatMeetingShare)} />
-        <Mini label="Взаимодействий" value={num(totals.activity.totalInteractions)} />
-        <Mini label="На сделку" value={fmtNum(totals.activity.interactionsPerDeal)} />
+      <div className="text-lg font-semibold text-ink mb-4">Активность менеджера</div>
+      <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+        <Mini label="Повторные консультации" value={num(a.repeatConsultations)} />
+        <Mini label="Повторные встречи / Zoom" value={num(a.repeatMeetings)} />
+        <Mini label="Всего повторных касаний" value={num(a.totalRepeatTouches)} />
+        <Mini label="Всего взаимодействий" value={num(a.totalInteractions)} />
       </div>
-      {managerRows.length > 0 && (
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-          {managerRows.slice(0, 5).map((r) => (
-            <div key={r.employeeId} className="rounded-xl border border-line p-3 flex items-center gap-2">
-              <span
-                className="w-7 h-7 rounded-full grid place-items-center text-white text-[11px] font-bold shrink-0"
-                style={{ background: r.avatarColor ?? '#057269' }}
-              >
-                {r.initials ?? '—'}
-              </span>
-              <span className="text-sm text-ink flex-1 truncate">{r.name}</span>
-              <span className="text-sm font-semibold text-ink">{num(r.activity.totalInteractions)}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
@@ -338,5 +328,7 @@ function SalesSkeleton() {
   )
 }
 
+// Прочерк — там, где делить не на что (выполнение плана без плана).
 const fmtPct = (value: number | null) => (value === null ? '—' : pct(value, 1))
-const fmtNum = (value: number | null) => (value === null ? '—' : num(value, 1))
+// Конверсии воронки прочерка не знают: нулевой знаменатель даёт 0% (п.3).
+const funnelPct = (value: number) => pct(value, 1)

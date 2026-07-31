@@ -1,16 +1,19 @@
 import { useState, type ReactNode } from 'react'
 import { useQuery } from 'convex/react'
 import {
-  TrendingUp, Wallet, Building2, User, Users, Target,
-  ShoppingCart, Percent, Receipt, Loader2, ChevronLeft, ChevronRight, type LucideIcon,
+  TrendingUp, Wallet, Building2, User, Target,
+  Percent, Loader2, ChevronLeft, ChevronRight, type LucideIcon,
 } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import { useApp, useCurrentUser } from '@/store'
 import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
-import { computeSmm, computeTargetolog, spendBySource } from '@/lib/kpi'
-import { mapSmm, mapCampaign } from '@/lib/mappers'
-import { goalMeta } from '../../convex/campaignGoals'
+import SalesDashboardBlock from '@/components/sales/SalesDashboardBlock'
+import TargetologDashboard from '@/components/campaigns/TargetologDashboard'
+import { computeSmm } from '@/lib/kpi'
+import { mapSmm } from '@/lib/mappers'
+import { useData } from '@/lib/useData'
+import { personalPlan } from '@/lib/selectors'
 import { kzt, num, pct } from '@/lib/format'
 import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
 
@@ -102,8 +105,8 @@ export default function Kpi() {
       )}
 
       {active === 'smm' && <SmmKpi month={month} />}
-      {active === 'targetolog' && <TargetologKpi month={month} />}
-      {active === 'sales' && <SalesKpi month={month} monthLabel={monthLabel} />}
+      {active === 'targetolog' && <TargetologKpi />}
+      {active === 'sales' && <SalesKpi month={month} />}
       {active === null && (
         <EmptyKpi
           icon={Target}
@@ -195,149 +198,47 @@ function SmmKpi({ month }: { month: string }) {
   )
 }
 
-// ——— Таргетолог: KPI по рекламным кампаниям ———
-function TargetologKpi({ month }: { month: string }) {
-  const raw = useQuery(api.campaigns.list, { month })
-  const settings = useQuery(api.settings.get, {})
-  const payroll = useQuery(api.payroll.month, { month })
-  if (raw === undefined || settings === undefined || payroll === undefined) return <Loading />
-  const campaigns = raw.map(mapCampaign)
-
-  const tg = computeTargetolog(campaigns, {
-    leadWeight: settings.leadWeight,
-    cplWeight: settings.cplWeight,
-  })
-  const src = spendBySource(campaigns)
-  // Выплата — из авторитетного персонального расчёта (оклад у каждого свой).
-  const payoutVal = (payroll?.rows ?? [])
-    .filter((r) => r.position === 'targetolog')
-    .reduce((s, r) => s + r.payout, 0)
-
-  return (
-    <>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
-        <StatCard highlight label="Общий расход" value={kzt(tg.totalSpend)} foot="реклама за месяц" icon={Wallet} />
-        <StatCard label="Деньги FRANCHONE" value={kzt(src.FRANCHONE.spend)} foot="свои услуги" icon={Building2} />
-        <StatCard label="Деньги партнёров" value={kzt(src.Партнёр.spend)} foot="партнёрские проекты" icon={Users} />
-        <StatCard label="Результат" value={num(tg.totalLeads)} foot="сумма по метрикам целей" icon={Target} />
-      </div>
-
-      <div className="card grid grid-cols-3 divide-x divide-line mb-5">
-        <MiniMetric label="Средний CPL" value={kzt(tg.avgCpl)} />
-        <MiniMetric label="Общий KPI" value={pct(tg.totalKpi, 1)} accent />
-        <MiniMetric label="Выплата" value={kzt(payoutVal)} />
-      </div>
-
-      <div className="card overflow-hidden">
-        {campaigns.length === 0 ? (
-          <div className="p-10 text-center text-sm text-muted">
-            Нет активных кампаний за этот месяц. Добавьте кампании, чтобы наполнить показатели.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[680px]">
-              <thead>
-                <tr className="bg-[#e2f2ef]">
-                  <Th>Кампания · метрика</Th>
-                  <Th>Источник</Th>
-                  <Th right>Бюджет</Th>
-                  <Th right>Результат</Th>
-                  <Th right>Цена</Th>
-                  <Th right>KPI</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {tg.rows.map((r) => (
-                  <tr key={r.campaign.id} className="border-t border-line hover:bg-chip/40 transition-colors">
-                    <td className="px-5 py-3 text-sm text-ink-2">
-                      <div>
-                        <span className="font-medium text-ink">{r.campaign.brand}</span>
-                        <span className="text-xs text-muted ml-1.5">{r.campaign.id}</span>
-                      </div>
-                      <span className="text-[11px] text-green-d font-medium">{goalMeta(r.campaign.goal).metric}</span>
-                    </td>
-                    <td className="px-5 py-3 text-sm">
-                      <span
-                        className={`chip ${
-                          r.campaign.moneySource === 'FRANCHONE' ? 'bg-[#e2f2ef] text-green-d' : 'bg-chip text-ink-2'
-                        }`}
-                      >
-                        {r.campaign.moneySource}
-                      </span>
-                    </td>
-                    <td className="px-5 py-3 text-sm text-ink-2 text-right tabular-nums">{kzt(r.campaign.factBudget)}</td>
-                    <td className="px-5 py-3 text-sm text-ink-2 text-right tabular-nums">{num(r.campaign.factLeads)}</td>
-                    <td className="px-5 py-3 text-sm text-ink-2 text-right tabular-nums">{kzt(r.factCpl)}</td>
-                    <td className="px-5 py-3 text-right">
-                      <PctChip value={r.kpi} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </>
-  )
+// ——— Таргетолог: аналитика рекламы по новому ТЗ ———
+// Раздел KPI для этой должности заменён дашбордом модуля: в ТЗ таргетолога
+// нет ни плана, ни веса, ни процента KPI — только бюджет, результат и цена.
+function TargetologKpi() {
+  return <TargetologDashboard />
 }
 
-// ——— Отдел продаж: результаты + воронка (данные из ежедневных отчётов §3.3) ———
-function SalesKpi({ month, monthLabel }: { month: string; monthLabel: string }) {
-  const s = useQuery(api.sales.summary, { month })
-  if (s === undefined) return <Loading />
-
-  // Пустого состояния нет намеренно: месяц без отчётов — это тоже результат,
-  // и нули в карточках читаются понятнее, чем заглушка вместо показателей.
-  const { leads, meetings, deals, revenue } = s
-
-  const conv = leads ? deals / leads : 0
-  const avgCheck = deals ? revenue / deals : 0
-  const funnel = [
-    { label: 'Заявки', value: leads, color: '#057269' },
-    { label: 'Звонки / встречи', value: meetings, color: '#0a857a' },
-    { label: 'Сделки', value: deals, color: '#4db3a6' },
-  ]
+// KPI отдела продаж — основной экран аналитики (дополнение 1.4, п.1 и п.2).
+// Сюда переехало всё, что раньше жило на Дашборде: карточки, LIVE-воронка,
+// таблица по объектам и блок активности. У менеджера сверху добавляются его
+// личный KPI и предварительный заработок; у руководства их нет — оно смотрит
+// агрегат по отделу с фильтрами по менеджеру и объекту.
+function SalesKpi({ month }: { month: string }) {
+  const { role } = useApp()
+  const me = useCurrentUser()
+  const { activeEmployees } = useData()
+  const manager = role === 'owner' || role === 'head'
+  const pay = useQuery(api.payroll.month, manager ? 'skip' : { month })
+  const plan = manager ? null : personalPlan(me, pay?.rows?.[0])
 
   return (
     <>
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
-        <StatCard highlight label="Выручка" value={kzt(revenue)} foot="за месяц" icon={Wallet} />
-        <StatCard label="Сделок" value={num(deals)} foot="закрыто за месяц" icon={ShoppingCart} />
-        <StatCard label="Конверсия" value={pct(conv, 1)} foot="заявка → сделка" icon={Percent} />
-        <StatCard label="Средний чек" value={kzt(avgCheck)} foot="выручка / сделки" icon={Receipt} />
-      </div>
-
-      <div className="card grid grid-cols-3 divide-x divide-line mb-5">
-        <MiniMetric label="Заявка → встреча" value={pct(leads ? meetings / leads : 0, 0)} />
-        <MiniMetric label="Встреча → сделка" value={pct(meetings ? deals / meetings : 0, 0)} accent />
-        <MiniMetric label="Сделок за месяц" value={num(deals)} />
-      </div>
-
-      <div className="card p-5">
-        <h3 className="sec-title mb-4">Воронка продаж · {monthLabel}</h3>
-        <div className="flex flex-col gap-3.5">
-          {funnel.map((st, i) => (
-            <div key={st.label}>
-              <div className="flex items-baseline justify-between text-sm mb-1.5">
-                <span className="text-ink-2">{st.label}</span>
-                <span className="font-semibold text-ink tabular-nums">
-                  {num(st.value)}
-                  {i > 0 && leads ? (
-                    <span className="text-muted font-normal"> · {pct(st.value / leads, 0)}</span>
-                  ) : null}
-                </span>
-              </div>
-              <div className="h-3.5 rounded-full bg-line overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all"
-                  style={{ width: `${leads ? Math.max((st.value / leads) * 100, 2) : 0}%`, background: st.color }}
-                />
-              </div>
-            </div>
-          ))}
+      {plan && (
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 mb-5">
+          <StatCard highlight label="Мой KPI" value={pct(plan.kpi, 1)} foot={`за ${formatMonth(month)}`} icon={Target} />
+          <StatCard
+            label="Заработано"
+            value={kzt(plan.earned)}
+            foot={`предварительно · оклад ${kzt(plan.salary)}`}
+            icon={Wallet}
+          />
+          <StatCard
+            label="Выполнение плана"
+            value={pct(plan.ratio)}
+            foot={`${num(plan.fact)} из ${num(plan.target)} · ${plan.caption}`}
+            icon={Percent}
+          />
         </div>
-      </div>
+      )}
+
+      <SalesDashboardBlock role={role} me={me} employees={activeEmployees} month={month} />
     </>
   )
 }
