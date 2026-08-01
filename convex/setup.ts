@@ -7,7 +7,8 @@
 // Запуск — из CLI, у него есть админский доступ к internal-функциям:
 //   npx convex run setup:seedCatalogs
 //   npx convex run setup:addHiddenEmployee '{"email":"…","name":"…","position":"smm"}'
-import { internalMutation } from './_generated/server'
+import { internalMutation, internalQuery } from './_generated/server'
+import { salesSummary } from './sales'
 import { v } from 'convex/values'
 import type { Doc, Id } from './_generated/dataModel'
 import { resultCostCents } from './campaignGoals'
@@ -1624,6 +1625,235 @@ export const makeDevSandbox = internalMutation({
       removedEmployees: drop.map((e) => e.name),
       removedPersonalRows: removed,
       removedTasks: tasksRemoved,
+    }
+  },
+})
+
+// Демо-данные под контрольный пример из «Дополнения к ТЗ — Live-воронка»
+// (§2, §5, §6). Нужны, чтобы приёмку можно было сверить глазами с цифрами
+// заказчика, а не на слово.
+//
+// Три активных объекта в сумме дают ровно 20 / 10 / 5 / 2 / 1 — воронка обязана
+// показать 100% / 50% / 50% / 40% / 50%, а общая конверсия — 5%.
+// Четвёртый объект приостановлен и набит крупными числами: если он просочится
+// в сводный режим «Все активные объекты», цифры немедленно разъедутся — это и
+// есть проверка §5.
+//
+// Только dev. Запуск: npx convex run setup:seedDevFunnelSpecDemo
+export const seedDevFunnelSpecDemo = internalMutation({
+  args: { email: v.optional(v.string()) },
+  handler: async (ctx, { email }) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+
+    // Отдельный демо-менеджер: живые dev-аккаунты заняты другими должностями,
+    // а воронка считает только сотрудников с должностью sales. Логин ему не
+    // нужен — владелец видит сводку по всему отделу.
+    const low = (email ?? 'demo.sales@franchone.dev').toLowerCase().trim()
+    const pos = await ctx.db
+      .query('positions')
+      .withIndex('by_slug', (q) => q.eq('slug', 'sales'))
+      .first()
+    if (!pos) throw new Error('В справочнике нет должности sales')
+    const found = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    const managerId =
+      found?._id ??
+      (await ctx.db.insert('employees', {
+        name: 'Демо Продажник',
+        role: 'employee',
+        position: pos.slug,
+        positionLabel: pos.label,
+        department: 'Продажи',
+        salary: 400_000,
+        email: low,
+        phone: '',
+        avatarColor: '#0a857a',
+        initials: 'ДП',
+        status: 'active',
+        hiredAt: '2026-07-01',
+      }))
+    await ctx.db.patch(managerId, {
+      position: pos.slug,
+      positionLabel: pos.label,
+      status: 'active',
+      hidden: false,
+    })
+    const manager = { _id: managerId }
+
+    const today = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
+    const dayBefore = (n: number) =>
+      new Date(Date.parse(`${today}T00:00:00Z`) - n * 86400000).toISOString().slice(0, 10)
+
+    const plan: {
+      name: string
+      status: 'active' | 'paused'
+      // Дни назад от сегодня. 1 и 4 попадают в «последние 7 дней», 9 — нет:
+      // так на одних данных видно и полный пример ТЗ, и работу фильтра.
+      rows: { day: number; l: number; c: number; m: number; p: number; d: number; rev: number }[]
+    }[] = [
+      {
+        name: 'ТЗ · Объект A',
+        status: 'active',
+        rows: [
+          { day: 9, l: 6, c: 4, m: 2, p: 1, d: 1, rev: 1_500_000 },
+          { day: 4, l: 4, c: 2, m: 1, p: 0, d: 0, rev: 0 },
+        ],
+      },
+      {
+        name: 'ТЗ · Объект B',
+        status: 'active',
+        rows: [
+          { day: 4, l: 4, c: 2, m: 1, p: 1, d: 0, rev: 0 },
+          { day: 1, l: 3, c: 1, m: 1, p: 0, d: 0, rev: 0 },
+        ],
+      },
+      {
+        name: 'ТЗ · Объект C',
+        status: 'active',
+        rows: [{ day: 1, l: 3, c: 1, m: 0, p: 0, d: 0, rev: 0 }],
+      },
+      {
+        name: 'ТЗ · Объект на паузе',
+        status: 'paused',
+        rows: [{ day: 1, l: 50, c: 40, m: 30, p: 20, d: 10, rev: 99_000_000 }],
+      },
+    ]
+
+    const existing = await ctx.db.query('salesObjects').collect()
+    let inserted = 0
+    for (const p of plan) {
+      const found = existing.find((o) => o.name === p.name)
+      const objectId =
+        found?._id ??
+        (await ctx.db.insert('salesObjects', {
+          name: p.name,
+          type: 'service',
+          status: 'active',
+          managerIds: [],
+          createdAt: Date.now(),
+        }))
+      await ctx.db.patch(objectId, { status: 'active', managerIds: [manager._id] })
+
+      // Статус объекта в месяце — то, что читает сводный режим. Ставим его на
+      // каждый месяц, который задевают строки: период может пересечь границу.
+      const months = new Set(p.rows.map((r) => dayBefore(r.day).slice(0, 7)))
+      for (const month of months) {
+        const setting = await ctx.db
+          .query('salesObjectMonths')
+          .withIndex('by_object_month', (q) => q.eq('objectId', objectId).eq('month', month))
+          .first()
+        const fields = {
+          objectStatus: p.status,
+          status: (p.status === 'active' ? 'selling' : 'not_selling') as 'selling' | 'not_selling',
+          managerPlans: [{ managerId: manager._id, planDeals: 1 }],
+        }
+        if (setting) await ctx.db.patch(setting._id, fields)
+        else await ctx.db.insert('salesObjectMonths', { objectId, month, ...fields })
+      }
+
+      for (const r of p.rows) {
+        const date = dayBefore(r.day)
+        const dup = await ctx.db
+          .query('salesObjectReports')
+          .withIndex('by_employee_date_object', (q) =>
+            q.eq('employeeId', manager._id).eq('date', date).eq('objectId', objectId),
+          )
+          .first()
+        const fields = {
+          newLeads: r.l,
+          newConsultations: r.c,
+          repeatConsultations: 0,
+          newMeetings: r.m,
+          repeatMeetings: 0,
+          newPrepayments: r.p,
+          newDeals: r.d,
+          revenue: r.rev,
+        }
+        if (dup) {
+          await ctx.db.patch(dup._id, fields)
+          continue
+        }
+        await ctx.db.insert('salesObjectReports', {
+          employeeId: manager._id,
+          objectId,
+          date,
+          month: date.slice(0, 7),
+          ...fields,
+          submittedAt: Date.parse(`${date}T18:00:00+05:00`),
+          editCount: 0,
+        })
+        inserted++
+      }
+    }
+
+    return {
+      inserted,
+      expectMonth: 'июль: 20 / 10 / 5 / 2 / 1 → 100% / 50% / 50% / 40% / 50%, общая 5%',
+      expectLast7Days: '14 / 6 / 3 / 1 / 0 → 100% / 42,9% / 50% / 33,3% / 0%, общая 0%',
+      note: 'Объект на паузе (50/40/30/20/10) в сводный режим попадать не должен',
+    }
+  },
+})
+
+// Прогон боевого расчёта Live-воронки из CLI (только dev). Личности в CLI нет,
+// поэтому сотрудник задаётся явно — всё остальное считает та же salesSummary,
+// что и на экране KPI.
+// npx convex run setup:devFunnelCheck '{"from":"2026-07-01","to":"2026-07-31"}'
+export const devFunnelCheck = internalQuery({
+  args: {
+    email: v.optional(v.string()),
+    month: v.optional(v.string()),
+    from: v.optional(v.string()),
+    to: v.optional(v.string()),
+    objectName: v.optional(v.string()),
+  },
+  handler: async (ctx, { email, month, from, to, objectName }) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+    const low = (email ?? 'elnur.serikson@gmail.com').toLowerCase().trim()
+    const viewer = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (!viewer) throw new Error(`Сотрудник ${low} не найден`)
+
+    let objectId: Id<'salesObjects'> | undefined
+    if (objectName) {
+      const o = (await ctx.db.query('salesObjects').collect()).find((x) => x.name === objectName)
+      if (!o) throw new Error(`Объект «${objectName}» не найден`)
+      objectId = o._id
+    }
+
+    const s = await salesSummary(ctx, { month, from, to, objectId }, async () => viewer)
+    const t = s.totals
+    const pct = (x: number) => {
+      const value = x * 100
+      const rounded = Math.round(value * 10) / 10
+      return (Number.isInteger(rounded) ? rounded : rounded.toFixed(1).replace('.', ',')) + '%'
+    }
+    // Ключи только ASCII: Convex не принимает кириллицу в именах полей.
+    return {
+      period: `${s.period.from} … ${s.period.to}`,
+      planApplies: s.period.planApplies,
+      funnel: [
+        `Заявки              ${t.newLeads} · 100%`,
+        `Консультации        ${t.newConsultations} · ${pct(t.conversions.consultation)}`,
+        `Встречи             ${t.newMeetings} · ${pct(t.conversions.meeting)}`,
+        `Договоры            ${t.newPrepayments} · ${pct(t.conversions.contract)}`,
+        `Сделки              ${t.newDeals} · ${pct(t.conversions.deal)}`,
+      ],
+      totalConversion: pct(t.conversions.total),
+      planDeals: t.planDeals,
+      objects: (s.objectRows as { name: string; newLeads: number; newDeals: number }[]).map(
+        (r) => `${r.name}: ${r.newLeads} заявок → ${r.newDeals} сделок`,
+      ),
     }
   },
 })

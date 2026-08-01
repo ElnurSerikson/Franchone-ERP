@@ -263,6 +263,9 @@ export default defineSchema({
     editCount: v.number(),
   })
     .index('by_month', ['month'])
+    // Диапазон дат для Live-воронки: ТЗ разрешает выбирать не только месяц,
+    // но и «последние 7/14 дней», конкретный день и произвольный период.
+    .index('by_date', ['date'])
     .index('by_employee', ['employeeId'])
     .index('by_object', ['objectId'])
     .index('by_employee_date_object', ['employeeId', 'date', 'objectId']),

@@ -22,6 +22,20 @@ export const pct = (x: number, digits = 0) =>
     minimumFractionDigits: digits,
   }).format(x * 100) + '%'
 
+// Конверсии Live-воронки (ТЗ Live-воронки §7): знак после запятой ставим
+// только у дробного результата. В примерах заказчика 100%, 50%, 40%, 20% и 5%
+// написаны без знаков, а 3,3% — со знаком; «50,0%» читается как лишний шум.
+export const pctAuto = (x: number) => {
+  const value = x * 100
+  const rounded = Math.round(value * 10) / 10
+  return (
+    new Intl.NumberFormat('ru-RU', {
+      minimumFractionDigits: Number.isInteger(rounded) ? 0 : 1,
+      maximumFractionDigits: 1,
+    }).format(value) + '%'
+  )
+}
+
 // Русское склонение по числу: plural(1, 'сотрудник', 'сотрудника', 'сотрудников').
 export function plural(n: number, one: string, few: string, many: string): string {
   const mod10 = n % 10

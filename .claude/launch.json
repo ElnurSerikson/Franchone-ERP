@@ -8,6 +8,12 @@
       "port": 5173
     },
     {
+      "name": "franchone-dev-alt",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5174"],
+      "port": 5174
+    },
+    {
       "name": "franchone-preview",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "preview", "--", "--port", "4173", "--host"],

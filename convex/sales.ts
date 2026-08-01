@@ -85,6 +85,31 @@ function businessToday(): string {
   return new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
 }
 
+// ——— Период Live-воронки (дополнение «Live-воронка», §8) ———
+// Все пять вариантов выбора (месяц, последние 7/14 дней, конкретный день,
+// произвольный период) сводятся к паре дат включительно и отличаются только
+// границами — считает их фронт, сюда приходит уже готовый отрезок.
+
+function monthEnd(month: string): string {
+  const [y, m] = month.split('-').map(Number)
+  // Нулевой день следующего месяца — это последний день текущего.
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+}
+
+// Месяцы, которые задевает период: «последние 7 дней» на стыке месяцев
+// попадают сразу в два, и настройки объектов нужно брать из обоих.
+function monthsBetween(from: string, to: string): string[] {
+  const out: string[] = []
+  let cur = from.slice(0, 7)
+  const last = to.slice(0, 7)
+  while (cur <= last && out.length < 120) {
+    out.push(cur)
+    const [y, m] = cur.split('-').map(Number)
+    cur = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
+  }
+  return out
+}
+
 function deadlineMs(date: string, time: string): number {
   return Date.parse(`${date}T${time}:00${TZ}`)
 }
@@ -681,15 +706,53 @@ export const ownerSetDaily = mutation({
 
 // ——— LIVE-воронка и дашборды ———
 
+const summaryArgs = {
+  month: v.optional(v.string()),
+  // Границы периода включительно (§8). Без них берётся весь календарный
+  // месяц — прежнее поведение сохраняется как вариант «Выбранный месяц».
+  from: v.optional(v.string()),
+  to: v.optional(v.string()),
+  employeeId: v.optional(v.id('employees')),
+  objectId: v.optional(v.id('salesObjects')),
+}
+
+type SummaryArgs = {
+  month?: string
+  from?: string
+  to?: string
+  employeeId?: Id<'employees'>
+  objectId?: Id<'salesObjects'>
+}
+
 export const summary = query({
-  args: {
-    month: v.optional(v.string()),
-    employeeId: v.optional(v.id('employees')),
-    objectId: v.optional(v.id('salesObjects')),
-  },
-  handler: async (ctx, { month: arg, employeeId, objectId }) => {
+  args: summaryArgs,
+  handler: (ctx, args) => salesSummary(ctx, args, () => currentEmployee(ctx)),
+})
+
+// Тело вынесено из query, чтобы dev-проверка могла прогнать тот же расчёт от
+// имени конкретного сотрудника: в CLI личности нет, а сверять надо именно
+// боевую логику, а не её копию.
+export async function salesSummary(
+  ctx: QueryCtx,
+  { month: arg, from: fromArg, to: toArg, employeeId, objectId }: SummaryArgs,
+  viewer: () => Promise<Doc<'employees'> | null>,
+) {
+  {
     const month = arg ?? businessMonth()
-    const me = await currentEmployee(ctx)
+    // Перепутанные местами даты не должны давать пустой отчёт.
+    const a = fromArg ?? `${month}-01`
+    const b = toArg ?? monthEnd(month)
+    const from = a <= b ? a : b
+    const to = a <= b ? b : a
+    const months = monthsBetween(from, to)
+    // План задаётся на календарный месяц. Если период — не целый месяц,
+    // сравнивать факт не с чем: план не показываем, а не делим его на глаз.
+    const planMonth =
+      months.length === 1 && from === `${months[0]}-01` && to === monthEnd(months[0])
+        ? months[0]
+        : null
+    const period = { from, to, planApplies: planMonth !== null }
+    const me = await viewer()
     const empty = {
       leads: 0,
       meetings: 0,
@@ -697,6 +760,7 @@ export const summary = query({
       revenue: 0,
       days: 0,
       planRevenue: 0,
+      period,
       totals: buildAnalytics(zeroTotals(), 0),
       objectRows: [] as unknown[],
       managerRows: [] as unknown[],
@@ -729,40 +793,65 @@ export const summary = query({
 
     const objects = await ctx.db.query('salesObjects').collect()
     const objectById = new Map(objects.map((o) => [o._id, o]))
-    const monthRows = await ctx.db
-      .query('salesObjectMonths')
-      .withIndex('by_month', (q) => q.eq('month', month))
-      .collect()
-    const settingByObject = new Map(monthRows.map((r) => [r.objectId, r]))
+    // Настройки берём по всем месяцам периода — период может пересечь границу
+    // месяца. Месяцы идут по возрастанию, поэтому в settingByObject остаётся
+    // самая свежая строка: статус объекта — это его состояние к концу периода.
+    const monthRows = (
+      await Promise.all(
+        months.map((m) =>
+          ctx.db
+            .query('salesObjectMonths')
+            .withIndex('by_month', (q) => q.eq('month', m))
+            .collect(),
+        ),
+      )
+    ).flat()
+    const settingByObject = new Map<Id<'salesObjects'>, Doc<'salesObjectMonths'>>()
+    const assignedByObject = new Map<Id<'salesObjects'>, Set<Id<'employees'>>>()
+    for (const row of monthRows) {
+      settingByObject.set(row.objectId, row)
+      const assigned = assignedByObject.get(row.objectId) ?? new Set<Id<'employees'>>()
+      for (const p of row.managerPlans) assigned.add(p.managerId)
+      assignedByObject.set(row.objectId, assigned)
+    }
+
+    // §5: «Все активные объекты продаж» — именно активные. Приостановленные и
+    // архивные в общий итог не входят ни количествами, ни конверсиями.
+    const activeObjectIds = new Set(
+      objects
+        .filter((o) => (settingByObject.get(o._id)?.objectStatus ?? o.status) === 'active')
+        .map((o) => o._id),
+    )
 
     const objectOptions = objects
       .filter((o) => {
-        const setting = settingByObject.get(o._id)
-        const effectiveObjectStatus = setting?.objectStatus ?? o.status
-        if (setting) {
-          return effectiveObjectStatus === 'active' && setting.managerPlans.some((p) => visibleEmployeeIds.has(p.managerId))
-        }
-        return effectiveObjectStatus === 'active'
+        if (!activeObjectIds.has(o._id)) return false
+        const assigned = assignedByObject.get(o._id)
+        return !assigned || [...assigned].some((id) => visibleEmployeeIds.has(id))
       })
       .map((o) => ({
         _id: o._id,
         name: o.name,
         type: o.type,
         status: o.status,
-        selling: (settingByObject.get(o._id)?.objectStatus ?? o.status) === 'active',
+        selling: true,
       }))
 
     const reports = (
       await ctx.db
         .query('salesObjectReports')
-        .withIndex('by_month', (q) => q.eq('month', month))
+        .withIndex('by_date', (q) => q.gte('date', from).lte('date', to))
         .collect()
     ).filter(
       (r) =>
         visibleEmployeeIds.has(r.employeeId) &&
-        (!objectId || r.objectId === objectId) &&
-        objectById.has(r.objectId),
+        objectById.has(r.objectId) &&
+        // Выбранный вручную объект показываем как есть; в сводном режиме —
+        // только активные.
+        (objectId ? r.objectId === objectId : activeObjectIds.has(r.objectId)),
     )
+    // Строки планов — только целого месяца: за неделю плана не существует.
+    const planRows = planMonth ? monthRows.filter((r) => r.month === planMonth) : []
 
     const totals = zeroTotals()
     const days = new Set(reports.map((r) => `${r.employeeId}:${r.date}`))
@@ -778,25 +867,30 @@ export const summary = query({
       totalsByManager.set(r.employeeId, managerTotals)
     }
 
+    const planByObject = new Map(planRows.map((r) => [r.objectId, r]))
     const planDealsForObject = (oid: Id<'salesObjects'>) =>
-      (settingByObject.get(oid)?.managerPlans ?? [])
+      (planByObject.get(oid)?.managerPlans ?? [])
         .filter((p) => visibleEmployeeIds.has(p.managerId))
         .reduce((sum, p) => sum + p.planDeals, 0)
-    const totalPlanDeals = monthRows.reduce(
+    // Сводный план — по тем же объектам, что и сводный факт (§5): иначе план
+    // приостановленного объекта требовал бы сделок, которых уже никто не ждёт.
+    const inScopeObject = (oid: Id<'salesObjects'>) =>
+      objectId ? oid === objectId : activeObjectIds.has(oid)
+    const totalPlanDeals = planRows.reduce(
       (sum, row) =>
         sum +
-        (objectId && row.objectId !== objectId
-          ? 0
-          : row.managerPlans
+        (inScopeObject(row.objectId)
+          ? row.managerPlans
               .filter((p) => visibleEmployeeIds.has(p.managerId))
-              .reduce((s, p) => s + p.planDeals, 0)),
+              .reduce((s, p) => s + p.planDeals, 0)
+          : 0),
       0,
     )
 
     const objectIds = new Set<Id<'salesObjects'>>([
       ...reports.map((r) => r.objectId),
-      ...monthRows
-        .filter((r) => !objectId || r.objectId === objectId)
+      ...planRows
+        .filter((r) => inScopeObject(r.objectId))
         .filter((r) => r.managerPlans.some((p) => visibleEmployeeIds.has(p.managerId)))
         .map((r) => r.objectId),
     ])
@@ -819,12 +913,8 @@ export const summary = query({
       .map((eid) => {
         const e = employeeById.get(eid)
         if (!e) return null
-        const planDeals = monthRows.reduce(
-          (sum, row) =>
-            sum +
-            (objectId && row.objectId !== objectId
-              ? 0
-              : planForEmployee(row, eid)),
+        const planDeals = planRows.reduce(
+          (sum, row) => sum + (inScopeObject(row.objectId) ? planForEmployee(row, eid) : 0),
           0,
         )
         return {
@@ -840,13 +930,13 @@ export const summary = query({
       .sort((a, b) => b.newDeals - a.newDeals || a.name.localeCompare(b.name, 'ru'))
 
     let planRevenue = 0
-    if (employeeId) {
+    if (employeeId && planMonth) {
       const plan = (
         await ctx.db
           .query('salesPlans')
           .withIndex('by_employee', (q) => q.eq('employeeId', employeeId))
           .collect()
-      ).find((p) => p.month === month)
+      ).find((p) => p.month === planMonth)
       planRevenue = plan?.planRevenue ?? 0
     }
 
@@ -857,13 +947,14 @@ export const summary = query({
       revenue: totals.revenue,
       days: days.size,
       planRevenue,
+      period,
       totals: buildAnalytics(totals, totalPlanDeals),
       objectRows,
       managerRows,
       objects: objectOptions,
     }
-  },
-})
+  }
+}
 
 // Установить персональный план выручки на месяц (старый KPI продаж).
 export const setPlan = mutation({
