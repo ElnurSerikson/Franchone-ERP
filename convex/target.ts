@@ -609,9 +609,13 @@ export const dashboard = query({
     // Кампания попадает в расчёт, если её объект выбран и прочие фильтры сошлись.
     // Цель здесь НЕ фильтруем: нижний список обязан показывать все цели
     // справочника, включая те, у которых данных нет (§2.9).
+    //
+    // Кампании без объекта (заведённые до связки со справочником) считаются
+    // в сводном режиме: иначе их расход молча исчезал бы из общей суммы. При
+    // выборе конкретных объектов они, естественно, выпадают.
+    const allObjects = !f.objectIds?.length
     const inScope = (c: Doc<'campaigns'>) =>
-      !!c.objectId &&
-      pickedObjects.has(c.objectId as string) &&
+      (c.objectId ? pickedObjects.has(c.objectId as string) : allObjects) &&
       (!f.account || c.account === f.account) &&
       (!f.moneySource || c.moneySource === f.moneySource) &&
       (!f.status || c.status === f.status)
@@ -678,7 +682,9 @@ export const dashboard = query({
 
       bumpLine(goalLine, goal, r.date, r)
 
-      const objName = c.objectId ? (objectName.get(c.objectId) ?? '—') : '—'
+      // Прочерк ни о чём не говорит — пишем прямо, что объект не выбран,
+      // чтобы такую карточку было видно и хотелось починить.
+      const objName = c.objectId ? (objectName.get(c.objectId) ?? '—') : 'Объект не выбран'
       const key = [objName, goal, c.account, c.moneySource].join('|')
       const b = buckets.get(key) ?? {
         ...zero(),
