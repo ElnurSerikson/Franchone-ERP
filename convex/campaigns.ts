@@ -1,5 +1,6 @@
 import { query, mutation } from './_generated/server'
 import { v } from 'convex/values'
+import type { Doc } from './_generated/dataModel'
 import { requireEmployee, hiddenEmployeeIds } from './lib'
 import { requireCan, inScope } from './permissions'
 import { ConvexError } from 'convex/values'
@@ -12,6 +13,7 @@ const GOAL = v.union(
   v.literal('reach'),
   v.literal('profile'),
   v.literal('site_leads'),
+  v.literal('engagement'),
 )
 
 // Реестр ведут владелец/руководитель и сам таргетолог — иначе он заблокирован
@@ -30,7 +32,7 @@ export const registry = query({
   handler: async (ctx, { activeOnly }) => {
     const rows = (await ctx.db.query('campaigns').collect()).filter((c) => !c.archived)
     const list = activeOnly ? rows.filter((c) => c.status === 'Активна') : rows
-    return list.sort((a, b) => a.code.localeCompare(b.code))
+    return list.sort((a, b) => label(a).localeCompare(label(b), 'ru'))
   },
 })
 
@@ -175,9 +177,9 @@ export const factsForPeriod = query({
     }
 
     const rows = registry.map((c) => {
-      const f = facts.get(c.code) ?? { budget: 0, leads: 0, days: new Set<string>() }
+      const f = facts.get(label(c)) ?? { budget: 0, leads: 0, days: new Set<string>() }
       return {
-        code: c.code,
+        code: label(c),
         campaign: c.campaign,
         brand: c.brand,
         moneySource: c.moneySource,
@@ -201,6 +203,13 @@ export const factsForPeriod = query({
 // Отдаёт форму, которую ждёт computeTargetolog. Факт нигде не хранится —
 // он собирается из ежедневных отчётов, как свод AI:AL на листе месяца в Excel.
 // Считаем на чтении, поэтому правка отчёта задним числом сразу видна в KPI.
+// Видимый ID кампании стал необязательным (дополнение §2.7): у новых карточек
+// его нет вовсе. Этот легаси-модуль подписывает строки кодом — подставляем
+// ручное название, чтобы старые экраны не показывали пустоту.
+function label(c: Doc<'campaigns'>): string {
+  return c.code || c.campaign?.trim() || 'Без названия'
+}
+
 export const list = query({
   args: { month: v.optional(v.string()), employeeId: v.optional(v.id('employees')) },
   handler: async (ctx, { month, employeeId }) => {
@@ -232,10 +241,10 @@ export const list = query({
     for (const p of monthPlans) {
       const c = await ctx.db.get(p.campaignId)
       if (!c || c.archived) continue
-      const f = facts.get(c.code) ?? { budget: 0, leads: 0 }
+      const f = facts.get(label(c)) ?? { budget: 0, leads: 0 }
       out.push({
         _id: c._id,
-        code: c.code,
+        code: label(c),
         account: c.account,
         category: c.category,
         brand: c.brand,
@@ -251,6 +260,6 @@ export const list = query({
         month,
       })
     }
-    return out.sort((a, b) => a.code.localeCompare(b.code))
+    return out.sort((a, b) => a.code.localeCompare(b.code, 'ru'))
   },
 })

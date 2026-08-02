@@ -151,10 +151,10 @@ function ReportDrawer({
                         <tr key={r.rowId} className="align-top">
                           <td className={td}>
                             <div className="font-medium text-ink whitespace-nowrap">
-                              {r.objectName ?? r.code}
+                              {r.objectName ?? r.name}
                             </div>
                             <div className="text-[11px] text-muted whitespace-nowrap">
-                              {r.code} · {goalMeta(r.goal ?? undefined).metric}
+                              {r.name} · {goalMeta(r.goal ?? undefined).metric}
                             </div>
                           </td>
                           <td className={`${td} text-right tabular-nums`}>{usd(r.budgetCents)}</td>
@@ -270,7 +270,7 @@ function ReportDrawer({
                       r.audit.map((a, i) => (
                         <div key={`${r.rowId}:${i}`} className="border-l-2 border-line-2 pl-3">
                           <div className="text-sm text-ink">
-                            <b>{r.code}</b> · {usd(a.fromBudgetCents)} / {num(a.fromResult)} →{' '}
+                            <b>{r.name}</b> · {usd(a.fromBudgetCents)} / {num(a.fromResult)} →{' '}
                             {usd(a.toBudgetCents)} / {num(a.toResult)}
                           </div>
                           <div className="text-[11px] text-muted">

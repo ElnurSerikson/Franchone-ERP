@@ -94,7 +94,7 @@ export default function CampaignsTab() {
                   <table className="w-full min-w-[840px]">
                     <thead>
                       <tr className={theadRow}>
-                        <th className={th}>ID</th>
+                        <th className={th}>Кампания</th>
                         <th className={th}>Объект продаж</th>
                         <th className={th}>Цель</th>
                         <th className={th}>Аккаунт</th>
@@ -107,8 +107,9 @@ export default function CampaignsTab() {
                     <tbody>
                       {group.map((c, i) => (
                         <tr key={c._id} className="hover:bg-chip/40 transition-colors">
+                          {/* §2.7: вместо ID — ручное название кампании. */}
                           <td className={`${td} cursor-pointer`} onClick={() => setOpen({ campaign: c })}>
-                            <span className="chip bg-[#e2f2ef] text-green-d whitespace-nowrap">{c.code}</span>
+                            <span className="font-medium text-ink">{c.name}</span>
                           </td>
                           <td className={`${td} cursor-pointer`} onClick={() => setOpen({ campaign: c })}>
                             {c.objectName ? (

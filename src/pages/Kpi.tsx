@@ -10,6 +10,7 @@ import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
 import SalesDashboardBlock from '@/components/sales/SalesDashboardBlock'
 import TargetologDashboard from '@/components/campaigns/TargetologDashboard'
+import TargetLeadsPanel from '@/components/campaigns/TargetLeadsPanel'
 import { computeSmm } from '@/lib/kpi'
 import { mapSmm } from '@/lib/mappers'
 import { useData } from '@/lib/useData'
@@ -198,11 +199,19 @@ function SmmKpi({ month }: { month: string }) {
   )
 }
 
-// ——— Таргетолог: аналитика рекламы по новому ТЗ ———
-// Раздел KPI для этой должности заменён дашбордом модуля: в ТЗ таргетолога
-// нет ни плана, ни веса, ни процента KPI — только бюджет, результат и цена.
+// ——— Таргетолог: план-факт по заявкам + аналитика рекламы ———
+// ТАРГЕТ 1.6 §9: сверху план-факт по объектам продаж — это и есть KPI
+// должности. Ниже рекламная аналитика по кампаниям: она оценивает сами
+// запуски по их техническим результатам и в KPI не входит (§1, §14).
 function TargetologKpi() {
-  return <TargetologDashboard />
+  const { role } = useApp()
+  const manager = role === 'owner' || role === 'head'
+  return (
+    <div className="flex flex-col gap-5">
+      <TargetLeadsPanel manager={manager} />
+      <TargetologDashboard />
+    </div>
+  )
 }
 
 // KPI отдела продаж — основной экран аналитики (дополнение 1.4, п.1 и п.2).

@@ -12,6 +12,8 @@ import Reports from './pages/Reports'
 import Kpi from './pages/Kpi'
 import Team from './pages/Team'
 import Activity from './pages/Activity'
+import Effectiveness from '@/pages/Effectiveness'
+import Meetings from '@/pages/Meetings'
 import Settings from './pages/Settings'
 
 // Гейт маршрута по матрице прав (§9). perm — 'owner' или «section:action».
@@ -49,6 +51,10 @@ function AuthedApp() {
             <Route path="kpi" element={<Guard perm="kpi:view"><Kpi /></Guard>} />
             <Route path="team" element={<Guard perm="team:view"><Team /></Guard>} />
             <Route path="activity" element={<Guard perm="activity:view"><Activity /></Guard>} />
+            {/* ТЗ СИСТЕМА §3: раздел для управленческого контроля админа. */}
+            <Route path="effectiveness" element={<Guard perm="owner"><Effectiveness /></Guard>} />
+            {/* §4.2: встречи создают и видят все сотрудники. */}
+            <Route path="meetings" element={<Meetings />} />
             <Route path="settings" element={<Guard perm="owner"><Settings /></Guard>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

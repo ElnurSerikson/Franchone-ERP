@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ClipboardList, LayoutGrid, CalendarRange, Megaphone, type LucideIcon } from 'lucide-react'
 import PageHeader from '@/components/PageHeader'
 import ReportForm from '@/components/reports/ReportForm'
@@ -35,8 +36,19 @@ export default function Reports() {
     ...(showCampaigns ? (['campaigns'] as const) : []),
   ]
 
-  const [tab, setTab] = useState<Tab>(available[0] ?? 'mine')
-  const view: Tab = available.includes(tab) ? tab : (available[0] ?? 'mine')
+  // §2.1: таргетолог открывает «Отчёты» на вкладке «Кампании» — он приходит
+  // сюда вести реестр, а не заполнять форму. «Мой отчёт» остаётся рядом.
+  // Исключение — переход по конкретной дате из графика сдачи (§2.5): там
+  // человек идёт именно за своим отчётом.
+  const [params] = useSearchParams()
+  const initial: Tab =
+    params.get('date') && available.includes('mine')
+      ? 'mine'
+      : me.position === 'targetolog' && available.includes('campaigns')
+        ? 'campaigns'
+        : (available[0] ?? 'mine')
+  const [tab, setTab] = useState<Tab>(initial)
+  const view: Tab = available.includes(tab) ? tab : initial
 
   if (available.length === 0)
     return (

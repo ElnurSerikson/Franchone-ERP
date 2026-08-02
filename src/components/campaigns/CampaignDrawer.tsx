@@ -9,9 +9,9 @@ import { errMessage } from '@/lib/errors'
 import { TODAY } from '@/lib/constants'
 import { CAMPAIGN_GOALS, type CampaignGoalSlug } from '../../../convex/campaignGoals'
 
-// Карточка рекламной кампании (ТЗ таргетолога §7.1). Кампания обязательно
-// привязана к одному объекту продаж и одной цели. Свободных «бренда» и
-// «категории» больше нет — их роль выполняет объект продаж (§2.2).
+// Карточка рекламной кампании (ТЗ таргетолога §7.1, дополнение §4).
+// Кампания обязательно привязана к одному объекту продаж и одной цели.
+// Видимого ID нет — вместо него обязательное ручное название (§2.7).
 // Планов, весов и KPI здесь нет: новое ТЗ их не предусматривает.
 
 const inputCls =
@@ -23,8 +23,7 @@ const MONEY = ['FRANCHONE', 'Партнёр'] as const
 
 export type RegistryRow = {
   _id: Id<'campaigns'>
-  code: string
-  campaign: string
+  name: string
   account: string
   moneySource: string
   status: string
@@ -56,7 +55,7 @@ export default function CampaignDrawer({
     campaign?.objectId ? { includeId: campaign.objectId } : {},
   )
 
-  const [code, setCode] = useState(campaign?.code ?? '')
+  const [name, setName] = useState(campaign?.name ?? '')
   const [objectId, setObjectId] = useState<string>(campaign?.objectId ?? presetObjectId ?? '')
   const [goal, setGoal] = useState<string>(campaign?.goal ?? '')
   const [account, setAccount] = useState<string>(campaign?.account ?? 'FRANCHONE')
@@ -81,6 +80,10 @@ export default function CampaignDrawer({
 
   const save = async () => {
     setError('')
+    if (!name.trim()) {
+      setError('Укажите название кампании — по нему её узнают в отчёте и на графике.')
+      return
+    }
     if (!objectId) {
       setError('Выберите объект продаж — без него кампания не сохраняется.')
       return
@@ -94,6 +97,7 @@ export default function CampaignDrawer({
       if (isEdit && campaign) {
         await update({
           id: campaign._id,
+          name: name.trim(),
           objectId: objectId as Id<'salesObjects'>,
           ...(goalLocked ? {} : { goal: goal as CampaignGoalSlug }),
           account,
@@ -103,7 +107,7 @@ export default function CampaignDrawer({
         })
       } else {
         await create({
-          code,
+          name: name.trim(),
           objectId: objectId as Id<'salesObjects'>,
           goal: goal as CampaignGoalSlug,
           account,
@@ -136,7 +140,7 @@ export default function CampaignDrawer({
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-bold text-ink truncate">
-              {isEdit ? campaign?.code : 'Новая кампания'}
+              {isEdit ? campaign?.name : 'Новая кампания'}
             </h2>
             <p className="text-[11px] text-muted">
               {isEdit ? 'Карточка рекламной кампании' : 'Один объект продаж, одна цель'}
@@ -148,20 +152,21 @@ export default function CampaignDrawer({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5 flex flex-col gap-4">
-          {!isEdit && (
-            <Field label="ID кампании">
-              <input
-                className={inputCls}
-                placeholder="FR-001"
-                value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
-              />
-              <p className="text-[11px] text-muted-2 mt-1">
-                Короткий человекочитаемый код — по нему кампанию узнают в отчёте. Менять его
-                потом нельзя: на него завязаны накопленные строки.
-              </p>
-            </Field>
-          )}
+          {/* §2.7: видимого ID больше нет — кампанию называет таргетолог
+              своими словами. Переименовать можно в любой момент: отчёты
+              ссылаются на внутренний идентификатор и связь не рвётся. */}
+          <Field label="Название кампании">
+            <input
+              className={inputCls}
+              placeholder="Женщины 35+ — предпринимательницы"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <p className="text-[11px] text-muted-2 mt-1">
+              Обязательное поле. По названию кампанию узнают в ежедневном отчёте и на графике
+              KPI — пишите так, чтобы было понятно, на кого эта реклама.
+            </p>
+          </Field>
 
           <Field label="Объект продаж">
             <Select

@@ -9,6 +9,17 @@
 //   npx convex run setup:addHiddenEmployee '{"email":"…","name":"…","position":"smm"}'
 import { internalMutation, internalQuery } from './_generated/server'
 import { salesSummary } from './sales'
+import { computeMonth } from './payroll'
+import { deadlineMs } from './reports'
+import { datesBetween, reportStats, taskStats } from './effectiveness'
+import {
+  daysInMonth,
+  daysOfMonthInPeriod,
+  leadPlanKpi,
+  leadWeight,
+  monthEnd,
+  proratePlan,
+} from './targetLeads'
 import { v } from 'convex/values'
 import type { Doc, Id } from './_generated/dataModel'
 import { resultCostCents } from './campaignGoals'
@@ -1109,12 +1120,15 @@ export const syncReportPositions = internalMutation({
   },
 })
 
-// Одноразово: выставить дедлайн ежедневных отчётов на 23:50 (в БД мог остаться
-// старый 20:00, а он перекрывает умолчание). Запуск: npx convex run setup:setReportDeadline
+// Одноразово: выставить час дедлайна ежедневных отчётов. Значение в БД
+// перекрывает умолчание из кода, поэтому после смены правила его надо
+// обновить явно. ТЗ СИСТЕМА §2 — 14:00 СЛЕДУЮЩЕГО календарного дня; «на
+// следующий день» зашито в расчёте, здесь задаётся только час.
+// Запуск: npx convex run setup:setReportDeadline
 export const setReportDeadline = internalMutation({
   args: { time: v.optional(v.string()) },
   handler: async (ctx, { time }) => {
-    const value = time ?? '23:50'
+    const value = time ?? '14:00'
     const row = await ctx.db
       .query('settings')
       .withIndex('by_key', (q) => q.eq('key', 'global'))
@@ -1483,7 +1497,7 @@ export const seedDevTargetReport = internalMutation({
       const cost = resultCostCents(p.budgetCents, p.result, campaign.goal)
       written.push(
         `${p.code}: $${(p.budgetCents / 100).toFixed(2)} / ${p.result} → ${
-          cost === null ? 'Нет результата' : '$' + (cost / 100).toFixed(2)
+          cost === null ? 'Нет данных' : '$' + (cost / 100).toFixed(2)
         }`,
       )
     }
@@ -1854,6 +1868,280 @@ export const devFunnelCheck = internalQuery({
       objects: (s.objectRows as { name: string; newLeads: number; newDeals: number }[]).map(
         (r) => `${r.name}: ${r.newLeads} заявок → ${r.newDeals} сделок`,
       ),
+    }
+  },
+})
+
+// Критерии приёмки дополнения «Модуль таргетолога» (§5). Считает боевая
+// resultCostCents, а не её копия. Только dev.
+// npx convex run setup:devTargetCostCheck
+export const devTargetCostCheck = internalQuery({
+  args: {},
+  handler: async () => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+    const money = (c: number | null) => (c === null ? 'Нет данных' : '$' + (c / 100).toFixed(2))
+    return {
+      // §2.2: 9 USD ÷ 3 200 охватов × 1 000 = 2,81 USD
+      reach_9usd_3200: money(resultCostCents(900, 3200, 'reach')),
+      reach_zero: money(resultCostCents(900, 0, 'reach')),
+      // §2.8.1: агрегат считается по сумме, а не как среднее уже посчитанных
+      // цен. Числа подобраны так, чтобы два способа заведомо разошлись:
+      // кампания A — $9 на 3 200 охватов, кампания B — $1 на 10 000.
+      a_reach: money(resultCostCents(900, 3200, 'reach')),
+      b_reach: money(resultCostCents(100, 10000, 'reach')),
+      aggregate_correct_sum: money(resultCostCents(900 + 100, 3200 + 10000, 'reach')),
+      aggregate_wrong_average: money(
+        Math.round(
+          ((resultCostCents(900, 3200, 'reach') ?? 0) + (resultCostCents(100, 10000, 'reach') ?? 0)) / 2,
+        ),
+      ),
+      msg_400usd_800: money(resultCostCents(40000, 800, 'msg_inst')),
+    }
+  },
+})
+
+// Контрольные примеры ТАРГЕТ 1.6 (§8–§10, §13.3, §16). Сеет данные из примеров
+// заказчика и прогоняет по ним БОЕВЫЕ функции модуля targetLeads. Только dev.
+// npx convex run setup:seedDevLeadDemo   → затем
+// npx convex run setup:devLeadMathCheck
+export const seedDevLeadDemo = internalMutation({
+  args: { email: v.optional(v.string()) },
+  handler: async (ctx, { email }) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+    const low = (email ?? 'almnurken@gmail.com').toLowerCase().trim()
+    const targetolog = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (!targetolog) throw new Error(`Сотрудник ${low} не найден`)
+
+    const today = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
+    const month = today.slice(0, 7)
+
+    // Пример §10: KazNaves план 200 / факт 250, Упаковка план 100 / факт 50.
+    // Общий KPI обязан выйти 250 ÷ 300 = 83,3%, а не 300 ÷ 300 = 100%.
+    const plan: { name: string; planLeads: number; fact: number; budgetCents?: number }[] = [
+      { name: 'ТЗ · KazNaves', planLeads: 200, fact: 250, budgetCents: 100000 },
+      { name: 'ТЗ · Упаковка', planLeads: 100, fact: 50 },
+    ]
+
+    const existing = await ctx.db.query('salesObjects').collect()
+    for (const p of plan) {
+      const found = existing.find((o) => o.name === p.name)
+      const objectId =
+        found?._id ??
+        (await ctx.db.insert('salesObjects', {
+          name: p.name,
+          type: 'service',
+          status: 'active',
+          managerIds: [],
+          createdAt: Date.now(),
+        }))
+      await ctx.db.patch(objectId, { status: 'active' })
+
+      const oldPlan = (
+        await ctx.db
+          .query('targetLeadPlans')
+          .withIndex('by_employee_month', (q) =>
+            q.eq('employeeId', targetolog._id).eq('month', month),
+          )
+          .collect()
+      ).find((x) => x.objectId === objectId)
+      if (oldPlan) {
+        await ctx.db.patch(oldPlan._id, {
+          planLeads: p.planLeads,
+          planBudgetCents: p.budgetCents,
+        })
+      } else {
+        await ctx.db.insert('targetLeadPlans', {
+          employeeId: targetolog._id,
+          objectId,
+          month,
+          planLeads: p.planLeads,
+          planBudgetCents: p.budgetCents,
+        })
+      }
+
+      // Факт кладём одним днём — сумма за месяц от этого не меняется.
+      const date = `${month}-01`
+      const oldFact = await ctx.db
+        .query('targetLeadReports')
+        .withIndex('by_employee_date_object', (q) =>
+          q.eq('employeeId', targetolog._id).eq('date', date).eq('objectId', objectId),
+        )
+        .first()
+      if (oldFact) {
+        await ctx.db.patch(oldFact._id, { leads: p.fact, updatedAt: Date.now(), updatedById: targetolog._id })
+      } else {
+        await ctx.db.insert('targetLeadReports', {
+          employeeId: targetolog._id,
+          objectId,
+          date,
+          month,
+          leads: p.fact,
+          updatedAt: Date.now(),
+          updatedById: targetolog._id,
+        })
+      }
+    }
+
+    return { month, employee: targetolog.name, expect: 'общий KPI 250 ÷ 300 = 83,3%' }
+  },
+})
+
+export const devLeadMathCheck = internalQuery({
+  args: { email: v.optional(v.string()) },
+  handler: async (ctx, { email }) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+    const low = (email ?? 'almnurken@gmail.com').toLowerCase().trim()
+    const targetolog = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (!targetolog) throw new Error(`Сотрудник ${low} не найден`)
+    const month = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 7)
+
+    const pct = (x: number | null) => {
+      if (x === null) return '—'
+      const v = Math.round(x * 1000) / 10
+      return (Number.isInteger(v) ? v : v.toFixed(1).replace('.', ',')) + '%'
+    }
+
+    // §10 — боевая функция, та же, что читает расчёт зарплаты.
+    const kpi = await leadPlanKpi(ctx, targetolog._id, month)
+    const weight = await leadWeight(ctx)
+
+    // §13.3 — боевая функция пропорционального пересчёта плана.
+    const days = daysInMonth(month)
+    const half = `${month}-15`
+    return {
+      s10_plan: kpi.planLeads,
+      s10_fact: kpi.factLeads,
+      s10_completion_capped: pct(kpi.completion),
+      s10_wrong_uncapped: pct(kpi.planLeads > 0 ? kpi.factLeads / kpi.planLeads : null),
+      s11_weight: pct(weight),
+      s11_kpi_for_payroll: pct(kpi.completion === null ? null : kpi.completion * weight),
+      s13_days_in_month: days,
+      s13_prorate_full_month: proratePlan(200, month, `${month}-01`, monthEnd(month)),
+      s13_prorate_first_half: Math.round(proratePlan(200, month, `${month}-01`, half) * 10) / 10,
+      s13_prorate_one_day: Math.round(proratePlan(200, month, half, half) * 10) / 10,
+      s13_days_of_month_in_period: daysOfMonthInPeriod(month, `${month}-01`, half),
+    }
+  },
+})
+
+// Боевой расчёт зарплаты за месяц из CLI (только dev). Проверяет, что KPI
+// таргетолога действительно доходит до начислений (ТАРГЕТ 1.6 §11).
+// npx convex run setup:devPayrollCheck '{"month":"2026-08"}'
+export const devPayrollCheck = internalQuery({
+  args: { month: v.optional(v.string()) },
+  handler: async (ctx, { month }) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+    const ym = month ?? new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 7)
+    const rows = await computeMonth(ctx, ym)
+    const pct = (x: number) => {
+      const v = Math.round(x * 1000) / 10
+      return (Number.isInteger(v) ? v : v.toFixed(1).replace('.', ',')) + '%'
+    }
+    return rows.map(
+      (r) =>
+        `${r.name} · ${r.positionLabel} · KPI ${pct(r.kpi)} · план ${r.planTotal ?? '—'} · факт ${r.factTotal ?? '—'} · оклад ${r.salary} → ${r.payout}`,
+    )
+  },
+})
+
+// Контрольный пример ТЗ СИСТЕМА §2.1: отчёт за 1 августа заполняется до
+// 2 августа 14:00 и в 14:00 блокируется. Считает боевая deadlineMs.
+// npx convex run setup:devDeadlineCheck
+export const devDeadlineCheck = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+    const s = await ctx.db
+      .query('settings')
+      .withIndex('by_key', (q) => q.eq('key', 'global'))
+      .first()
+    const time = s?.reportDeadlineTime ?? '14:00'
+    const at = (iso: string) => Date.parse(iso)
+    const fmt = (ms: number) =>
+      new Date(ms).toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' })
+    const d = deadlineMs('2026-08-01', time)
+    return {
+      deadlineTime: time,
+      report_2026_08_01_deadline: fmt(d),
+      // Сдача в свой день — вовремя
+      submitted_01_aug_18_00: at('2026-08-01T18:00:00+05:00') <= d ? 'вовремя' : 'опоздание',
+      // Утром следующего дня — ещё вовремя
+      submitted_02_aug_09_00: at('2026-08-02T09:00:00+05:00') <= d ? 'вовремя' : 'опоздание',
+      // Ровно в 14:00 — последняя минута
+      submitted_02_aug_14_00: at('2026-08-02T14:00:00+05:00') <= d ? 'вовремя' : 'опоздание',
+      // Минутой позже — уже блокировка
+      submitted_02_aug_14_01: at('2026-08-02T14:01:00+05:00') <= d ? 'вовремя' : 'опоздание',
+    }
+  },
+})
+
+// Раздел «Эффективность» на реальных данных сотрудника (ТЗ СИСТЕМА §3.3,
+// §3.4). Считают боевые функции модуля effectiveness. Только dev.
+// npx convex run setup:devEffectivenessCheck '{"email":"almnurken@gmail.com"}'
+export const devEffectivenessCheck = internalQuery({
+  args: { email: v.optional(v.string()), from: v.optional(v.string()), to: v.optional(v.string()) },
+  handler: async (ctx, { email, from: fromArg, to: toArg }) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+    const low = (email ?? 'almnurken@gmail.com').toLowerCase().trim()
+    const e = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (!e) throw new Error(`Сотрудник ${low} не найден`)
+
+    const today = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
+    const month = today.slice(0, 7)
+    const from = fromArg ?? `${month}-01`
+    const to = toArg ?? today
+
+    const s = await ctx.db
+      .query('settings')
+      .withIndex('by_key', (q) => q.eq('key', 'global'))
+      .first()
+    const time = s?.reportDeadlineTime ?? '14:00'
+
+    const reports = await reportStats(ctx, e, datesBetween(from, to), Date.now(), time)
+    const tasks = taskStats(
+      (await ctx.db.query('tasks').collect()).filter((t) => t.assigneeId === e._id),
+      from,
+      to,
+      today,
+    )
+    const pct = (x: number | null) => {
+      if (x === null) return '—'
+      const v = Math.round(x * 1000) / 10
+      return (Number.isInteger(v) ? v : v.toFixed(1).replace('.', ',')) + '%'
+    }
+    return {
+      employee: e.name,
+      period: `${from} … ${to}`,
+      deadline: `${time} следующего дня`,
+      reports: `обязательных ${reports.required} · вовремя ${reports.onTime} · после блокировки ${reports.lateByAdmin} · не внесено ${reports.missing} · своевременность ${pct(reports.onTimeRate)}`,
+      tasks: `всего ${tasks.total} · выполнено ${tasks.done} · в срок ${tasks.doneOnTime} · с опозданием ${tasks.doneLate} · просрочено ${tasks.overdue} · выполнение ${pct(tasks.completionRate)}`,
     }
   },
 })

@@ -14,7 +14,8 @@ export const usd = (cents: number) =>
 
 // Цена результата: у нулевого результата цены нет — показываем словами, а не
 // $0.00, иначе бесплатный результат не отличить от отсутствующего.
-export const usdCost = (cents: number | null) => (cents === null ? 'Нет результата' : usd(cents))
+// Формулировка из дополнения §2.2 — «Нет данных».
+export const usdCost = (cents: number | null) => (cents === null ? 'Нет данных' : usd(cents))
 
 export const pct = (x: number, digits = 0) =>
   new Intl.NumberFormat('ru-RU', {

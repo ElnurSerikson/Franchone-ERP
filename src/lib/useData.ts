@@ -4,8 +4,7 @@
 import { useQuery } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import { mapCampaign, mapEmployee, mapSmm, mapTask } from './mappers'
-import { REPORT_MONTH_FALLBACK } from './constants'
-import { CURRENT_MONTH } from './month'
+import { CURRENT_MONTH, formatMonth } from './month'
 
 export function useData() {
   const employeesRaw = useQuery(api.employees.list, {})
@@ -14,7 +13,6 @@ export function useData() {
   // сохранённые нули вместо факта, собранного из ежедневных отчётов.
   const campaignsRaw = useQuery(api.campaigns.list, { month: CURRENT_MONTH })
   const smmRaw = useQuery(api.smm.list, { month: CURRENT_MONTH })
-  const settings = useQuery(api.settings.get, {})
 
   const loading =
     employeesRaw === undefined ||
@@ -34,6 +32,9 @@ export function useData() {
     tasks: (tasksRaw ?? []).map(mapTask),
     campaigns: (campaignsRaw ?? []).map(mapCampaign),
     smmMetrics: (smmRaw ?? []).map(mapSmm),
-    reportMonth: settings?.reportMonth ?? REPORT_MONTH_FALLBACK,
+    // ТЗ СИСТЕМА §1.1: по умолчанию везде текущий календарный месяц, и с
+    // наступлением нового система переключается сама. Строка из настроек
+    // больше не используется — она замораживала подпись на одном месяце.
+    reportMonth: formatMonth(CURRENT_MONTH),
   }
 }

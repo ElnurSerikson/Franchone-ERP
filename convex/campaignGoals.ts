@@ -7,7 +7,13 @@
 // Результаты разных целей нельзя складывать в один общий показатель, поэтому
 // «итого результатов» по смешанному списку кампаний нигде не выводится.
 
-export type CampaignGoalSlug = 'msg_inst' | 'msg_wa' | 'reach' | 'profile' | 'site_leads'
+export type CampaignGoalSlug =
+  | 'msg_inst'
+  | 'msg_wa'
+  | 'reach'
+  | 'profile'
+  | 'site_leads'
+  | 'engagement'
 
 export interface CampaignGoal {
   slug: CampaignGoalSlug
@@ -23,42 +29,51 @@ export interface CampaignGoal {
 export const CAMPAIGN_GOALS: CampaignGoal[] = [
   {
     slug: 'msg_inst',
-    label: 'Максимум переписок INST',
-    metric: 'Сообщения Instagram',
+    label: 'Переписки Instagram',
+    metric: 'Начатые переписки',
     planLabel: 'План сообщений',
     costLabel: 'Цена сообщения',
     per: 1,
   },
   {
     slug: 'msg_wa',
-    label: 'Максимум переписок WhatsApp',
-    metric: 'Сообщения WhatsApp',
+    label: 'Переписки WhatsApp',
+    metric: 'Начатые переписки',
     planLabel: 'План сообщений',
     costLabel: 'Цена сообщения',
     per: 1,
   },
   {
     slug: 'site_leads',
-    label: 'Лиды на сайт',
-    metric: 'Лиды',
+    label: 'Лидогенерация',
+    metric: 'Заполненные лид-формы',
     planLabel: 'План лидов',
     costLabel: 'Цена лида',
     per: 1,
   },
   {
     slug: 'reach',
-    label: 'Максимальные охваты',
-    metric: 'Охват',
+    label: 'Охват',
+    metric: 'Охваченные пользователи',
     planLabel: 'План охвата',
-    costLabel: 'Цена 1000 охватов',
+    costLabel: 'Стоимость 1 000 охватов',
     per: 1000,
   },
   {
     slug: 'profile',
-    label: 'Посещение профиля и сайта',
-    metric: 'Переходы',
+    label: 'Трафик',
+    metric: 'Переходы / клики',
     planLabel: 'План переходов',
     costLabel: 'Цена перехода',
+    per: 1,
+  },
+  {
+    // Добавлена по §2.1 ТАРГЕТ 1.6 — в первой версии модуля этой цели не было.
+    slug: 'engagement',
+    label: 'Вовлечённость',
+    metric: 'Взаимодействия',
+    planLabel: 'План взаимодействий',
+    costLabel: 'Цена взаимодействия',
     per: 1,
   },
 ]

@@ -1,4 +1,9 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import {
+  AdminTargetLeadsBlock,
+  MyTargetLeadsBlock,
+} from '@/components/campaigns/TargetLeadsBlocks'
 import { useMutation, useQuery } from 'convex/react'
 import {
   Wallet, TrendingUp, AlertTriangle, ClipboardList, CheckSquare, Pencil,
@@ -85,6 +90,13 @@ function PersonalView({ me }: { me: Employee }) {
           }
           icon={ClipboardList}
         />
+      </div>
+
+      {/* ТАРГЕТ 1.6 §12: компактный KPI-блок таргетолога за текущий месяц.
+          Компонент сам решает, показываться ли: у других должностей запрос
+          возвращает пусто. */}
+      <div className="mb-5">
+        <MyTargetLeadsBlock />
       </div>
 
       {/* График сдачи: что нужно сдать сегодня и как шли дела последние две
@@ -205,10 +217,14 @@ function ManagerView({ me }: { me: Employee }) {
         />
       </div>
 
+      {/* ТАРГЕТ 1.6 §13: управленческий блок по каждому объекту продаж и
+          сводный результат по компании за выбранный период. */}
+      <AdminTargetLeadsBlock />
+
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-3 mb-5">
         <div className="card p-5">
           <h3 className="sec-title mb-1">Не сдали отчёт сегодня</h3>
-          <p className="text-xs text-muted mb-4">дедлайн {disc?.deadlineTime ?? '23:50'}</p>
+          <p className="text-xs text-muted mb-4">дедлайн {disc?.deadlineTime ?? '14:00'} следующего дня</p>
           {pendingRows.length === 0 ? (
             <p className="text-sm text-muted">
               {discRows.length ? 'Все отчёты за сегодня сданы.' : 'Никто не на ежедневной отчётности.'}
@@ -592,6 +608,9 @@ function Mini({ label, value, tone }: { label: string; value: number; tone?: 're
 }
 
 // Полоска дисциплины за окно дней — своя строка из сетки «Отчётности».
+// §2.5: квадраты кликабельны. Зелёный и жёлтый открывают свой отчёт за эту
+// дату; красный только объясняет, что день пропущен — самостоятельно внести
+// его задним числом сотрудник не может, это делает администратор.
 function ReportStrip({
   title,
   caption,
@@ -601,6 +620,8 @@ function ReportStrip({
   caption: string
   cells: { date: string; status: string }[]
 }) {
+  const navigate = useNavigate()
+  const [missedNote, setMissedNote] = useState<string | null>(null)
   return (
     <div className="card p-5">
       <h3 className="sec-title mb-1">{title}</h3>
@@ -608,18 +629,46 @@ function ReportStrip({
       <div className="flex items-end gap-1.5 flex-wrap mb-4">
         {cells.map((c) => {
           const st = REPORT_STATUS[c.status as ReportStatus]
+          const filled = c.status === 'onTime' || c.status === 'late'
+          const missed = c.status === 'missed'
           return (
             <div key={c.date} className="flex flex-col items-center gap-1">
-              <span
-                className="w-7 h-7 rounded-md border border-line"
+              <button
+                type="button"
+                disabled={!filled && !missed}
+                onClick={() => {
+                  if (filled) navigate(`/reports?date=${c.date}`)
+                  else setMissedNote(c.date)
+                }}
+                className={`w-7 h-7 rounded-md border border-line transition-transform ${
+                  filled || missed ? 'cursor-pointer hover:scale-110' : 'cursor-default'
+                }`}
                 style={{ background: st.cell }}
-                title={`${c.date} · ${st.label}`}
+                title={
+                  filled
+                    ? `${st.label} · открыть отчёт`
+                    : missed
+                      ? `${st.label} · отчёт не сдан`
+                      : st.label
+                }
               />
               <span className="text-[10px] text-muted-2">{c.date.slice(8)}</span>
             </div>
           )
         })}
       </div>
+      {missedNote && (
+        <div className="rounded-xl border border-[#f3d9a4] bg-[#fff6e6] p-3 mb-4 flex items-start gap-2.5">
+          <AlertTriangle size={16} className="text-[#b7791f] shrink-0 mt-0.5" />
+          <div className="text-sm text-[#8a5a12] flex-1">
+            Отчёт за {shortDate(missedNote)} не сдан. Внести его задним числом самостоятельно
+            нельзя — обратитесь к администратору.
+          </div>
+          <button onClick={() => setMissedNote(null)} className="text-[#8a5a12] text-sm shrink-0">
+            Понятно
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-3">
         {/* Только те статусы, что реально есть в полоске: у новичка почти все
             клетки — «ещё не работал», и легенда без него ничего не объясняет. */}

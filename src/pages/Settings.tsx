@@ -3,6 +3,7 @@ import { useMutation, useQuery } from 'convex/react'
 import { Sliders, Users2, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X, Briefcase, ChevronLeft, ChevronRight, Megaphone } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
+import TargetLeadPlansSetup from '@/components/campaigns/TargetLeadPlansSetup'
 import Select from '@/components/ui/Select'
 import SalesObjectHistoryDrawer from '@/components/campaigns/SalesObjectHistoryDrawer'
 import { useData } from '@/lib/useData'
@@ -56,6 +57,9 @@ export default function Settings() {
       {tab === 'sales' && (
         <div className="flex flex-col gap-5">
           <TargetologSalarySetup />
+          {/* ТАРГЕТ 1.6 §3: планы заявок по объектам — рядом с окладом
+              таргетолога, потому что оба относятся к его мотивации. */}
+          <TargetLeadPlansSetup />
           <SalesKpiSetup />
         </div>
       )}
@@ -475,15 +479,55 @@ function EmployeeTabs({
   )
 }
 
+// ТЗ СИСТЕМА §1.2: администратор может выбрать будущий календарный месяц и
+// заранее задать на него плановые значения. До наступления месяца это планы
+// будущего периода; с его наступлением они становятся действующими.
+function PlanMonthSwitch({
+  month,
+  onChange,
+}: {
+  month: string
+  onChange: (m: string) => void
+}) {
+  const future = month > CURRENT_MONTH
+  const past = month < CURRENT_MONTH
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex items-center gap-1 rounded-xl bg-chip p-1">
+        <button
+          onClick={() => onChange(addMonth(month, -1))}
+          className="ico-btn w-8 h-8 border-0 bg-transparent"
+          title="Предыдущий месяц"
+        >
+          <ChevronLeft size={16} />
+        </button>
+        <span className="px-2 text-sm font-semibold text-ink min-w-[116px] text-center">
+          {formatMonth(month)}
+        </span>
+        <button
+          onClick={() => onChange(addMonth(month, 1))}
+          className="ico-btn w-8 h-8 border-0 bg-transparent"
+          title="Следующий месяц"
+        >
+          <ChevronRight size={16} />
+        </button>
+      </div>
+      {future && <span className="chip bg-[#fff6e6] text-[#b7791f]">план будущего периода</span>}
+      {past && <span className="chip bg-chip text-muted">прошлый месяц</span>}
+    </div>
+  )
+}
+
 function SmmKpiSetup() {
   const { activeEmployees } = useData()
   const staff = activeEmployees.filter((e) => e.position === 'smm' && e.role !== 'owner')
   const [empId, setEmpId] = useState('')
+  const [month, setMonth] = useState(CURRENT_MONTH)
   const selected = empId || staff[0]?.id || ''
   const selectedEmp = staff.find((e) => e.id === selected)
   const metricsRaw = useQuery(
     api.smm.list,
-    selected ? { month: CURRENT_MONTH, employeeId: selected as Id<'employees'> } : 'skip',
+    selected ? { month, employeeId: selected as Id<'employees'> } : 'skip',
   )
   const smmMetrics = (metricsRaw ?? []).map((m) => ({
     id: m._id as string,
@@ -560,6 +604,8 @@ function SmmKpiSetup() {
       <div className="flex items-center gap-2 mb-4 flex-wrap">
         <Sliders size={18} className="text-green" />
         <h3 className="sec-title flex-1">KPI · SMM-специалист</h3>
+        {/* §1.2: план можно задать заранее на будущий месяц. */}
+        <PlanMonthSwitch month={month} onChange={setMonth} />
         <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />
       </div>
 
@@ -689,7 +735,7 @@ function SmmKpiSetup() {
                 run(async () => {
                   await addMetric({
                     employeeId: selected as Id<'employees'>,
-                    month: CURRENT_MONTH,
+                    month,
                     account: newPair.account as 'FRANCHONE' | 'ANUAR',
                     format: newPair.format as 'Рилсы' | 'Сторис' | 'Карусели',
                     weight: 0,
@@ -769,8 +815,9 @@ function TargetologSalarySetup() {
       </div>
 
       <FormulaNote>
-        Оклад выплачивается <b>полностью</b>: KPI у должности не задан. Реклама учитывается по
-        факту — бюджет, результат и стоимость результата видны в «KPI → Таргетолог».
+        Выплата = <b>оклад × KPI</b>. KPI таргетолога — выполнение плана по количеству заявок
+        (ТАРГЕТ 1.6 §10–§11): Σ min(факт; план) ÷ Σ планов по объектам. Пока плана нет, оклад
+        выплачивается полностью.
       </FormulaNote>
 
       {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
@@ -817,9 +864,10 @@ function SalesKpiSetup() {
   const [empId, setEmpId] = useState('')
   const selected = empId || staff[0]?.id || ''
   const emp = staff.find((e) => e.id === selected)
+  const [planMonth, setPlanMonth] = useState(CURRENT_MONTH)
   const summary = useQuery(
     api.sales.summary,
-    selected ? { month: CURRENT_MONTH, employeeId: selected as Id<'employees'> } : 'skip',
+    selected ? { month: planMonth, employeeId: selected as Id<'employees'> } : 'skip',
   )
   const updateEmployee = useMutation(api.employees.update)
   const setSalesPlan = useMutation(api.sales.setPlan)
@@ -841,7 +889,7 @@ function SalesKpiSetup() {
     try {
       if (salary !== null) await updateEmployee({ id: selected as Id<'employees'>, patch: { salary } })
       if (plan !== null) {
-        await setSalesPlan({ employeeId: selected as Id<'employees'>, month: CURRENT_MONTH, planRevenue: plan })
+        await setSalesPlan({ employeeId: selected as Id<'employees'>, month: planMonth, planRevenue: plan })
       }
       setSalary(null)
       setPlan(null)
@@ -859,6 +907,8 @@ function SalesKpiSetup() {
         <div className="flex items-center gap-2 mb-4 flex-wrap">
           <Sliders size={18} className="text-green" />
           <h3 className="sec-title flex-1">KPI · Отдел продаж</h3>
+          {/* §1.2: план выручки можно задать заранее на будущий месяц. */}
+          <PlanMonthSwitch month={planMonth} onChange={setPlanMonth} />
           <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />
         </div>
 
@@ -1449,15 +1499,14 @@ function ReportDeadlineCard() {
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
 
-  const current = picked ?? settings?.reportDeadlineTime ?? '23:50'
+  const current = picked ?? settings?.reportDeadlineTime ?? '14:00'
   const options = useMemo(() => {
     const o: { value: string; label: string }[] = []
-    for (let h = 12; h <= 23; h++)
+    for (let h = 8; h <= 23; h++)
       for (const m of ['00', '30']) {
         const t = `${String(h).padStart(2, '0')}:${m}`
-        o.push({ value: t, label: t })
+        o.push({ value: t, label: t === '14:00' ? '14:00 (по ТЗ)' : t })
       }
-    // Конец рабочего дня — стандартный дедлайн отчётности.
     o.push({ value: '23:50', label: '23:50 (конец дня)' })
     return o
   }, [])

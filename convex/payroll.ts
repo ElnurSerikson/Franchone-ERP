@@ -5,6 +5,7 @@ import type { Doc } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, hiddenEmployeeIds } from './lib'
 import { viewScope } from './permissions'
 import { computeSmmMath, computeSalesMath, payoutOf } from './kpiMath'
+import { leadPlanKpi, leadWeight } from './targetLeads'
 
 // Месяц в часовом поясе Алматы (YYYY-MM).
 function businessMonth(at = Date.now()): string {
@@ -30,7 +31,9 @@ export async function isMonthClosed(ctx: QueryCtx | MutationCtx, month: string):
 // ——— Расчёт начислений за месяц ———
 // Живой расчёт по текущим данным. Для закрытого месяца им не пользуемся —
 // там показываем снапшот, иначе смысл фиксации теряется.
-async function computeMonth(ctx: QueryCtx | MutationCtx, month: string) {
+// Экспортируется, чтобы dev-проверка могла прогнать боевой расчёт из CLI:
+// в консоли нет личности пользователя, а сверять надо именно его.
+export async function computeMonth(ctx: QueryCtx | MutationCtx, month: string) {
   // Скрытые аккаунты (тестовые) не участвуют в KPI/начислениях.
   const hidden = await hiddenEmployeeIds(ctx)
   const reports = (await ctx.db.query('dailyReports').collect()).filter(
@@ -95,14 +98,22 @@ async function computeMonth(ctx: QueryCtx | MutationCtx, month: string) {
         factTotal = smm.totalFact
       }
     } else if (e.position === 'targetolog') {
-      // KPI у таргетолога отменён: новое ТЗ его модуля описывает только учёт
-      // факта (бюджет, результат, цена) и не содержит ни плана, ни цели по
-      // цене — сравнивать не с чем. Оклад выплачивается полностью.
+      // ТАРГЕТ 1.6 §10–§11: KPI таргетолога — выполнение плана по количеству
+      // заявок, умноженное на вес показателя. Вклад каждого объекта ограничен
+      // его планом: перевыполнение одного не компенсирует недобор другого.
       //
-      // Прежний расчёт по планам и весам кампаний удалён намеренно: он читал
-      // dailyReports.targetolog, куда новая форма отчёта больше не пишет, и
-      // потому молча выдавал ноль на любой открученный бюджет.
-      kpi = 1
+      // Расчёт по рекламным кампаниям сюда не входит намеренно (§1, §14):
+      // кампании оцениваются собственными техническими результатами, а
+      // бизнес-заявки к ним не привязываются.
+      const lead = await leadPlanKpi(ctx, e._id, month)
+      if (lead.completion === null) {
+        // §16: плана нет — сравнивать не с чем, оклад выплачивается полностью.
+        kpi = 1
+      } else {
+        kpi = lead.completion * (await leadWeight(ctx))
+        planTotal = lead.planLeads
+        factTotal = lead.factLeads
+      }
     } else if (e.position === 'sales') {
       const plan = salesPlanByEmp.get(e._id) ?? 0
       if (plan > 0) {

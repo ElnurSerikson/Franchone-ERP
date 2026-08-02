@@ -7,6 +7,7 @@ import { kzt, num } from '@/lib/format'
 import { REPORT_PAGES, CONTENT_TYPES } from '@/lib/constants'
 import { REPORT_STATUS, reportTime, cpl } from '@/lib/reports'
 import { errMessage } from '@/lib/errors'
+import TargetDayAdmin, { type TargetDay } from '@/components/campaigns/TargetDayAdmin'
 
 type Report = Doc<'dailyReports'>
 type ReportAction = 'submitted' | 'edited' | 'created' | 'deleted'
@@ -23,6 +24,9 @@ type Position = 'smm' | 'targetolog' | 'sales'
 // день) или быть переоткрытым (владелец удалил — цифры очищены).
 export interface ReportData {
   report: Report | null
+  // Отчёт таргетолога приходит из собственных таблиц модуля (§2.6). У других
+  // должностей поле пустое.
+  target: TargetDay | null
   history: NamedEvent[]
   reopened: boolean
   position: string | null // должность сотрудника (может быть не «отчётной»)
@@ -69,8 +73,9 @@ export default function ReportView({
   date: string
   onClose: () => void
 }) {
-  const { report, history, reopened, position, canEdit, canDelete, canCreate } = data
+  const { report, target, history, reopened, position, canEdit, canDelete, canCreate } = data
   const isSales = position === 'sales' || report?.position === 'sales'
+  const isTarget = !!target
   const [mode, setMode] = useState<'view' | 'edit'>('view')
   const [confirmDel, setConfirmDel] = useState(false)
   const [delBusy, setDelBusy] = useState(false)
@@ -78,7 +83,8 @@ export default function ReportView({
   const remove = useMutation(api.reports.remove)
 
   const registry = useQuery(api.campaigns.registry, {})
-  const byCode = new Map((registry ?? []).map((c) => [c.code, c]))
+  // Код кампании стал необязательным (§2.7) — ключом служит название.
+  const byCode = new Map((registry ?? []).map((c) => [c.code || c.campaign, c]))
 
   // Отчёт с содержимым: не пропуск и не переоткрытая пустышка.
   const hasContent = !!report && !reopened
@@ -99,7 +105,7 @@ export default function ReportView({
   return (
     <div className="flex flex-col gap-4">
       {/* Шапка статуса + действия владельца */}
-      {hasContent && report ? (
+      {isTarget ? null : hasContent && report ? (
         <div className="flex flex-wrap items-center gap-2">
           <StatusChip report={report} />
           <span className="text-sm text-muted">Отправлен: {reportTime(report.submittedAt)}</span>
@@ -146,7 +152,9 @@ export default function ReportView({
       )}
 
       {/* Тело: просмотр / правка / внесение за пропущенный день */}
-      {isSales ? (
+      {isTarget ? (
+        <TargetDayAdmin employeeId={employeeId} date={date} target={target} canEdit={canEdit || canCreate} />
+      ) : isSales ? (
         <SalesObjectReports employeeId={employeeId} date={date} canCreate={canCreate} />
       ) : hasContent && report ? (
         mode === 'edit' ? (
@@ -567,7 +575,7 @@ function OwnerEditor({
   // Строки таргета: из отчёта (правка) либо активные кампании (внесение).
   const tgCodes: string[] = report?.targetolog
     ? report.targetolog.map((r) => r.code)
-    : (activeCampaigns ?? []).map((c) => c.code)
+    : (activeCampaigns ?? []).map((c) => c.code || c.campaign)
 
   const doSave = async () => {
     setSaving(true)

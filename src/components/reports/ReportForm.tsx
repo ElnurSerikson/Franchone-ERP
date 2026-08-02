@@ -1,4 +1,6 @@
 import { useState, type ReactNode } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import TargetLeadsForm from '@/components/campaigns/TargetLeadsForm'
 import { useMutation, useQuery } from 'convex/react'
 import { api } from '../../../convex/_generated/api'
 import type { Doc, Id } from '../../../convex/_generated/dataModel'
@@ -64,7 +66,9 @@ function longDate(date: string): string {
 
 export default function ReportForm() {
   // Дата отчёта: по умолчанию сегодня, но пропущенный день можно дозаполнить.
-  const [date, setDate] = useState<string | undefined>(undefined)
+  // ?date= приходит из графика сдачи на дашборде (§2.5).
+  const [params] = useSearchParams()
+  const [date, setDate] = useState<string | undefined>(() => params.get('date') ?? undefined)
   const data = useQuery(api.reports.mine, date ? { date } : {})
 
   if (data === undefined)
@@ -126,8 +130,21 @@ export default function ReportForm() {
           {formPos === 'targetolog' && <TargetologForm date={data.date} />}
           {formPos === 'sales' && <SalesForm report={data.report} date={data.date} readOnly={!data.editable} />}
         </div>
+        {/* ТАРГЕТ 1.6 §6: второй обязательный ежедневный отчёт таргетолога —
+            количество новых заявок по каждому объекту продаж. Отдельный блок,
+            потому что это другой слой данных: рекламные кампании оцениваются
+            своими техническими результатами, а заявки — общим числом по
+            объекту, без привязки к кампаниям. */}
+        {formPos === 'targetolog' && (
+          <TargetLeadsForm key={`leads:${data.date}`} date={data.date} />
+        )}
       </div>
-      <HistoryPanel history={data.history} />
+      {/* §2.4: карточка истории открывает отчёт за свою дату. */}
+      <HistoryPanel
+        history={data.history}
+        activeDate={data.date}
+        onOpen={(d) => setDate(d === data.today ? undefined : d)}
+      />
     </div>
   )
 }
@@ -186,8 +203,9 @@ function StatusBanner({
   }
 
   if (!submission) {
-    // Пропущенный прошлый день сотруднику уже не отредактировать: после дедлайна
-    // его вносит только владелец. Сегодня до 23:50 — ещё можно сдать вовремя.
+    // Пропущенный день сотруднику уже не отредактировать: после дедлайна его
+    // вносит только администратор. Сегодняшний и вчерашний (до 14:00) — ещё
+    // можно сдать вовремя.
     const color = editable ? '#d69e2e' : '#c53030'
     return (
       <div className="card p-4 flex items-center gap-3 flex-wrap border-l-4" style={{ borderLeftColor: color }}>
@@ -202,7 +220,10 @@ function StatusBanner({
             {editable ? 'Отчёт за сегодня ещё не заполнен' : 'Отчёт за этот день пропущен'}
           </div>
           <div className="text-sm text-muted">
-            {longDate(date)} · {editable ? `дедлайн ${deadline}` : 'дедлайн прошёл — заполнить может только владелец'}
+            {longDate(date)} ·{' '}
+            {editable
+              ? `до ${deadline} следующего дня`
+              : 'дедлайн прошёл — заполнить может только администратор'}
           </div>
         </div>
         {picker}
@@ -511,9 +532,9 @@ function TargetologForm({ date }: { date: string }) {
 
       <div className="overflow-x-auto">
         <div className="min-w-[600px]">
-          <div className="grid grid-cols-[76px_1fr_96px_84px_136px] gap-2 px-1 mb-1.5">
-            <Lbl>ID</Lbl>
-            <Lbl>Объект · цель</Lbl>
+          {/* §2.7: колонка ID убрана — строку опознают по названию кампании. */}
+          <div className="grid grid-cols-[1fr_96px_84px_136px] gap-2 px-1 mb-1.5">
+            <Lbl>Кампания · объект · цель</Lbl>
             <Lbl right>Бюджет, $</Lbl>
             <Lbl right>Результат</Lbl>
             <Lbl right>Цена</Lbl>
@@ -523,13 +544,11 @@ function TargetologForm({ date }: { date: string }) {
               const gm = goalMeta(row.goal ?? undefined)
               const id = row.campaignId as string
               return (
-                <div key={id} className="grid grid-cols-[76px_1fr_96px_84px_136px] gap-2 items-center">
-                  <span className="chip bg-[#e2f2ef] text-green-d justify-center">{row.code}</span>
+                <div key={id} className="grid grid-cols-[1fr_96px_84px_136px] gap-2 items-center">
                   <div className="min-w-0">
-                    <div className="text-sm font-medium text-ink truncate">
-                      {row.objectName ?? row.campaign}
-                    </div>
+                    <div className="text-sm font-medium text-ink truncate">{row.name}</div>
                     <div className="text-[11px] text-muted truncate">
+                      {row.objectName ? `${row.objectName} · ` : ''}
                       <span className="text-green-d font-medium">{gm.metric}</span> · {row.account} ·{' '}
                       {row.moneySource}
                     </div>
@@ -786,7 +805,15 @@ function SalesObjectEditor({
 }
 
 // ——— История (правая колонка; на телефоне/планшете — сворачивается) ———
-function HistoryPanel({ history }: { history: Submission[] }) {
+function HistoryPanel({
+  history,
+  activeDate,
+  onOpen,
+}: {
+  history: Submission[]
+  activeDate: string
+  onOpen: (date: string) => void
+}) {
   const collapsible = useMediaQuery('(max-width: 1023px)') // < lg: колонка стекается вниз
   const [open, setOpen] = useState(false)
   const show = !collapsible || open
@@ -813,10 +840,16 @@ function HistoryPanel({ history }: { history: Submission[] }) {
           <div className="flex flex-col">
           {history.map((h) => {
             const st = REPORT_STATUS[h.onTime ? 'onTime' : 'late']
+            const active = h.date === activeDate
             return (
-              <div
+              <button
+                type="button"
                 key={h.date}
-                className="flex items-center justify-between gap-2 py-2.5 border-b border-line last:border-0"
+                onClick={() => onOpen(h.date)}
+                title="Открыть отчёт за этот день"
+                className={`flex items-center justify-between gap-2 py-2.5 px-2 -mx-2 rounded-lg text-left border-b border-line last:border-0 transition-colors ${
+                  active ? 'bg-[#e2f2ef]' : 'hover:bg-chip'
+                }`}
               >
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-ink capitalize">
@@ -832,7 +865,7 @@ function HistoryPanel({ history }: { history: Submission[] }) {
                   </div>
                 </div>
                 <span className={`chip shrink-0 ${st.chip}`}>{st.label}</span>
-              </div>
+              </button>
             )
           })}
           </div>

@@ -23,7 +23,7 @@ const STATUS_CHIP: Record<string, string> = {
 
 type CampaignRow = {
   _id: string
-  code: string
+  name: string
   goal: string | null
   account: string
   moneySource: string
@@ -40,7 +40,7 @@ type CampaignRow = {
 
 type SeriesRow = {
   campaignId: string
-  code: string
+  name: string
   goal: string | null
   points: { date: string; budgetCents: number; result: number; costCents: number | null }[]
 }
@@ -79,7 +79,7 @@ export default function SalesObjectHistoryDrawer({
 
   const series: ChartSeries[] = ((data?.series ?? []) as SeriesRow[]).map((s) => ({
     id: s.campaignId,
-    label: `${s.code} · ${goalMeta(s.goal ?? undefined).metric}`,
+    label: `${s.name} · ${goalMeta(s.goal ?? undefined).metric}`,
     points: s.points.map((p) => ({
       x: p.date,
       y: p.costCents === null ? null : p.costCents / 100,
@@ -144,7 +144,7 @@ export default function SalesObjectHistoryDrawer({
                         className="flex items-center gap-2 rounded-xl border border-line p-2.5"
                       >
                         <span className="chip bg-[#e2f2ef] text-green-d whitespace-nowrap">
-                          {c.code}
+                          {c.name}
                         </span>
                         <div className="min-w-0 flex-1">
                           <div className="text-sm text-ink truncate">
@@ -221,7 +221,7 @@ export default function SalesObjectHistoryDrawer({
                           <td className={td}>
                             <div className="flex items-center gap-2">
                               <span className="chip bg-[#e2f2ef] text-green-d whitespace-nowrap">
-                                {c.code}
+                                {c.name}
                               </span>
                               <span
                                 className={`chip whitespace-nowrap ${STATUS_CHIP[c.status] ?? 'bg-chip text-ink-2'}`}
@@ -290,7 +290,7 @@ export default function SalesObjectHistoryDrawer({
                     {campaigns.flatMap((c) =>
                       c.statusHistory.map((h, i) => (
                         <div key={`${c._id}:${i}`} className="text-sm text-ink-2 flex gap-2">
-                          <span className="chip bg-[#e2f2ef] text-green-d shrink-0">{c.code}</span>
+                          <span className="chip bg-[#e2f2ef] text-green-d shrink-0">{c.name}</span>
                           <span className="flex-1">
                             {h.from ? `${h.from} → ${h.to}` : `запуск · ${h.to}`}
                           </span>

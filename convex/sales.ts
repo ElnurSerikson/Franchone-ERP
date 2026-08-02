@@ -7,7 +7,8 @@ import { can, requireCan, inScope } from './permissions'
 import { isMonthClosed } from './payroll'
 
 const TZ = '+05:00'
-const DEFAULT_DEADLINE = '23:50'
+// ТЗ СИСТЕМА §2: до 14:00 следующего календарного дня.
+const DEFAULT_DEADLINE = '14:00'
 
 const objectTypeV = v.union(
   v.literal('franchise'),
@@ -110,8 +111,10 @@ function monthsBetween(from: string, to: string): string[] {
   return out
 }
 
+// §2: срок наступает в указанное время СЛЕДУЮЩЕГО календарного дня.
 function deadlineMs(date: string, time: string): number {
-  return Date.parse(`${date}T${time}:00${TZ}`)
+  const next = new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10)
+  return Date.parse(`${next}T${time}:00${TZ}`)
 }
 
 async function deadlineTime(ctx: QueryCtx | MutationCtx): Promise<string> {
@@ -584,7 +587,7 @@ export const submitDaily = mutation({
     if (args.date > today) throw new ConvexError('Отчёт за будущую дату сдать нельзя')
     const time = await deadlineTime(ctx)
     if (Date.now() > deadlineMs(args.date, time)) {
-      throw new ConvexError('Дедлайн прошёл — отчёт за этот день может изменить только владелец')
+      throw new ConvexError('Дедлайн прошёл — отчёт за этот день может изменить только администратор')
     }
     const month = args.date.slice(0, 7)
     if (await isMonthClosed(ctx, month)) {

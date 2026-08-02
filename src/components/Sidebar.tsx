@@ -7,6 +7,8 @@ import {
   Target,
   Users,
   Activity,
+  Gauge,
+  CalendarDays,
   Settings,
   LogOut,
   PanelLeftClose,
@@ -41,6 +43,12 @@ const menu: NavItem[] = [
 const manage: NavItem[] = [
   { to: '/team', label: 'Команда', icon: Users, perm: 'team:view' },
   { to: '/activity', label: 'Активность', icon: Activity, perm: 'activity:view' },
+  // ТЗ СИСТЕМА §3: отдельная вкладка администратора. «Активность» остаётся —
+  // документ её не отменяет, она про ленту событий, а «Эффективность» про
+  // накопленную статистику по задачам и отчётам.
+  { to: '/effectiveness', label: 'Эффективность', icon: Gauge, perm: 'owner' },
+  // §4.2: встречи доступны всем сотрудникам.
+  { to: '/meetings', label: 'Встречи', icon: CalendarDays },
   { to: '/settings', label: 'Настройки', icon: Settings, perm: 'owner' },
 ]
 

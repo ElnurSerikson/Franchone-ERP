@@ -82,7 +82,11 @@ export default defineSchema({
   // один раз и живёт месяцами. Месячные план и вес — в campaignPlans,
   // факт нигде не хранится: он собирается из ежедневных отчётов.
   campaigns: defineTable({
-    code: v.string(), // человеко-читаемый ID, напр. FR-001
+    // УСТАРЕЛО. Видимый ID вида FR-001 убран из интерфейса (дополнение
+    // «Модуль таргетолога» §2.7): кампанию опознают по ручному названию, а
+    // связь с отчётами держит внутренний _id. У старых карточек поле осталось
+    // — стирать его незачем, но новым он не присваивается.
+    code: v.optional(v.string()),
     account: v.string(),
     // Объект продаж, который рекламирует кампания. Справочник общий с отделом
     // продаж (ТЗ таргетолога §6, §13) — так одна франшиза видна и в рекламных,
@@ -108,6 +112,7 @@ export default defineSchema({
         v.literal('reach'),
         v.literal('profile'),
         v.literal('site_leads'),
+        v.literal('engagement'),
       ),
     ),
     status: v.union(v.literal('Активна'), v.literal('Пауза'), v.literal('Завершена')),
@@ -400,6 +405,95 @@ export default defineSchema({
     .index('by_employee_date', ['employeeId', 'date'])
     .index('by_date', ['date']),
 
+  // ——— Планы и заявки таргетолога (ТАРГЕТ 1.6) ———
+  //
+  // Ключевой принцип дополнения: рекламные кампании оцениваются по своим
+  // техническим результатам, а эффективность маркетинга объекта — по общему
+  // расходу и общему числу новых заявок за тот же период. Поэтому заявки
+  // живут отдельным слоем и НЕ распределяются по кампаниям, целям и
+  // объявлениям (§2, §14: это исключает ложную атрибуцию).
+
+  // План заявок на «таргетолог × объект продаж × месяц» (§3). Для этой тройки
+  // может существовать только один активный план. Планы можно заводить
+  // заранее на будущие месяцы.
+  targetLeadPlans: defineTable({
+    employeeId: v.id('employees'),
+    objectId: v.id('salesObjects'),
+    month: v.string(), // YYYY-MM
+    planLeads: v.number(), // целое положительное
+    // §4: плановый бюджет необязателен. Без него KPI по заявкам продолжает
+    // работать, не показывается только плановая цена заявки и план-факт денег.
+    // В ЦЕНТАХ — как и весь рекламный бюджет (§15 основного ТЗ).
+    planBudgetCents: v.optional(v.number()),
+  })
+    .index('by_month', ['month'])
+    .index('by_employee_month', ['employeeId', 'month'])
+    .index('by_object_month', ['objectId', 'month']),
+
+  // Второй ежедневный отчёт таргетолога: сколько новых заявок пришло по
+  // каждому активному объекту за день (§6, §7). Уровень хранения —
+  // «дата → таргетолог → объект продаж», без каналов, источников, целей и
+  // кампаний: это и исключает двойной учёт.
+  targetLeadReports: defineTable({
+    employeeId: v.id('employees'),
+    objectId: v.id('salesObjects'),
+    date: v.string(), // YYYY-MM-DD
+    month: v.string(), // YYYY-MM
+    leads: v.number(), // целое неотрицательное; 0 — «отчёт заполнен, заявок не было»
+    // §7: система сама фиксирует, когда и кто менял значение.
+    updatedAt: v.number(),
+    updatedById: v.id('employees'),
+  })
+    .index('by_date', ['date'])
+    .index('by_month', ['month'])
+    .index('by_employee_date', ['employeeId', 'date'])
+    .index('by_employee_date_object', ['employeeId', 'date', 'objectId'])
+    .index('by_object', ['objectId']),
+
+  // Журнал изменений планов и фактических заявок (§15): старое значение, новое
+  // значение, дата, время и пользователь.
+  targetLeadAudit: defineTable({
+    kind: v.union(v.literal('plan'), v.literal('leads')),
+    employeeId: v.id('employees'),
+    objectId: v.id('salesObjects'),
+    // Месяц для плана, конкретная дата для заявок.
+    period: v.string(),
+    at: v.number(),
+    byId: v.id('employees'),
+    fromLeads: v.optional(v.number()),
+    toLeads: v.optional(v.number()),
+    fromBudgetCents: v.optional(v.number()),
+    toBudgetCents: v.optional(v.number()),
+  })
+    .index('by_kind_period', ['kind', 'period'])
+    .index('by_object', ['objectId']),
+
+  // ——— Встречи (ТЗ СИСТЕМА §4) ———
+  //
+  // Внутренняя напоминалка коллектива: любой сотрудник создаёт встречу и
+  // приглашает коллег, встреча появляется в их разделе. История хранится
+  // бессрочно и после наступления даты не удаляется (§4.5).
+  //
+  // §4.8 — границы первой версии: статусов встречи нет, подтверждения и
+  // отклонения участия нет, повторяющихся встреч нет, внешних календарей нет.
+  // Система фиксирует ФАКТ ПРИГЛАШЕНИЯ, а не присутствие (§4.6).
+  meetings: defineTable({
+    title: v.string(),
+    date: v.string(), // YYYY-MM-DD
+    time: v.string(), // HH:MM, время начала
+    place: v.optional(v.string()),
+    // Ссылка на адрес или геолокацию 2GIS.
+    mapUrl: v.optional(v.string()),
+    comment: v.optional(v.string()),
+    createdById: v.id('employees'),
+    // Создатель автоматически считается участником (§4.2) и всегда входит
+    // в этот список — по нему строится выборка «мои встречи».
+    participantIds: v.array(v.id('employees')),
+    createdAt: v.number(),
+  })
+    .index('by_date', ['date'])
+    .index('by_creator', ['createdById']),
+
   // Настройки (одна запись-синглтон с key = "global")
   settings: defineTable({
     key: v.string(),
@@ -417,6 +511,10 @@ export default defineSchema({
     planRevenueSales: v.optional(v.number()),
     reportMonth: v.string(),
     reportDeadlineTime: v.optional(v.string()), // дедлайн дневного отчёта, «HH:MM» (Алматы)
+    // §11 ТАРГЕТ 1.6: вес показателя «Выполнение плана по количеству заявок»
+    // в общем KPI таргетолога, в процентах. Пока это единственный его
+    // показатель, поэтому вес равен 100.
+    targetLeadWeight: v.optional(v.number()),
   }).index('by_key', ['key']),
 
   // ——— Закрытие месяца (§5: «сохранять итоговые показатели и начисления в архиве») ———

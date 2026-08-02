@@ -14,7 +14,8 @@ const DEFAULTS = {
   salarySales: 0,
   planRevenueSales: 0,
   reportMonth: 'Июль 2026',
-  reportDeadlineTime: '23:50',
+  // ТЗ СИСТЕМА §2: 14:00 следующего календарного дня.
+  reportDeadlineTime: '14:00',
 }
 
 export const get = query({

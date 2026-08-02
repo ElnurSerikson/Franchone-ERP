@@ -4,12 +4,16 @@ import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc } from './_generated/dataModel'
 import { currentEmployee, requireEmployee } from './lib'
 import { isMonthClosed } from './payroll'
+import { targetDayForEmployee } from './target'
 import { can, requireCan, inScope, viewScope } from './permissions'
 
 // Бизнес-часовой пояс компании — Asia/Almaty (UTC+5, без перехода на летнее время).
 const TZ = '+05:00'
-const DEFAULT_DEADLINE = '23:50'
-const REPORTING = new Set(['smm', 'targetolog', 'sales'])
+// ТЗ СИСТЕМА §2: отчёт за календарный день заполняется до 14:00 СЛЕДУЮЩЕГО
+// дня по Asia/Almaty. Значение настраивается, меняется только час — правило
+// «на следующий день» зашито в deadlineMs.
+const DEFAULT_DEADLINE = '14:00'
+export const REPORTING = new Set(['smm', 'targetolog', 'sales'])
 
 // Отчёт «переоткрыт»: владелец удалил его, день ждёт повторной сдачи. Цифры
 // очищены, а повторная отправка пойдёт «с опозданием».
@@ -18,15 +22,19 @@ function isReopened(r: Doc<'dailyReports'> | null | undefined): boolean {
 }
 
 // Может ли сотрудник (автор) сам править отчёт прямо сейчас.
-// Правило: только сегодняшний отчёт до дедлайна (23:50). Прошлые даты —
-// просмотр, будущие даты вообще не должны попадать в форму как редактируемые.
+// ТЗ СИСТЕМА §2: отчёт за день заполняется до 14:00 следующего календарного
+// дня. Значит открыты сегодняшний день и вчерашний — пока не пробило 14:00.
+// Более ранние даты сотрудник уже не трогает, будущие в форму не попадают.
 function authorCanEdit(
   date: string,
   today: string,
   nowMs: number,
   time: string,
 ): boolean {
-  return date === today && nowMs <= deadlineMs(date, time)
+  // §2.2: сотрудник заполняет сегодняшний день и вчерашний — пока не наступил
+  // дедлайн вчерашнего. После него правит только администратор, и такая
+  // запись считается сданной с опозданием (§2.3).
+  return date <= today && nowMs <= deadlineMs(date, time)
 }
 
 // Сегодняшняя календарная дата в часовом поясе Алматы.
@@ -41,9 +49,11 @@ function addDays(date: string, delta: number): string {
     .slice(0, 10)
 }
 
-// Момент дедлайна для даты в часовом поясе Алматы (ms).
-function deadlineMs(date: string, time: string): number {
-  return Date.parse(`${date}T${time}:00${TZ}`)
+// Момент дедлайна для отчётной даты (ms). §2: срок наступает в указанное
+// время СЛЕДУЮЩЕГО календарного дня — отчёт за 1 августа заполняется до
+// 2 августа 14:00 и в 14:00 блокируется.
+export function deadlineMs(date: string, time: string): number {
+  return Date.parse(`${addDays(date, 1)}T${time}:00${TZ}`)
 }
 
 function effectiveOnTime(r: Doc<'dailyReports'>, time: string): boolean {
@@ -80,9 +90,13 @@ const salesPayload = v.object({
 // Самая ранняя дата, за которую сотрудник может дозаполнить отчёт: начало
 // текущего месяца, но не раньше даты найма. Месяц — естественная граница:
 // по нему считается KPI и выплата, и закрытый месяц пересобирать нельзя.
-function earliestReportDate(me: Doc<'employees'>, today: string): string {
-  const monthStart = `${today.slice(0, 7)}-01`
-  return me.hiredAt > monthStart ? me.hiredAt : monthStart
+// Самая ранняя дата, за которую сотрудник ещё может сдать отчёт сам. §2: это
+// вчерашний день, и только пока не пробило 14:00. Раньше — уже только
+// администратор.
+function earliestReportDate(me: Doc<'employees'>, today: string, nowMs: number, time: string): string {
+  const yesterday = addDays(today, -1)
+  const open = nowMs <= deadlineMs(yesterday, time) ? yesterday : today
+  return me.hiredAt > open ? me.hiredAt : open
 }
 
 // Мой отчёт за дату (по умолчанию сегодня) + короткая история.
@@ -101,7 +115,10 @@ export type Submission = {
 // в dailyReports больше не пишутся. Без этой подмены он выглядел бы вечным
 // прогульщиком: шапка твердила бы «отчёт не заполнен» поверх отправленного,
 // история оставалась бы пустой, а заполняемость считалась бы по нулям.
-async function submissions(
+// Экспортируется под именем submissionsFor: раздел «Эффективность» считает
+// дисциплину по тем же данным, что и сетка отчётности — двух источников
+// правды тут быть не должно.
+export async function submissionsFor(
   ctx: QueryCtx,
   e: Doc<'employees'>,
   time: string,
@@ -155,7 +172,7 @@ export const mine = query({
     all.sort((a, b) => (a.date < b.date ? 1 : -1)) // по дате, свежие сверху
     const normalizedAll = all.map((r) => ({ ...r, onTime: effectiveOnTime(r, time) }))
 
-    const sent = await submissions(ctx, me, time)
+    const sent = await submissionsFor(ctx, me, time)
     const report = normalizedAll.find((r) => r.date === target) ?? null
     const reporting = me.role !== 'owner' && REPORTING.has(me.position)
     const closed = await isMonthClosed(ctx, target.slice(0, 7))
@@ -173,7 +190,7 @@ export const mine = query({
     return {
       today,
       date: target,
-      earliestDate: earliestReportDate(me, today),
+      earliestDate: earliestReportDate(me, today, Date.now(), time),
       deadlineTime: time,
       position: me.position,
       report,
@@ -223,8 +240,9 @@ export const submit = mutation({
       .first()
 
     const reopened = isReopened(existing)
-    // Своё окно правки — до 23:50 своего дня. После дедлайна и прошлые даты
-    // трогает только владелец.
+    // §2.2: своё окно — до 14:00 следующего дня. После дедлайна отчёт за этот
+    // день вносит и правит только администратор, и запись помечается как
+    // сданная с опозданием (§2.3).
     if (now > deadlineMs(date, time)) {
       throw new ConvexError(
         'Дедлайн прошёл — отчёт за этот день может изменить только владелец',
@@ -291,11 +309,10 @@ async function disciplineRow(
   ctx: QueryCtx,
   e: Doc<'employees'>,
   dates: string[],
-  today: string,
-  deadlinePassedToday: boolean,
+  nowMs: number,
   time: string,
 ) {
-  const byDate = new Map((await submissions(ctx, e, time)).map((r) => [r.date, r]))
+  const byDate = new Map((await submissionsFor(ctx, e, time)).map((r) => [r.date, r]))
 
   let onTime = 0
   let late = 0
@@ -322,7 +339,9 @@ async function disciplineRow(
         edited: r.editCount > 0,
       }
     }
-    if (d < today || (d === today && deadlinePassedToday)) {
+    // §2: день считается пропущенным только когда истёк его дедлайн —
+    // 14:00 следующего календарного дня. До этого он ещё «в работе».
+    if (nowMs > deadlineMs(d, time)) {
       missed++
       return { date: d, status: 'missed' as const }
     }
@@ -360,7 +379,7 @@ export const myDiscipline = query({
     if (me.role === 'owner' || !REPORTING.has(me.position)) return empty
 
     const dates = windowDates(today, days ?? 14)
-    const row = await disciplineRow(ctx, me, dates, today, Date.now() > deadlineMs(today, time), time)
+    const row = await disciplineRow(ctx, me, dates, Date.now(), time)
     return { today, deadlineTime: time, dates, ...row, reporting: true }
   },
 })
@@ -379,7 +398,7 @@ export const discipline = query({
     if (!viewer || scope === 'none') {
       return { today, deadlineTime: time, dates: [], rows: [] }
     }
-    const deadlinePassedToday = Date.now() > deadlineMs(today, time)
+    const nowMs = Date.now()
     const dates = windowDates(today, N)
 
     const emps = (
@@ -406,8 +425,7 @@ export const discipline = query({
         ctx,
         e,
         dates,
-        today,
-        deadlinePassedToday,
+        nowMs,
         time,
       )
       rows.push({
@@ -472,8 +490,15 @@ export const reportFor = query({
     const closed = await isMonthClosed(ctx, date.slice(0, 7))
     const reopened = isReopened(report)
     const reporting = !!emp && emp.role !== 'owner' && REPORTING.has(emp.position)
+
+    // §2.6: отчёт таргетолога живёт в собственных таблицах модуля. Раньше сюда
+    // смотрела только legacy-таблица dailyReports, и сданный отчёт открывался
+    // как пропущенный, с предложением внести его заново.
+    const target =
+      emp?.position === 'targetolog' ? await targetDayForEmployee(ctx, employeeId, date) : null
+
     // Отчёт с содержимым: не переоткрытая пустышка. Такой можно править и удалять.
-    const hasContent = !!report && !reopened
+    const hasContent = target ? target.submittedAt !== null : !!report && !reopened
     // Права правки/удаления — по матрице и в скоупе, только в открытом месяце.
     const scoped = !!emp && inScope(viewer, emp)
     const mayEdit = scoped && !closed && (await can(ctx, 'reports', 'edit'))
@@ -481,11 +506,14 @@ export const reportFor = query({
 
     return {
       report,
+      target,
       history,
       reopened,
       position: emp?.position ?? null,
       canEdit: mayEdit && hasContent,
-      canDelete: mayDelete && hasContent,
+      // Отчёт таргетолога не удаляется целиком: он состоит из строк кампаний,
+      // и правки по нему идут через журнал аудита модуля.
+      canDelete: mayDelete && hasContent && !target,
       // Пропущенный/переоткрытый день вносит заново тот, кто может править.
       canCreate: mayEdit && reporting && !hasContent,
     }
