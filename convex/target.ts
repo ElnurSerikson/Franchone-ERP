@@ -13,7 +13,13 @@ import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, isManager, hiddenEmployeeIds } from './lib'
-import { CAMPAIGN_GOALS, CAMPAIGN_GOAL_SLUGS, goalMeta, resultCostCents } from './campaignGoals'
+import {
+  CAMPAIGN_GOALS,
+  CAMPAIGN_GOAL_SLUGS,
+  goalMeta,
+  normalizeAccount,
+  resultCostCents,
+} from './campaignGoals'
 
 const TZ = '+05:00'
 
@@ -185,7 +191,9 @@ export const createCampaign = mutation({
     const id = await ctx.db.insert('campaigns', {
       objectId: args.objectId,
       goal: args.goal,
-      account: args.account.trim(),
+      // Приводим написание к канону — иначе в фильтрах заводится
+      // «второй» аккаунт, отличающийся только регистром.
+      account: normalizeAccount(args.account),
       moneySource: args.moneySource,
       campaign: name,
       status: 'Активна',
@@ -243,6 +251,7 @@ export const updateCampaign = mutation({
     const clean = Object.fromEntries(
       Object.entries(patch).filter(([, value]) => value !== undefined),
     )
+    if (typeof clean.account === 'string') clean.account = normalizeAccount(clean.account)
     if (name !== undefined) clean.campaign = name.trim()
     await ctx.db.patch(id, clean)
   },

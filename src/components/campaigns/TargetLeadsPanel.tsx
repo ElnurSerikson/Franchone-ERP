@@ -231,7 +231,8 @@ export default function TargetLeadsPanel({ manager }: { manager: boolean }) {
         <div className="card overflow-hidden overflow-x-auto">
           {rows.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted">
-              За выбранный период ни планов, ни заявок, ни расхода нет.
+              На выбранный период планы по объектам не выставлены. Задайте их в
+              «Настройки → Объекты продаж → Планы таргетолога».
             </div>
           ) : (
             <table className="w-full min-w-[900px]">
@@ -289,9 +290,9 @@ export default function TargetLeadsPanel({ manager }: { manager: boolean }) {
           )}
         </div>
         <p className="text-xs text-muted mt-2">
-          Объекты без установленного плана показаны в аналитике, но в расчёт KPI не входят.
-          Перевыполнение одного объекта не компенсирует невыполнение другого: вклад каждого
-          ограничен его планом.
+          В списке только объекты, на которые выставлен план — по ним же считаются итоги
+          сверху. Перевыполнение одного объекта не компенсирует невыполнение другого: вклад
+          каждого ограничен его планом.
         </p>
       </section>
 

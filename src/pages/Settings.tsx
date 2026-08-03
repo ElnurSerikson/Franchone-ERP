@@ -10,12 +10,62 @@ import { useData } from '@/lib/useData'
 import type { Id } from '../../convex/_generated/dataModel'
 import { num, pct } from '@/lib/format'
 import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
-import { errMessage } from '@/lib/errors'
+import { errMessage, errDetail } from '@/lib/errors'
+import CopyFromMonth from '@/components/settings/CopyFromMonth'
 import { th, td, theadRow } from '@/lib/table'
 import { PERM_SECTIONS, ACTION_LABEL, permKey } from '../../convex/permModel'
 
 const cellCls =
   'w-16 h-8 px-2 rounded-lg border border-line-2 text-sm text-right tabular-nums focus:outline-none focus:border-green-light'
+
+// Числовое поле, которое не мешает печатать. Раньше здесь стоял
+// <input type="number"> с числом в value: пока набираешь «0,1», промежуточное
+// «0,» числом не является, код превращал его в 0 и тут же перерисовывал поле —
+// символ съедался, и дробный вес ввести было физически нельзя.
+//
+// Теперь пока поле в фокусе, показываем ровно набранную строку. Запятая и
+// точка равноправны: в русской раскладке на цифровом блоке запятая, в базу
+// уходит обычное число.
+function NumCell({
+  value,
+  onChange,
+  decimal = false,
+  className = cellCls,
+}: {
+  value: number
+  onChange: (v: number) => void
+  decimal?: boolean
+  className?: string
+}) {
+  const show = (v: number) => (decimal ? String(v).replace('.', ',') : String(v))
+  const [raw, setRaw] = useState(() => show(value))
+  const [editing, setEditing] = useState(false)
+
+  return (
+    <input
+      type="text"
+      inputMode={decimal ? 'decimal' : 'numeric'}
+      // Вне фокуса поле следует за данными: смена месяца или сотрудника
+      // подставит новые значения, а не оставит старый набранный текст.
+      value={editing ? raw : show(value)}
+      onFocus={(e) => {
+        setRaw(show(value))
+        setEditing(true)
+        e.currentTarget.select()
+      }}
+      onBlur={() => setEditing(false)}
+      onChange={(e) => {
+        const next = decimal
+          ? e.target.value.replace(/[^\d.,]/g, '')
+          : e.target.value.replace(/[^\d]/g, '')
+        setRaw(next)
+        const parsed = Number(next.replace(',', '.'))
+        onChange(Number.isFinite(parsed) ? parsed : 0)
+      }}
+      className={className}
+    />
+  )
+}
 
 // §5 ТЗ: «формулы расчёта и набор KPI настраиваются отдельно для каждой
 // должности». Поэтому настройки сгруппированы по должности, а не по типу
@@ -377,13 +427,10 @@ function SalaryField({
         <span className="text-sm text-ink-2">{label}</span>
         {hint && <p className="text-[11px] text-muted-2 mt-0.5">{hint}</p>}
       </div>
-      <input
-        type="number"
-        min={0}
-        step={10000}
+      <NumCell
         value={value}
-        onChange={(e) => onChange(Number(e.target.value) || 0)}
-        className="w-36 h-9 px-2 rounded-lg border border-line-2 text-sm font-semibold text-right focus:outline-none focus:border-green-light shrink-0"
+        onChange={onChange}
+        className="w-36 h-9 px-2 rounded-lg border border-line-2 text-sm font-semibold text-right tabular-nums focus:outline-none focus:border-green-light shrink-0"
       />
     </div>
   )
@@ -574,7 +621,13 @@ function SmmKpiSetup() {
     setSaving(true)
     setError('')
     try {
+      // Сохраняем только те строки, которые сейчас есть на экране. Без этого
+      // правка удалённой строки (её id оставался в черновике) или строки
+      // другого месяца уходила в базу и падала служебной ошибкой — на экране
+      // появлялось «Не удалось сохранить настройки» без объяснения причины.
+      const known = new Set(smmMetrics.map((m) => m.id))
       for (const [id, val] of Object.entries(draft)) {
+        if (!known.has(id)) continue
         await setPlan({ id: id as Id<'smmMetrics'>, weight: val.weight, weekPlans: val.weekPlans })
       }
       if (salary !== null && selected) {
@@ -584,7 +637,10 @@ function SmmKpiSetup() {
       setSalary(null)
       setSaved(true)
     } catch (e) {
-      setError(errMessage(e, 'Не удалось сохранить настройки.'))
+      const detail = errDetail(e)
+      setError(
+        errMessage(e, 'Не удалось сохранить настройки.') + (detail ? ` (${detail})` : ''),
+      )
     } finally {
       setSaving(false)
     }
@@ -605,7 +661,16 @@ function SmmKpiSetup() {
         <Sliders size={18} className="text-green" />
         <h3 className="sec-title flex-1">KPI · SMM-специалист</h3>
         {/* §1.2: план можно задать заранее на будущий месяц. */}
-        <PlanMonthSwitch month={month} onChange={setMonth} />
+        <PlanMonthSwitch
+          month={month}
+          onChange={(m) => {
+            // Правки принадлежат конкретному месяцу: перенести их на другой
+            // нельзя, иначе сохранение запишет чужие цифры.
+            setMonth(m)
+            setDraft({})
+            setSaved(false)
+          }}
+        />
         <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />
       </div>
 
@@ -671,27 +736,21 @@ function SmmKpiSetup() {
                     <span className="font-medium text-ink">{m.account}</span> · {m.format}
                   </td>
                   <td className={td}>
-                    <input
-                      type="number"
-                      step="0.05"
-                      min={0}
+                    <NumCell
+                      decimal
                       value={r.weight}
-                      onChange={(e) => edit(m.id, { weight: Number(e.target.value) || 0 })}
-                      className={cellCls}
+                      onChange={(v) => edit(m.id, { weight: v })}
                     />
                   </td>
                   {r.weekPlans.map((p, i) => (
                     <td key={i} className={td}>
-                      <input
-                        type="number"
-                        min={0}
+                      <NumCell
                         value={p}
-                        onChange={(e) => {
+                        onChange={(v) => {
                           const next = [...r.weekPlans]
-                          next[i] = Number(e.target.value) || 0
+                          next[i] = v
                           edit(m.id, { weekPlans: next })
                         }}
-                        className={cellCls}
                       />
                     </td>
                   ))}
@@ -700,7 +759,15 @@ function SmmKpiSetup() {
                   </td>
                   <td className={td}>
                     <button
-                      onClick={() => run(() => removeMetric({ id: m.id as Id<'smmMetrics'> }))}
+                      onClick={() =>
+                        run(async () => {
+                          await removeMetric({ id: m.id as Id<'smmMetrics'> })
+                          // Несохранённые правки удалённой строки выбрасываем:
+                          // иначе сохранение попытается записать в документ,
+                          // которого уже нет.
+                          setDraft(({ [m.id]: _dropped, ...rest }) => rest)
+                        })
+                      }
                       className="w-8 h-8 grid place-items-center rounded-lg text-muted hover:text-[#c53030] hover:bg-chip transition-colors"
                       title="Убрать показатель из расчёта"
                     >
@@ -763,6 +830,19 @@ function SmmKpiSetup() {
       <p className={`text-[11px] mt-3 ${Math.abs(weightSum - 1) < 0.001 ? 'text-muted-2' : 'text-[#c53030]'}`}>
         Сумма весов = {pct(weightSum)}. В модели KPI она должна быть 100%.
       </p>
+
+      <CopyFromMonth
+        section="smm"
+        month={month}
+        employeeId={selected ? (selected as Id<'employees'>) : undefined}
+        what="Веса и недельные планы этого сотрудника"
+        onDone={() => {
+          // Черновик относился к прежнему набору строк — после переноса он
+          // указывает на удалённые записи.
+          setDraft({})
+          setSaved(false)
+        }}
+      />
         </>
       )}
     </div>
@@ -908,7 +988,14 @@ function SalesKpiSetup() {
           <Sliders size={18} className="text-green" />
           <h3 className="sec-title flex-1">KPI · Отдел продаж</h3>
           {/* §1.2: план выручки можно задать заранее на будущий месяц. */}
-          <PlanMonthSwitch month={planMonth} onChange={setPlanMonth} />
+          <PlanMonthSwitch
+            month={planMonth}
+            onChange={(m) => {
+              setPlanMonth(m)
+              setPlan(null)
+              setSaved(false)
+            }}
+          />
           <SaveBar dirty={dirty} saving={saving} saved={saved} onSave={save} />
         </div>
 
@@ -959,6 +1046,16 @@ function SalesKpiSetup() {
                 Без плана выручки KPI продаж не считается, и выплата останется нулевой.
               </p>
             )}
+            <CopyFromMonth
+              section="salesRevenue"
+              month={planMonth}
+              employeeId={selected ? (selected as Id<'employees'>) : undefined}
+              what="План выручки этого менеджера"
+              onDone={() => {
+                setPlan(null)
+                setSaved(false)
+              }}
+            />
           </div>
         )}
       </div>
@@ -1114,6 +1211,12 @@ function SalesObjectsSetup() {
           меняются с текущего месяца и будущих периодов.
         </div>
       )}
+
+      <CopyFromMonth
+        section="salesObjects"
+        month={month}
+        what="Статусы объектов и планы менеджеров"
+      />
 
       <div>
         {filteredObjects.length > 0 ? (

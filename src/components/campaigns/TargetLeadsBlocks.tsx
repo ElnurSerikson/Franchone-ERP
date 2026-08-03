@@ -235,7 +235,7 @@ export function AdminTargetLeadsBlock() {
       <div className="rounded-xl border border-line overflow-hidden overflow-x-auto">
         {rows.length === 0 ? (
           <div className="p-6 text-center text-sm text-muted">
-            За выбранный период данных по заявкам нет.
+            На выбранный период планы по объектам не выставлены.
           </div>
         ) : (
           <table className="w-full min-w-[820px]">

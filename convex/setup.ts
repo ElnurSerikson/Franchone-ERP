@@ -11,6 +11,8 @@ import { internalMutation, internalQuery } from './_generated/server'
 import { salesSummary } from './sales'
 import { computeMonth } from './payroll'
 import { deadlineMs } from './reports'
+import { assertCopyable, copyPlanMonth } from './planCopy'
+import { collect as targetLeadsCollect } from './targetLeads'
 import { datesBetween, reportStats, taskStats } from './effectiveness'
 import {
   daysInMonth,
@@ -22,7 +24,7 @@ import {
 } from './targetLeads'
 import { v } from 'convex/values'
 import type { Doc, Id } from './_generated/dataModel'
-import { resultCostCents } from './campaignGoals'
+import { normalizeAccount, resultCostCents } from './campaignGoals'
 
 // Одноразовая настройка: назначить владельцу email для входа и привести
 // все email сотрудников к нижнему регистру (email = логин).
@@ -2142,6 +2144,179 @@ export const devEffectivenessCheck = internalQuery({
       deadline: `${time} следующего дня`,
       reports: `обязательных ${reports.required} · вовремя ${reports.onTime} · после блокировки ${reports.lateByAdmin} · не внесено ${reports.missing} · своевременность ${pct(reports.onTimeRate)}`,
       tasks: `всего ${tasks.total} · выполнено ${tasks.done} · в срок ${tasks.doneOnTime} · с опозданием ${tasks.doneLate} · просрочено ${tasks.overdue} · выполнение ${pct(tasks.completionRate)}`,
+    }
+  },
+})
+
+// Прогон переноса плановых значений из прошлого месяца (только dev).
+// Вызывает боевую логику planCopy напрямую, минуя проверку личности.
+// npx convex run setup:devCopyCheck '{"section":"smm","from":"2026-07"}'
+export const devCopyCheck = internalMutation({
+  args: { section: v.string(), from: v.string(), email: v.optional(v.string()) },
+  handler: async (ctx, { section, from, email }) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+    const to = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 7)
+    let employeeId: Id<'employees'> | undefined
+    if (email) {
+      const e = await ctx.db
+        .query('employees')
+        .withIndex('by_email', (q) => q.eq('email', email.toLowerCase().trim()))
+        .first()
+      employeeId = e?._id
+    }
+    const before = (await ctx.db.query('smmMetrics').collect()).filter((m) => m.month === to).length
+    const res = await copyPlanMonth(ctx, section as never, from, to, employeeId)
+    const after = (await ctx.db.query('smmMetrics').collect()).filter((m) => m.month === to).length
+    return { from, to, ...res, smmRowsBefore: before, smmRowsAfter: after }
+  },
+})
+
+// Готовит данные для проверки переноса: прошлый месяц с планами и текущий
+// с «мусором», который перенос обязан заменить. Только dev.
+export const seedDevCopyDemo = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+    const to = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 7)
+    const [y, m] = to.split('-').map(Number)
+    const from = m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`
+
+    const emp = (await ctx.db.query('employees').collect()).find((e) => e.role !== 'owner')
+    if (!emp) throw new Error('Нет сотрудников')
+
+    for (const r of await ctx.db.query('smmMetrics').collect()) await ctx.db.delete(r._id)
+
+    // Прошлый месяц — то, что переносим.
+    const source = [
+      { account: 'FRANCHONE' as const, format: 'Рилсы' as const, weight: 0.2, weekPlans: [4, 4, 4, 4, 0] },
+      { account: 'FRANCHONE' as const, format: 'Сторис' as const, weight: 0.1, weekPlans: [24, 24, 24, 24, 0] },
+      { account: 'ANUAR' as const, format: 'Рилсы' as const, weight: 0.7, weekPlans: [14, 14, 14, 14, 0] },
+    ]
+    for (const s of source) {
+      await ctx.db.insert('smmMetrics', {
+        employeeId: emp._id,
+        month: from,
+        account: s.account,
+        format: s.format,
+        weight: s.weight,
+        weekPlans: s.weekPlans,
+        weekFacts: [9, 9, 9, 9, 9],
+      })
+    }
+    // Текущий месяц — одна пустая строка, её перенос обязан снести.
+    await ctx.db.insert('smmMetrics', {
+      employeeId: emp._id,
+      month: to,
+      account: 'ANUAR',
+      format: 'Карусели',
+      weight: 0,
+      weekPlans: [0, 0, 0, 0, 0],
+      weekFacts: [0, 0, 0, 0, 0],
+    })
+    return { from, to, employee: emp.name, sourceRows: source.length, targetRowsBefore: 1 }
+  },
+})
+
+// Правило выбора месяцев для переноса (только dev). Считает боевая
+// assertCopyable. npx convex run setup:devCopyRuleCheck
+export const devCopyRuleCheck = internalQuery({
+  args: {},
+  handler: async () => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+    const to = '2026-08' // текущий месяц в проверке
+    const check = (from: string) => {
+      try {
+        assertCopyable(from, to)
+        return 'разрешено'
+      } catch (e) {
+        return 'отклонено: ' + ((e as { data?: string }).data ?? 'ошибка')
+      }
+    }
+    return {
+      prev_month_2026_07: check('2026-07'),
+      older_2026_05: check('2026-05'),
+      last_year_2025_12: check('2025-12'),
+      same_month_2026_08: check('2026-08'),
+      future_2026_09: check('2026-09'),
+      garbage: check('июль'),
+    }
+  },
+})
+
+// Что показывает раздел KPI таргетолога: список объектов и итоги сверху.
+// Считает боевая collect через overview-логику. Только dev.
+// npx convex run setup:devKpiListCheck
+export const devKpiListCheck = internalQuery({
+  args: { email: v.optional(v.string()) },
+  handler: async (ctx, { email }) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) {
+      throw new Error(`Только для dev-деплоймента ${DEV_DEPLOYMENT}. Текущий: ${url || 'неизвестен'}`)
+    }
+    const low = (email ?? 'elnur.serikson@gmail.com').toLowerCase().trim()
+    const me = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (!me) throw new Error(`Сотрудник ${low} не найден`)
+    const month = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 7)
+    const [y, m] = month.split('-').map(Number)
+    const last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
+
+    const data = await targetLeadsCollect(ctx, me, `${month}-01`, last, {})
+    const usd = (c: number) => '$' + (c / 100).toFixed(2)
+    // Ключи только ASCII: Convex не принимает кириллицу в именах полей.
+    return {
+      month,
+      rowsInTable: data.rows.length,
+      objects: data.rows.map(
+        (r) => `${r.name}: план ${r.planLeads ?? '—'} · факт ${r.factLeads} · расход ${usd(r.factBudgetCents)}`,
+      ),
+      totalSpend: usd(data.totals.factBudgetCents),
+      totalPlan: data.totals.planLeads,
+      totalFact: data.totals.factLeads,
+    }
+  },
+})
+
+// Единое написание рекламного аккаунта у кампаний.
+//
+// Карточка кампании предлагала «Anuar», а вся остальная система работает с
+// «ANUAR» — в фильтре KPI появлялся третий аккаунт, которого не существует.
+// Форма исправлена, здесь приводим уже накопленные записи.
+//
+// Это НЕ dev-функция: расхождение живёт на проде, его и надо чинить.
+// Запуск: npx convex run setup:normalizeCampaignAccounts --prod
+export const normalizeCampaignAccounts = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, { dryRun }) => {
+    const rows = await ctx.db.query('campaigns').collect()
+    const changes: string[] = []
+    for (const c of rows) {
+      const next = normalizeAccount(c.account)
+      if (next === c.account) continue
+      changes.push(`${c.campaign?.trim() || c.code || c._id}: «${c.account}» → «${next}»`)
+      if (!dryRun) await ctx.db.patch(c._id, { account: next })
+    }
+    // Что осталось в базе после приведения — для проверки глазами.
+    const after = new Map<string, number>()
+    for (const c of await ctx.db.query('campaigns').collect()) {
+      after.set(c.account, (after.get(c.account) ?? 0) + 1)
+    }
+    return {
+      dryRun: dryRun === true,
+      changed: changes.length,
+      changes,
+      accounts: [...after.entries()].map(([a, n]) => `${a}: ${n}`).sort(),
     }
   },
 })

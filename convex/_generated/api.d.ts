@@ -25,6 +25,7 @@ import type * as meetings from "../meetings.js";
 import type * as payroll from "../payroll.js";
 import type * as permModel from "../permModel.js";
 import type * as permissions from "../permissions.js";
+import type * as planCopy from "../planCopy.js";
 import type * as positions from "../positions.js";
 import type * as reports from "../reports.js";
 import type * as sales from "../sales.js";
@@ -61,6 +62,7 @@ declare const fullApi: ApiFromModules<{
   payroll: typeof payroll;
   permModel: typeof permModel;
   permissions: typeof permissions;
+  planCopy: typeof planCopy;
   positions: typeof positions;
   reports: typeof reports;
   sales: typeof sales;

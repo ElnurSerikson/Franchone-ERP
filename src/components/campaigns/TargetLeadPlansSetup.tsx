@@ -8,6 +8,7 @@ import { errMessage } from '@/lib/errors'
 import { num, usd } from '@/lib/format'
 import { CURRENT_MONTH, addMonth, formatMonth } from '@/lib/month'
 import { th, thRight, td, theadRow } from '@/lib/table'
+import CopyFromMonth from '@/components/settings/CopyFromMonth'
 
 // Планы таргетолога по объектам продаж (ТАРГЕТ 1.6 §3, §4, §11).
 //
@@ -275,6 +276,13 @@ export default function TargetLeadPlansSetup() {
             {targetologs.length === 0 && (
               <p className="text-sm text-muted mt-3">Нет действующих таргетологов.</p>
             )}
+
+            <CopyFromMonth
+              section="targetLeads"
+              month={month}
+              what="Планы заявок и бюджеты по объектам"
+              onDone={reset}
+            />
           </>
         )}
       </div>

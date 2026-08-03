@@ -7,7 +7,11 @@ import Select from '@/components/ui/Select'
 import DatePicker from '@/components/ui/DatePicker'
 import { errMessage } from '@/lib/errors'
 import { TODAY } from '@/lib/constants'
-import { CAMPAIGN_GOALS, type CampaignGoalSlug } from '../../../convex/campaignGoals'
+import {
+  CAMPAIGN_ACCOUNTS,
+  CAMPAIGN_GOALS,
+  type CampaignGoalSlug,
+} from '../../../convex/campaignGoals'
 
 // Карточка рекламной кампании (ТЗ таргетолога §7.1, дополнение §4).
 // Кампания обязательно привязана к одному объекту продаж и одной цели.
@@ -18,7 +22,6 @@ const inputCls =
   'w-full rounded-lg border border-line-2 px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-green-light bg-white'
 const labelCls = 'block text-sm font-medium text-ink-2 mb-1.5'
 
-const ACCOUNTS = ['FRANCHONE', 'Anuar'] as const
 const MONEY = ['FRANCHONE', 'Партнёр'] as const
 
 export type RegistryRow = {
@@ -207,7 +210,7 @@ export default function CampaignDrawer({
               <Select
                 value={account}
                 onChange={setAccount}
-                options={ACCOUNTS.map((a) => ({ value: a, label: a }))}
+                options={CAMPAIGN_ACCOUNTS.map((a) => ({ value: a, label: a }))}
               />
             </Field>
             <Field label="Источник денег">

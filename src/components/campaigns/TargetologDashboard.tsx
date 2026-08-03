@@ -8,7 +8,7 @@ import StatCard from '@/components/ui/StatCard'
 import LineChart, { type ChartSeries } from '@/components/ui/LineChart'
 import TargetReportsPanel from './TargetReportsPanel'
 import DatePicker from '@/components/ui/DatePicker'
-import { goalMeta } from '../../../convex/campaignGoals'
+import { CAMPAIGN_ACCOUNTS, goalMeta } from '../../../convex/campaignGoals'
 import { num, usd, usdCost } from '@/lib/format'
 import { TODAY } from '@/lib/constants'
 import { th, thRight, td, theadRow } from '@/lib/table'
@@ -80,8 +80,6 @@ export default function TargetologDashboard() {
   const [moneySource, setMoneySource] = useState(ALL)
   const [status, setStatus] = useState(ALL)
 
-  const registry = useQuery(api.target.registry, {})
-
   // Опорный запрос — без фильтра целей. Из него берётся полный справочник
   // целей (§2.9): нижний список обязан показывать и те цели, которые
   // пользователь только что отключил, иначе вернуть их было бы нечем.
@@ -112,7 +110,9 @@ export default function TargetologDashboard() {
   const campaignRows = (data?.campaignRows ?? []) as CampaignRow[]
   const objects = (data?.objects ?? []) as { _id: string; name: string }[]
   const detail = data?.mode === 'campaigns'
-  const accounts = [...new Set((registry ?? []).map((c) => c.account))].sort()
+  // Список аккаунтов берём из справочника, а не из данных: раньше он строился
+  // по уникальным значениям кампаний, и любое расхождение в написании
+  // превращалось в лишний «аккаунт» в фильтре.
 
   const series: ChartSeries[] = ((data?.series ?? []) as SeriesRow[]).map((s) => ({
     id: s.id,
@@ -148,7 +148,7 @@ export default function TargetologDashboard() {
               onChange={setAccount}
               options={[
                 { value: ALL, label: 'Все аккаунты' },
-                ...accounts.map((a) => ({ value: a, label: a })),
+                ...CAMPAIGN_ACCOUNTS.map((a) => ({ value: a, label: a })),
               ]}
             />
           </Field>
