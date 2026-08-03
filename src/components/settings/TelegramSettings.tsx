@@ -22,6 +22,33 @@ const CATEGORIES = [
   { key: 'kpi', label: 'Достижения KPI' },
 ]
 
+// §4.3: пояса, в которых компания реально может работать. Список короткий
+// намеренно — свободный ввод здесь только создаёт опечатки.
+const TIMEZONES = [
+  'Asia/Almaty',
+  'Asia/Aqtobe',
+  'Asia/Aqtau',
+  'Asia/Tashkent',
+  'Asia/Bishkek',
+  'Europe/Moscow',
+  'Asia/Dubai',
+  'UTC',
+]
+
+// §7.2: значения по умолчанию. Администратор правит их без изменения кода.
+const DEFAULT_KPI_TEXTS = [
+  { threshold: 10, text: '{name}, вы уже выполнили 10% KPI. Отличное начало — продолжаем!' },
+  { threshold: 20, text: '{name}, выполнено 20% KPI. Уже пятая часть пути позади — двигаемся дальше!' },
+  { threshold: 30, text: '{name}, за плечами 30% KPI. Хороший темп — так держать!' },
+  { threshold: 40, text: '{name}, выполнено 40% KPI. До половины совсем немного.' },
+  { threshold: 50, text: 'Половина готова! Ваш KPI выполнен на 50%. Темп хороший — не сбавляем.' },
+  { threshold: 60, text: '{name}, 60% KPI позади. Большая часть пути пройдена.' },
+  { threshold: 70, text: '{name}, выполнено 70% KPI. Отличный результат, осталось немного.' },
+  { threshold: 80, text: 'Уже 80% KPI! Финишная прямая — осталось совсем немного.' },
+  { threshold: 90, text: '{name}, 90% KPI. План почти закрыт — последний рывок!' },
+  { threshold: 100, text: '{name}, KPI выполнен на 100%! План закрыт — отличный результат.' },
+]
+
 const inputCls =
   'w-full h-9 rounded-lg border border-line-2 px-3 text-sm text-ink focus:outline-none focus:border-green-light bg-white'
 
@@ -129,7 +156,51 @@ export default function TelegramSettings() {
               onChange={(e) => edit('tgReportRemindMin', Math.max(5, Number(e.target.value) || 60))}
             />
           </Field>
+          {/* §4.3, §8.2: часовой пояс организации. В нём считаются «завтра»
+              и «через два часа» из голосовых команд. */}
+          <Field label="Часовой пояс организации">
+            <select
+              className={inputCls}
+              value={val('tgTimezone', 'Asia/Almaty')}
+              onChange={(e) => edit('tgTimezone', e.target.value)}
+            >
+              {TIMEZONES.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {/* §8.2: правила напоминаний по задачам. У задачи срок — это дата
+              без времени, поэтому задаётся час напоминания в день срока. */}
+          <Field label="Напоминание о задаче в день срока">
+            <input
+              className={inputCls}
+              type="time"
+              value={val('tgTaskRemindAt', '10:00')}
+              onChange={(e) => edit('tgTaskRemindAt', e.target.value || '10:00')}
+            />
+          </Field>
+          <Field label="Хранить расшифровки, дней">
+            <input
+              className={inputCls}
+              inputMode="numeric"
+              value={String(val('tgTranscriptKeepDays', 90))}
+              onChange={(e) =>
+                edit('tgTranscriptKeepDays', Math.max(1, Number(e.target.value) || 90))
+              }
+            />
+          </Field>
         </div>
+
+        <label className="mt-3 flex items-center gap-2 text-sm text-ink-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={val('tgTaskEscalateAuthor', true)}
+            onChange={(e) => edit('tgTaskEscalateAuthor', e.target.checked)}
+          />
+          Сообщать автору задачи о её просрочке
+        </label>
 
         {/* §6.1: глобальные переключатели категорий. Права в ERP не меняются. */}
         <div className="mt-4">
@@ -206,7 +277,60 @@ export default function TelegramSettings() {
         </label>
       </div>
 
+      <KpiTextsEditor
+        texts={val<{ threshold: number; text: string }[]>('tgKpiTexts', DEFAULT_KPI_TEXTS)}
+        onChange={(next) => edit('tgKpiTexts', next)}
+      />
+
       <TelegramAudit />
+    </div>
+  )
+}
+
+// §7.2: редактор мотивационных сообщений. Тексты хранятся в настройках ERP,
+// а не в коде, — менять их можно без выката.
+function KpiTextsEditor({
+  texts,
+  onChange,
+}: {
+  texts: { threshold: number; text: string }[]
+  onChange: (next: { threshold: number; text: string }[]) => void
+}) {
+  const byThreshold = new Map(texts.map((t) => [t.threshold, t.text]))
+  return (
+    <div className="card p-5">
+      <h3 className="sec-title mb-1">Сообщения о достижении KPI</h3>
+      <p className="text-xs text-muted mb-4">
+        Отправляются при первом пересечении порога в периоде. <code>{'{name}'}</code> подставит
+        имя сотрудника.
+      </p>
+      <div className="flex flex-col gap-2">
+        {DEFAULT_KPI_TEXTS.map((d) => (
+          <div key={d.threshold} className="flex items-center gap-3">
+            <span className="w-12 shrink-0 text-sm font-semibold text-ink tabular-nums">
+              {d.threshold}%
+            </span>
+            <input
+              className="flex-1 h-9 rounded-lg border border-line-2 px-3 text-sm text-ink focus:outline-none focus:border-green-light bg-white"
+              value={byThreshold.get(d.threshold) ?? d.text}
+              onChange={(e) =>
+                onChange(
+                  DEFAULT_KPI_TEXTS.map((x) => ({
+                    threshold: x.threshold,
+                    text:
+                      x.threshold === d.threshold
+                        ? e.target.value
+                        : (byThreshold.get(x.threshold) ?? x.text),
+                  })),
+                )
+              }
+            />
+          </div>
+        ))}
+      </div>
+      <p className="text-[11px] text-muted-2 mt-3">
+        Изменения сохраняются кнопкой вверху блока «Telegram-модуль».
+      </p>
     </div>
   )
 }

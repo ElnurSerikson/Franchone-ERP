@@ -491,6 +491,23 @@ export async function notifyReportFilled(
   })
 }
 
+// §6: сотруднику — о создании или изменении его личного плана, целевого
+// значения или периода.
+export async function notifyPlanChanged(
+  ctx: MutationCtx,
+  employeeId: Id<'employees'>,
+  what: string,
+  period: string,
+  value: string,
+) {
+  await notify(ctx, {
+    employeeId,
+    category: 'plan',
+    text: `<b>Изменён ваш план</b>\n\n${what}\nПериод: ${period}\n${value}`,
+    link: '/kpi',
+  })
+}
+
 // §7: мотивационные уведомления при первом пересечении каждого порога.
 export async function notifyKpi(
   ctx: MutationCtx,

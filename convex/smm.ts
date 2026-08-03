@@ -2,6 +2,7 @@ import { query, mutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import { hiddenEmployeeIds } from './lib'
 import { requireCan, inScope } from './permissions'
+import { notifyPlanChanged } from './telegramFlow'
 
 // Оси модели SMM — те же, что в KPI_SMM.xlsx.
 const ACCOUNT = v.union(v.literal('FRANCHONE'), v.literal('ANUAR'))
@@ -66,6 +67,16 @@ export const setPlan = mutation({
       if (emp && !inScope(me, emp)) throw new ConvexError('Можно менять планы только в вашем доступе')
     }
     await ctx.db.patch(id, { weekPlans, weight })
+    // §6 ТЗ Telegram: сотрудник узнаёт об изменении своего плана.
+    if (metric?.employeeId) {
+      await notifyPlanChanged(
+        ctx,
+        metric.employeeId,
+        `План SMM · ${metric.account} · ${metric.format}`,
+        metric.month ?? '—',
+        `Недели: ${weekPlans.join(' / ')} · вес ${Math.round(weight * 100)}%`,
+      )
+    }
   },
 })
 

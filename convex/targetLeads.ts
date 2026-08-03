@@ -19,6 +19,7 @@ import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, isManager, hiddenEmployeeIds } from './lib'
 import { resultCostCents } from './campaignGoals'
+import { notifyPlanChanged } from './telegramFlow'
 
 function businessToday(): string {
   return new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
@@ -239,6 +240,13 @@ export const setPlan = mutation({
         toBudgetCents: nextBudget,
       })
       await ctx.db.patch(existing._id, { planLeads, planBudgetCents: nextBudget })
+      await notifyPlanChanged(
+        ctx,
+        employeeId,
+        `План заявок · ${object.name}`,
+        month,
+        `Новое значение: ${planLeads} заявок`,
+      )
       return existing._id
     }
 
@@ -259,6 +267,14 @@ export const setPlan = mutation({
       toLeads: planLeads,
       toBudgetCents: nextBudget,
     })
+    // §6 ТЗ Telegram: сотрудник узнаёт о новом плане.
+    await notifyPlanChanged(
+      ctx,
+      employeeId,
+      `План заявок · ${object.name}`,
+      month,
+      `План: ${planLeads} заявок`,
+    )
     return id
   },
 })

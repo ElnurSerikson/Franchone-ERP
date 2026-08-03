@@ -618,10 +618,18 @@ export default defineSchema({
     // Имя бота без @: из него собирается ссылка-приглашение. Токен здесь НЕ
     // хранится — он лежит в защищённых настройках окружения (§8.2).
     tgBotUsername: v.optional(v.string()),
+    // §4.3, §8.2: часовой пояс организации. Относительные выражения из
+    // голосовых команд («завтра», «через два часа») считаются в нём.
+    tgTimezone: v.optional(v.string()),
     tgInviteTtlHours: v.optional(v.number()), // срок жизни приглашения, часов
     tgMeetingRemindMin: v.optional(v.number()), // напоминание до встречи, минут
     tgReportRemindMin: v.optional(v.number()), // напоминание до срока отчёта, минут
-    tgTaskRemindMin: v.optional(v.number()), // напоминание до дедлайна задачи
+    // §8.2, правила по задачам: в котором часу напоминать в день срока и
+    // сообщать ли автору о просрочке.
+    tgTaskRemindAt: v.optional(v.string()), // «HH:MM»
+    tgTaskEscalateAuthor: v.optional(v.boolean()),
+    // §9: сколько дней хранить расшифровки голосовых в журнале.
+    tgTranscriptKeepDays: v.optional(v.number()),
     // Кто получает «отчёт заполнен» и «отчёт просрочен» (§6).
     tgReportRecipients: v.optional(v.array(v.id('employees'))),
     // Глобально выключенные категории уведомлений (§6.1).

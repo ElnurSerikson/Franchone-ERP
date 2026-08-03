@@ -16,6 +16,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 import { internal } from './_generated/api'
 import { currentEmployee, requireEmployee, isManager } from './lib'
+import { DEFAULT_TZ } from './orgTime'
 
 // Категории уведомлений (§6.1): администратор включает и выключает их
 // глобально и для конкретного сотрудника, не меняя его права в ERP.
@@ -34,7 +35,8 @@ const DEFAULTS = {
   inviteTtlHours: 24,
   meetingRemindMin: 60,
   reportRemindMin: 60,
-  taskRemindMin: 60,
+  taskRemindAt: '10:00',
+  transcriptKeepDays: 90,
 }
 
 // §7.2: тексты мотивационных сообщений. Хранятся в настройках ERP и
@@ -60,10 +62,14 @@ export async function tgSettings(ctx: QueryCtx | MutationCtx) {
     .withIndex('by_key', (q) => q.eq('key', 'global'))
     .first()
   return {
+    timezone: s?.tgTimezone || DEFAULT_TZ,
     inviteTtlHours: s?.tgInviteTtlHours ?? DEFAULTS.inviteTtlHours,
     meetingRemindMin: s?.tgMeetingRemindMin ?? DEFAULTS.meetingRemindMin,
     reportRemindMin: s?.tgReportRemindMin ?? DEFAULTS.reportRemindMin,
-    taskRemindMin: s?.tgTaskRemindMin ?? DEFAULTS.taskRemindMin,
+    taskRemindAt: s?.tgTaskRemindAt || DEFAULTS.taskRemindAt,
+    // §6: по настройке о просрочке узнаёт автор задачи.
+    taskEscalateAuthor: s?.tgTaskEscalateAuthor !== false,
+    transcriptKeepDays: s?.tgTranscriptKeepDays ?? DEFAULTS.transcriptKeepDays,
     reportRecipients: s?.tgReportRecipients ?? [],
     disabledCategories: new Set(s?.tgDisabledCategories ?? []),
     kpiTexts: s?.tgKpiTexts?.length ? s.tgKpiTexts : KPI_TEXTS,
@@ -449,6 +455,12 @@ export const setCategories = mutation({
 })
 
 // ——— Служебное для webhook и действий ———
+
+// Часовой пояс организации для разбора относительных дат (§4.3).
+export const timezone = internalQuery({
+  args: {},
+  handler: async (ctx) => (await tgSettings(ctx)).timezone,
+})
 
 export const linkByChat = internalQuery({
   args: { chatId: v.number() },

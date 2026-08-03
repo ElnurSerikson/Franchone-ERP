@@ -18,10 +18,13 @@ const DEFAULTS = {
   reportDeadlineTime: '14:00',
   // Telegram-модуль (§8.2). Токен бота сюда не попадает — он в окружении.
   tgBotUsername: '',
+  tgTimezone: 'Asia/Almaty',
   tgInviteTtlHours: 24,
   tgMeetingRemindMin: 60,
   tgReportRemindMin: 60,
-  tgTaskRemindMin: 60,
+  tgTaskRemindAt: '10:00',
+  tgTaskEscalateAuthor: true,
+  tgTranscriptKeepDays: 90,
   tgKpiOverachieve: false,
 }
 
@@ -60,10 +63,13 @@ export const update = mutation({
     reportDeadlineTime: v.optional(v.string()),
     // ——— Telegram-модуль (§8.2) ———
     tgBotUsername: v.optional(v.string()),
+    tgTimezone: v.optional(v.string()),
     tgInviteTtlHours: v.optional(v.number()),
     tgMeetingRemindMin: v.optional(v.number()),
     tgReportRemindMin: v.optional(v.number()),
-    tgTaskRemindMin: v.optional(v.number()),
+    tgTaskRemindAt: v.optional(v.string()),
+    tgTaskEscalateAuthor: v.optional(v.boolean()),
+    tgTranscriptKeepDays: v.optional(v.number()),
     tgReportRecipients: v.optional(v.array(v.id('employees'))),
     tgDisabledCategories: v.optional(v.array(v.string())),
     tgKpiTexts: v.optional(v.array(v.object({ threshold: v.number(), text: v.string() }))),

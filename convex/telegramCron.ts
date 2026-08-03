@@ -12,6 +12,7 @@
 import { internalMutation } from './_generated/server'
 import type { MutationCtx } from './_generated/server'
 import { notify, notifyMany, tgSettings } from './telegram'
+import { momentIn } from './orgTime'
 import { notifyKpi } from './telegramFlow'
 import { submissionsFor, deadlineMs, REPORTING } from './reports'
 import { computeMonth } from './payroll'
@@ -41,22 +42,29 @@ export const tick = internalMutation({
   handler: async (ctx) => {
     const now = Date.now()
     const s = await tgSettings(ctx)
-    await meetingReminders(ctx, now, s.meetingRemindMin)
+    await meetingReminders(ctx, now, s.meetingRemindMin, s.timezone)
     await reportReminders(ctx, now, s.reportRemindMin)
-    await taskReminders(ctx, now)
+    await taskReminders(ctx, now, s.taskRemindAt, s.taskEscalateAuthor, s.timezone)
     await kpiThresholds(ctx)
+    // §9: расшифровки голосовых хранятся ограниченный срок.
+    await pruneTranscripts(ctx, now, s.transcriptKeepDays)
   },
 })
 
 // §6: напоминание за час до начала встречи — всем участникам.
-async function meetingReminders(ctx: MutationCtx, now: number, remindMin: number) {
+async function meetingReminders(
+  ctx: MutationCtx,
+  now: number,
+  remindMin: number,
+  tz: string,
+) {
   const { date } = businessNow()
   // Смотрим сегодня и завтра: окно напоминания может перейти через полночь.
   const rows = (await ctx.db.query('meetings').collect()).filter(
     (m) => m.date === date || m.date === addDays(date, 1),
   )
   for (const m of rows) {
-    const startsAt = Date.parse(`${m.date}T${m.time}:00${TZ}`)
+    const startsAt = momentIn(tz, m.date, m.time)
     if (!Number.isFinite(startsAt)) continue
     const remindAt = startsAt - remindMin * 60 * 1000
     // Момент наступил, но встреча ещё не началась.
@@ -141,7 +149,13 @@ async function reportReminders(ctx: MutationCtx, now: number, remindMin: number)
 }
 
 // §6: приближение срока задачи и просрочка.
-async function taskReminders(ctx: MutationCtx, now: number) {
+async function taskReminders(
+  ctx: MutationCtx,
+  now: number,
+  remindAt: string,
+  escalateAuthor: boolean,
+  tz: string,
+) {
   const { date: today } = businessNow()
   const rows = (await ctx.db.query('tasks').collect()).filter(
     (t) => t.status !== 'done' && !!t.deadline,
@@ -149,9 +163,10 @@ async function taskReminders(ctx: MutationCtx, now: number) {
   for (const t of rows) {
     const deadline = t.deadline!
     if (deadline === today) {
-      // Срок сегодня. Напоминаем утром, чтобы день был впереди, а не ночью
-      // за час до формального конца суток.
-      const at = Date.parse(`${today}T10:00:00${TZ}`)
+      // Срок сегодня. Час напоминания задаётся в настройках (§8.2): у задачи
+      // срок — это дата без времени, и «за час до дедлайна» означало бы
+      // сообщение ночью. По умолчанию напоминаем утром.
+      const at = momentIn(tz, today, remindAt)
       if (now >= at) {
         await notify(ctx, {
           employeeId: t.assigneeId,
@@ -172,7 +187,7 @@ async function taskReminders(ctx: MutationCtx, now: number) {
         key: `task_overdue:${t._id}:${deadline}`,
       })
       // §6: по настройке о просрочке узнаёт автор задачи.
-      if (t.reporterId !== t.assigneeId) {
+      if (escalateAuthor && t.reporterId !== t.assigneeId) {
         const assignee = await ctx.db.get(t.assigneeId)
         await notify(ctx, {
           employeeId: t.reporterId,
@@ -185,6 +200,31 @@ async function taskReminders(ctx: MutationCtx, now: number) {
         })
       }
     }
+  }
+}
+
+// §9: голосовой файл не хранится вообще — он удаляется сразу после обработки.
+// Распознанный текст остаётся в журнале ограниченный срок: он нужен для
+// разбора спорных случаев, но вечно держать чужую речь незачем. Само событие
+// в журнале сохраняется — стирается только текст команды и извлечённые поля.
+async function pruneTranscripts(ctx: MutationCtx, now: number, keepDays: number) {
+  if (keepDays <= 0) return
+  const border = now - keepDays * 86400000
+  const old = await ctx.db
+    .query('telegramAudit')
+    .withIndex('by_at', (q) => q.lt('at', border))
+    .take(200)
+  for (const row of old) {
+    if (row.text === undefined && row.fields === undefined) continue
+    await ctx.db.patch(row._id, { text: undefined, fields: undefined })
+  }
+  // Реестр обработанных update нужен только против повторной доставки —
+  // Telegram повторяет считаные минуты, месяцами хранить незачем.
+  for (const u of await ctx.db
+    .query('telegramUpdates')
+    .withIndex('by_update')
+    .take(500)) {
+    if (u.at < now - 7 * 86400000) await ctx.db.delete(u._id)
   }
 }
 

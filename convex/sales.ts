@@ -5,7 +5,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, isManager, hiddenEmployeeIds } from './lib'
 import { can, requireCan, inScope } from './permissions'
 import { isMonthClosed } from './payroll'
-import { notifyReportFilled } from './telegramFlow'
+import { notifyReportFilled, notifyPlanChanged } from './telegramFlow'
 
 const TZ = '+05:00'
 // ТЗ СИСТЕМА §2: до 14:00 следующего календарного дня.
@@ -986,5 +986,13 @@ export const setPlan = mutation({
     ).find((p) => p.month === month)
     if (row) await ctx.db.patch(row._id, { planRevenue })
     else await ctx.db.insert('salesPlans', { employeeId, month, planRevenue })
+    // §6 ТЗ Telegram: сотрудник узнаёт об изменении своего плана.
+    await notifyPlanChanged(
+      ctx,
+      employeeId,
+      'План выручки · отдел продаж',
+      month,
+      `Новое значение: ${planRevenue.toLocaleString('ru-RU')} ₸`,
+    )
   },
 })

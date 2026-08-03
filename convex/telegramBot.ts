@@ -14,6 +14,7 @@ import type { ActionCtx } from './_generated/server'
 import { v } from 'convex/values'
 import { internal } from './_generated/api'
 import type { Id } from './_generated/dataModel'
+import { nowIn } from './orgTime'
 
 const API = 'https://api.telegram.org'
 
@@ -36,15 +37,8 @@ function siteUrl(): string {
   return (process.env.SITE_URL ?? '').replace(/\/$/, '')
 }
 
-// Часовой пояс организации (§4.3). Все относительные выражения считаются в нём.
-const TZ_OFFSET_H = 5 // Asia/Almaty
-
-function nowInTz(): { date: string; time: string; weekday: string } {
-  const d = new Date(Date.now() + TZ_OFFSET_H * 3600 * 1000)
-  const iso = d.toISOString()
-  const days = ['воскресенье', 'понедельник', 'вторник', 'среда', 'четверг', 'пятница', 'суббота']
-  return { date: iso.slice(0, 10), time: iso.slice(11, 16), weekday: days[d.getUTCDay()] }
-}
+// §4.3: относительные выражения считаются в часовом поясе организации.
+// Пояс задаётся в настройках, а не зашит в код.
 
 // ——— Telegram API ———
 
@@ -75,8 +69,9 @@ export const deliver = internalAction({
     link: v.optional(v.string()),
     employeeId: v.optional(v.id('employees')),
     buttons: v.optional(v.array(v.array(v.object({ text: v.string(), data: v.string() })))),
+    attempt: v.optional(v.number()),
   },
-  handler: async (ctx, { chatId, text, link, employeeId, buttons }) => {
+  handler: async (ctx, { chatId, text, link, employeeId, buttons, attempt }) => {
     const base = siteUrl()
     // §6.1: ссылка ведёт на страницу ERP, авторизация и права сохраняются.
     const full = link && base ? `${text}\n\n<a href="${base}${link}">Открыть в ERP</a>` : text
@@ -90,10 +85,31 @@ export const deliver = internalAction({
       })
       await ctx.runMutation(internal.telegram.markDelivery, { chatId, ok: true, employeeId })
     } catch (e) {
+      const message = e instanceof Error ? e.message : String(e)
+      const tries = attempt ?? 0
+      // §6.1: при ВРЕМЕННОЙ ошибке допускаются повторы с ограничением числа и
+      // интервала. Постоянные отказы (бот заблокирован, чата нет) повторять
+      // бессмысленно — они не пройдут и через час.
+      const permanent = /blocked|chat not found|deactivated|kicked|user is deactivated/i.test(
+        message,
+      )
+      if (!permanent && tries < 3) {
+        // 1, 5 и 25 минут: короткий сбой сети переживём, а очередь не забьём.
+        const delayMin = [1, 5, 25][tries]
+        await ctx.scheduler.runAfter(delayMin * 60 * 1000, internal.telegramBot.deliver, {
+          chatId,
+          text,
+          link,
+          employeeId,
+          buttons,
+          attempt: tries + 1,
+        })
+        return
+      }
       await ctx.runMutation(internal.telegram.markDelivery, {
         chatId,
         ok: false,
-        error: e instanceof Error ? e.message : String(e),
+        error: message,
         employeeId,
       })
     }
@@ -161,11 +177,11 @@ type Parsed = {
   note?: string
 }
 
-async function parseCommand(text: string, people: string[]): Promise<Parsed> {
+async function parseCommand(text: string, people: string[], tz: string): Promise<Parsed> {
   const key = process.env.ANTHROPIC_API_KEY
   if (!key) throw new Error('ANTHROPIC_API_KEY не задан в окружении Convex')
   const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5'
-  const now = nowInTz()
+  const now = nowIn(tz)
 
   const system = [
     'Ты разбираешь голосовые команды сотрудников ERP на русском языке.',
@@ -177,7 +193,7 @@ async function parseCommand(text: string, people: string[]): Promise<Parsed> {
     '"priority":"low|medium|high|urgent"|null,"place":str|null,"url":str|null,',
     '"object":str|null,"note":str|null}',
     '',
-    `Сегодня ${now.date} (${now.weekday}), сейчас ${now.time}. Часовой пояс Asia/Almaty.`,
+    `Сегодня ${now.date} (${now.weekday}), сейчас ${now.time}. Часовой пояс ${tz}.`,
     'Относительные выражения («завтра», «в пятницу», «через два часа») переводи в конкретные дату и время.',
     '',
     'intent="task" — просят поставить задачу. intent="meeting" — назначить встречу.',
@@ -354,10 +370,11 @@ async function runCommand(
     employeeId: link.employeeId,
   })
   const names = people.map((p: { name: string }) => p.name)
+  const tz: string = await ctx.runQuery(internal.telegram.timezone, {})
 
   let parsed: Parsed
   try {
-    parsed = await parseCommand(transcript, names)
+    parsed = await parseCommand(transcript, names, tz)
   } catch (e) {
     await ctx.runMutation(internal.telegram.logAudit, {
       kind: 'command',

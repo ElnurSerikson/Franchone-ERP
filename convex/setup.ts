@@ -25,6 +25,8 @@ import {
 import { v } from 'convex/values'
 import type { Doc, Id } from './_generated/dataModel'
 import { normalizeAccount, resultCostCents } from './campaignGoals'
+import { tgSettings } from './telegram'
+import { nowIn, offsetAt, momentIn } from './orgTime'
 
 // Одноразовая настройка: назначить владельцу email для входа и привести
 // все email сотрудников к нижнему регистру (email = логин).
@@ -2446,5 +2448,25 @@ export const devTgCleanup = internalMutation({
       }
     }
     return { removed }
+  },
+})
+
+// Часовой пояс организации: смещение и «сейчас» считает боевой orgTime.
+// npx convex run setup:devTzCheck
+export const devTzCheck = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) throw new Error('Только для dev')
+    const s = await tgSettings(ctx)
+    const out: Record<string, string> = { setting: s.timezone }
+    for (const tz of ['Asia/Almaty', 'Europe/Moscow', 'UTC', 'Asia/Dubai']) {
+      const n = nowIn(tz)
+      out[tz] = `${n.date} ${n.time} (${n.weekday}) · смещение ${offsetAt(tz)}`
+    }
+    // Момент «завтра 15:00» в поясе организации — по нему считаются напоминания.
+    const at15 = momentIn(s.timezone, nowIn(s.timezone).date, '15:00')
+    out['moment_15_00'] = new Date(at15).toISOString() + ' (UTC)'
+    return out
   },
 })

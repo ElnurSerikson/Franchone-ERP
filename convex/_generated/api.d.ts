@@ -22,6 +22,7 @@ import type * as http from "../http.js";
 import type * as kpiMath from "../kpiMath.js";
 import type * as lib from "../lib.js";
 import type * as meetings from "../meetings.js";
+import type * as orgTime from "../orgTime.js";
 import type * as payroll from "../payroll.js";
 import type * as permModel from "../permModel.js";
 import type * as permissions from "../permissions.js";
@@ -63,6 +64,7 @@ declare const fullApi: ApiFromModules<{
   kpiMath: typeof kpiMath;
   lib: typeof lib;
   meetings: typeof meetings;
+  orgTime: typeof orgTime;
   payroll: typeof payroll;
   permModel: typeof permModel;
   permissions: typeof permissions;
