@@ -43,6 +43,7 @@ export default function TaskModal({
   const attachments = useQuery(api.tasks.attachments, { taskId: tid }) ?? []
 
   const update = useMutation(api.tasks.update)
+  const salesObjects = useQuery(api.target.objectOptions, {})
   const setStatus = useMutation(api.tasks.setStatus)
   const remove = useMutation(api.tasks.remove)
   const addComment = useMutation(api.tasks.addComment)
@@ -170,6 +171,24 @@ export default function TaskModal({
               <DatePicker
                 value={task.deadline}
                 onChange={(v) => v && update({ id: tid, patch: { deadline: v } })}
+              />
+            </Field>
+            {/* §4.2 ТЗ Telegram: объект продаж у задачи — его можно и сменить,
+                а не только задать при создании. */}
+            <Field label="Объект продаж">
+              <Select
+                value={task.objectId ?? ''}
+                onChange={(v) =>
+                  update({
+                    id: tid,
+                    patch: { objectId: v ? (v as Id<'salesObjects'>) : undefined },
+                  })
+                }
+                placeholder="Не привязан"
+                options={[
+                  { value: '', label: 'Не привязан' },
+                  ...(salesObjects ?? []).map((o) => ({ value: o._id, label: o.name })),
+                ]}
               />
             </Field>
             <Field label="Постановщик">

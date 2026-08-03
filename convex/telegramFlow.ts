@@ -295,6 +295,17 @@ export const commitDraft = internalMutation({
       if (!draft.title) throw new ConvexError('не хватает названия')
       if (chosen.length === 0) throw new ConvexError('не выбран ответственный')
 
+      // §4.2: объект заполняется, если назван и доступен. Сопоставляем с
+      // активным справочником; не нашли — просто не заполняем.
+      let objectId: Id<'salesObjects'> | undefined
+      if (draft.object) {
+        const q = draft.object.toLowerCase().trim()
+        const hit = (await ctx.db.query('salesObjects').collect()).find(
+          (o) => o.status !== 'archived' && o.name.toLowerCase() === q,
+        )
+        objectId = hit?._id
+      }
+
       const created: string[] = []
       for (const assignee of chosen) {
         const id = await ctx.db.insert('tasks', {
@@ -311,6 +322,7 @@ export const commitDraft = internalMutation({
           comments: 0,
           // §9: признак источника создания для аудита.
           kpiRef: undefined,
+          objectId,
           source: 'telegram',
         })
         await ctx.db.insert('taskEvents', { taskId: id, type: 'created', byId: author._id })

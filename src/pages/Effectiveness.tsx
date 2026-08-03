@@ -35,6 +35,31 @@ type TaskStats = {
   overdue: number
   completionRate: number | null
 }
+// §7.1 дополнения по встречам: девять показателей на сотрудника.
+type MeetingStats = {
+  total: number
+  organized: number
+  invited: number
+  invitedPeople: number
+  held: number
+  cancelled: number
+  upcoming: number
+  awaiting: number
+  reschedules: number
+}
+
+const MEETING_METRICS: { key: keyof MeetingStats; label: string; drill?: string }[] = [
+  { key: 'total', label: 'Всего встреч', drill: 'total' },
+  { key: 'organized', label: 'Организовано', drill: 'organized' },
+  { key: 'invited', label: 'Получено приглашений', drill: 'invited' },
+  { key: 'invitedPeople', label: 'Приглашено участников' },
+  { key: 'held', label: 'Состоялось', drill: 'held' },
+  { key: 'cancelled', label: 'Отменено', drill: 'cancelled' },
+  { key: 'upcoming', label: 'Предстоит', drill: 'upcoming' },
+  { key: 'awaiting', label: 'Ожидает подтверждения', drill: 'awaiting' },
+  { key: 'reschedules', label: 'Переносы', drill: 'reschedules' },
+]
+
 type Row = {
   employeeId: Id<'employees'>
   name: string
@@ -44,6 +69,7 @@ type Row = {
   department: string
   reports: ReportStats
   tasks: TaskStats
+  meetings: MeetingStats
 }
 
 // §3.2: месяц, несколько месяцев или произвольный диапазон.
@@ -81,6 +107,12 @@ export default function Effectiveness() {
   const [department, setDepartment] = useState(ALL)
   const [position, setPosition] = useState(ALL)
   const [card, setCard] = useState<Id<'employees'> | null>(null)
+  const [drill, setDrill] = useState<{
+    employeeId: Id<'employees'>
+    name: string
+    metric: string
+    label: string
+  } | null>(null)
 
   const range =
     mode === 'month'
@@ -280,11 +312,166 @@ export default function Effectiveness() {
               знает из задач и отчётов.
             </p>
           </section>
+
+          {/* §7: показатели встреч приходят из модуля встреч автоматически. */}
+          <section className="mb-5">
+            <h3 className="sec-title mb-3">Встречи</h3>
+            <div className="card overflow-hidden overflow-x-auto">
+              <table className="w-full min-w-[980px]">
+                <thead>
+                  <tr className={theadRow}>
+                    <th className={th}>Сотрудник</th>
+                    {MEETING_METRICS.map((m) => (
+                      <th key={m.key} className={thRight}>
+                        {m.label}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.employeeId} className="hover:bg-chip/40 transition-colors">
+                      <td className={td}>
+                        <span className="text-sm font-medium text-ink truncate">{r.name}</span>
+                      </td>
+                      {MEETING_METRICS.map((m) => {
+                        const value = r.meetings[m.key]
+                        // §7.3: администратор раскрывает перечень встреч,
+                        // из которых сложился показатель.
+                        const clickable = !!m.drill && value > 0
+                        return (
+                          <td key={m.key} className={`${td} text-right tabular-nums`}>
+                            {clickable ? (
+                              <button
+                                onClick={() =>
+                                  setDrill({
+                                    employeeId: r.employeeId,
+                                    name: r.name,
+                                    metric: m.drill!,
+                                    label: m.label,
+                                  })
+                                }
+                                className="underline decoration-dotted text-ink font-medium"
+                              >
+                                {num(value)}
+                              </button>
+                            ) : (
+                              <span className={value === 0 ? 'text-muted-2' : 'text-ink'}>
+                                {num(value)}
+                              </span>
+                            )}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-muted mt-2">
+              Своя встреча не считается дважды, даже если сотрудник и организатор, и участник.
+              Перенос не увеличивает число встреч — для него отдельный счётчик. «Состоялось»
+              означает, что встреча была проведена, и не подтверждает присутствие конкретного
+              участника.
+            </p>
+          </section>
         </>
       )}
 
+      {drill && (
+        <MeetingDrill
+          employeeId={drill.employeeId}
+          name={drill.name}
+          metric={drill.metric}
+          label={drill.label}
+          from={range.from}
+          to={range.to}
+          onClose={() => setDrill(null)}
+        />
+      )}
       {card && <EmployeeCard employeeId={card} onClose={() => setCard(null)} />}
     </>
+  )
+}
+
+// §7.3: перечень встреч, из которых сложился показатель. Без него цифру
+// нельзя проверить — она остаётся числом на веру.
+function MeetingDrill({
+  employeeId,
+  name,
+  metric,
+  label,
+  from,
+  to,
+  onClose,
+}: {
+  employeeId: Id<'employees'>
+  name: string
+  metric: string
+  label: string
+  from: string
+  to: string
+  onClose: () => void
+}) {
+  const rows = useQuery(api.effectiveness.meetingBreakdown, {
+    employeeId,
+    metric: metric as 'total',
+    from,
+    to,
+  })
+
+  const STATE: Record<string, string> = {
+    planned: 'Запланирована',
+    held: 'Состоялась',
+    cancelled: 'Отменена',
+    rescheduled: 'Перенос',
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 p-0 sm:p-4">
+      <div
+        className="w-full sm:max-w-2xl bg-white rounded-t-card sm:rounded-card shadow-soft max-h-[85vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white flex items-center justify-between px-5 sm:px-6 py-4 border-b border-line">
+          <div className="min-w-0">
+            <h2 className="text-base font-bold text-ink truncate">{label}</h2>
+            <div className="text-[11px] text-muted truncate">
+              {name} · {longDate(from)} — {longDate(to)}
+            </div>
+          </div>
+          <button onClick={onClose} className="ico-btn w-9 h-9" aria-label="Закрыть">
+            <X size={16} />
+          </button>
+        </div>
+        <div className="p-5 sm:p-6">
+          {rows === undefined ? (
+            <div className="py-8 grid place-items-center text-muted">
+              <Loader2 className="animate-spin" size={18} />
+            </div>
+          ) : rows.length === 0 ? (
+            <p className="text-sm text-muted">Список пуст.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {rows.map((r) => (
+                <div key={r._id} className="rounded-xl border border-line p-3">
+                  <div className="text-sm font-medium text-ink">{r.title}</div>
+                  <div className="text-[11px] text-muted mt-0.5 flex flex-wrap gap-x-3">
+                    <span>
+                      {r.date}
+                      {r.time ? `, ${r.time}` : ''}
+                    </span>
+                    <span>{STATE[r.status] ?? r.status}</span>
+                    <span>{r.note}</span>
+                    <span>организатор: {r.by}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -369,6 +556,28 @@ function EmployeeCard({
                       </div>
                     </div>
                   </div>
+
+                  {/* §7: встречи в помесячной динамике. Строка появляется
+                      только когда за месяц что-то было. */}
+                  {m.meetings.total > 0 && (
+                    <div className="mt-3 pt-3 border-t border-line text-[11px] text-muted flex flex-wrap gap-x-3 gap-y-1">
+                      <span>
+                        встреч <b className="text-ink">{num(m.meetings.total)}</b>
+                      </span>
+                      <span>организовано {num(m.meetings.organized)}</span>
+                      <span>приглашений {num(m.meetings.invited)}</span>
+                      <span>состоялось {num(m.meetings.held)}</span>
+                      {m.meetings.cancelled > 0 && <span>отменено {num(m.meetings.cancelled)}</span>}
+                      {m.meetings.reschedules > 0 && (
+                        <span>переносов {num(m.meetings.reschedules)}</span>
+                      )}
+                      {m.meetings.awaiting > 0 && (
+                        <span className="text-[#b7791f]">
+                          ожидает подтверждения {num(m.meetings.awaiting)}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
               {data.months.length === 0 && (

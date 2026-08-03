@@ -300,6 +300,10 @@ export default defineSchema({
     attachments: v.number(), // денормализованный счётчик
     comments: v.number(), // денормализованный счётчик
     kpiRef: v.optional(v.string()),
+    // §4.2 ТЗ Telegram: объект продаж, к которому относится задача. Общий
+    // справочник с рекламой и продажами — по нему видно, сколько работы идёт
+    // на каждую франшизу. Необязателен: у задачи может не быть объекта.
+    objectId: v.optional(v.id('salesObjects')),
     // §9 ТЗ Telegram: откуда создана запись. Для аудита; на поведение не влияет.
     source: v.optional(v.string()),
   })
@@ -494,9 +498,55 @@ export default defineSchema({
     createdAt: v.number(),
     // §9 ТЗ Telegram: откуда создана запись.
     source: v.optional(v.string()),
+
+    // ——— Дополнение «Встречи: перенос, отмена, фиксация результата» ———
+    //
+    // §2: три состояния встречи. Поле необязательное: у встреч, заведённых до
+    // этой доработки, состояния нет — они считаются запланированными.
+    //
+    // «Ожидает подтверждения» (§2.2) состоянием НЕ является и не хранится:
+    // это признак «время прошло, результат не выбран», он вычисляется.
+    status: v.optional(
+      v.union(v.literal('planned'), v.literal('held'), v.literal('cancelled')),
+    ),
+    // §2.1: кто и когда зафиксировал результат — проведение либо отмену.
+    resolvedAt: v.optional(v.number()),
+    resolvedById: v.optional(v.id('employees')),
+    // §6: исходные дата и время, чтобы рядом с актуальными была видна
+    // первоначальная договорённость.
+    originalDate: v.optional(v.string()),
+    originalTime: v.optional(v.string()),
+    // §3: сколько раз встречу переносили. Само число встреч перенос не
+    // увеличивает — для переносов отдельный счётчик.
+    rescheduleCount: v.optional(v.number()),
   })
     .index('by_date', ['date'])
     .index('by_creator', ['createdById']),
+
+  // §6: журнал действий по встрече. Хранится бессрочно.
+  meetingEvents: defineTable({
+    meetingId: v.id('meetings'),
+    type: v.union(
+      v.literal('created'),
+      v.literal('rescheduled'),
+      v.literal('updated'),
+      v.literal('participants'),
+      v.literal('held'),
+      v.literal('cancelled'),
+    ),
+    at: v.number(),
+    byId: v.id('employees'),
+    // Прежние и новые дата и время — для событий переноса.
+    fromDate: v.optional(v.string()),
+    fromTime: v.optional(v.string()),
+    toDate: v.optional(v.string()),
+    toTime: v.optional(v.string()),
+    // Человекочитаемое описание изменения: «место: офис → Zoom».
+    changes: v.optional(v.string()),
+  })
+    .index('by_meeting', ['meetingId'])
+    .index('by_at', ['at'])
+    .index('by_type_at', ['type', 'at']),
 
   // ——— Telegram-модуль (ТЗ Telegram §3, §9, §10) ———
   //

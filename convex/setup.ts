@@ -13,7 +13,7 @@ import { computeMonth } from './payroll'
 import { deadlineMs } from './reports'
 import { assertCopyable, copyPlanMonth } from './planCopy'
 import { collect as targetLeadsCollect } from './targetLeads'
-import { datesBetween, reportStats, taskStats } from './effectiveness'
+import { datesBetween, meetingStats, reportStats, taskStats } from './effectiveness'
 import {
   daysInMonth,
   daysOfMonthInPeriod,
@@ -2468,5 +2468,91 @@ export const devTzCheck = internalQuery({
     const at15 = momentIn(s.timezone, nowIn(s.timezone).date, '15:00')
     out['moment_15_00'] = new Date(at15).toISOString() + ' (UTC)'
     return out
+  },
+})
+
+// Контрольный прогон дополнения по встречам (§7.2, §7.3). Сеет разбор
+// случаев и считает боевой meetingStats. Только dev.
+export const devMeetingStatsCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) throw new Error('Только для dev')
+    const emps = await ctx.db.query('employees').collect()
+    const me = emps.find((e) => e.role === 'owner')!
+    const other = emps.find((e) => e._id !== me._id)!
+
+    for (const m of await ctx.db.query('meetings').collect()) await ctx.db.delete(m._id)
+    for (const e of await ctx.db.query('meetingEvents').collect()) await ctx.db.delete(e._id)
+
+    const mk = async (o: {
+      title: string
+      date: string
+      time: string
+      by: 'me' | 'other'
+      status?: 'planned' | 'held' | 'cancelled'
+    }) =>
+      await ctx.db.insert('meetings', {
+        title: o.title,
+        date: o.date,
+        time: o.time,
+        createdById: o.by === 'me' ? me._id : other._id,
+        // Организатор всегда в участниках — §7.2 требует не считать дважды.
+        participantIds: o.by === 'me' ? [me._id, other._id] : [other._id, me._id],
+        createdAt: Date.now(),
+        status: o.status ?? 'planned',
+        rescheduleCount: 0,
+      })
+
+    // Моя встреча, состоялась
+    await mk({ title: 'A · моя, состоялась', date: '2026-08-01', time: '10:00', by: 'me', status: 'held' })
+    // Моя встреча, отменена
+    await mk({ title: 'B · моя, отменена', date: '2026-08-02', time: '10:00', by: 'me', status: 'cancelled' })
+    // Моя, время прошло, результата нет → ожидает подтверждения
+    await mk({ title: 'C · моя, без результата', date: '2026-08-03', time: '09:00', by: 'me' })
+    // Чужая, я приглашён, впереди
+    await mk({ title: 'D · чужая, впереди', date: '2026-12-01', time: '15:00', by: 'other' })
+    // Перенесённая: дата уже НОВАЯ, событие переноса в августе
+    const moved = await mk({ title: 'E · перенесена', date: '2026-09-10', time: '12:00', by: 'me' })
+    await ctx.db.patch(moved, { rescheduleCount: 1, originalDate: '2026-08-05' })
+    await ctx.db.insert('meetingEvents', {
+      meetingId: moved,
+      type: 'rescheduled',
+      at: Date.parse('2026-08-04T12:00:00+05:00'),
+      byId: me._id,
+      fromDate: '2026-08-05',
+      fromTime: '12:00',
+      toDate: '2026-09-10',
+      toTime: '12:00',
+    })
+
+    const meetings = await ctx.db.query('meetings').collect()
+    const events = await ctx.db.query('meetingEvents').collect()
+    const now = Date.parse('2026-08-04T12:00:00+05:00')
+    const aug = meetingStats(meetings, events, me._id, '2026-08-01', '2026-08-31', now)
+    const sep = meetingStats(meetings, events, me._id, '2026-09-01', '2026-09-30', now)
+    return {
+      august: `всего ${aug.total} · организовано ${aug.organized} · приглашений ${aug.invited} · участников ${aug.invitedPeople} · состоялось ${aug.held} · отменено ${aug.cancelled} · предстоит ${aug.upcoming} · ожидает ${aug.awaiting} · переносов ${aug.reschedules}`,
+      september: `всего ${sep.total} · переносов ${sep.reschedules} · предстоит ${sep.upcoming}`,
+    }
+  },
+})
+
+// Убрать встречи, посеянные проверкой §7. Только dev.
+export const devMeetingCleanup = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) throw new Error('Только для dev')
+    let removed = 0
+    for (const e of await ctx.db.query('meetingEvents').collect()) {
+      await ctx.db.delete(e._id)
+      removed++
+    }
+    for (const m of await ctx.db.query('meetings').collect()) {
+      await ctx.db.delete(m._id)
+      removed++
+    }
+    return { removed }
   },
 })

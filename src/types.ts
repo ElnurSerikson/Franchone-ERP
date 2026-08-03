@@ -79,6 +79,8 @@ export interface Task {
   attachments: number
   comments: number
   kpiRef?: string
+  // Объект продаж задачи (§4.2 ТЗ Telegram). Необязателен.
+  objectId?: string
 }
 
 // ——— Ежедневная отчётность (§3) ———

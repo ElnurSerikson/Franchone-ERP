@@ -133,6 +133,7 @@ export const create = mutation({
     deadline: v.optional(v.string()), // срок необязателен: хватает названия и исполнителя
     tags: v.optional(v.array(v.string())),
     kpiRef: v.optional(v.string()),
+    objectId: v.optional(v.id('salesObjects')),
   },
   handler: async (ctx, args) => {
     const me = await requireCan(ctx, 'tasks', 'create')
@@ -154,6 +155,7 @@ export const create = mutation({
       attachments: 0,
       comments: 0,
       kpiRef: args.kpiRef,
+      objectId: args.objectId,
     })
     await ctx.db.insert('taskEvents', { taskId: id, type: 'created', byId: me._id })
     // §9 ТЗ Telegram: изменение через ERP запускает те же уведомления, что и
@@ -212,6 +214,7 @@ export const update = mutation({
       assigneeId: v.optional(v.id('employees')),
       deadline: v.optional(v.string()),
       tags: v.optional(v.array(v.string())),
+      objectId: v.optional(v.id('salesObjects')),
     }),
   },
   handler: async (ctx, { id, patch }) => {

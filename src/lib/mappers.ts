@@ -36,6 +36,7 @@ export const mapTask = (d: Doc<'tasks'>): Task => ({
   attachments: d.attachments,
   comments: d.comments,
   kpiRef: d.kpiRef,
+  objectId: d.objectId,
 })
 
 // На вход идёт не документ, а строка из campaigns.list: карточка из реестра,

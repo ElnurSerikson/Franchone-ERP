@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import { useMutation } from 'convex/react'
+import { useMutation, useQuery } from 'convex/react'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
 import { X, Loader2, ListPlus, Link2, Upload, Paperclip } from 'lucide-react'
@@ -41,6 +41,7 @@ export default function TaskCreateModal({
   onClose: () => void
 }) {
   const create = useMutation(api.tasks.create)
+  const salesObjects = useQuery(api.target.objectOptions, {})
   const addLinkMut = useMutation(api.tasks.addLink)
   const addFileMut = useMutation(api.tasks.addFile)
   const generateUploadUrl = useMutation(api.tasks.generateUploadUrl)
@@ -83,6 +84,9 @@ export default function TaskCreateModal({
   const [assigneeId, setAssigneeId] = useState('')
   const [priority, setPriority] = useState<Priority | ''>('')
   const [deadline, setDeadline] = useState('')
+  // §4.2 ТЗ Telegram: объект продаж у задачи. Тот же справочник, что у рекламы
+  // и отдела продаж, — по нему видно, сколько работы идёт на каждый объект.
+  const [objectId, setObjectId] = useState('')
   const [tags, setTags] = useState('')
   const [attachments, setAttachments] = useState<Pending[]>([])
   const [linkUrl, setLinkUrl] = useState('')
@@ -129,6 +133,7 @@ export default function TaskCreateModal({
         assigneeId: assigneeId as Id<'employees'>,
         priority: (priority || 'medium') as Priority,
         deadline: deadline || undefined,
+        objectId: objectId ? (objectId as Id<'salesObjects'>) : undefined,
         tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
       })
 
@@ -220,6 +225,17 @@ export default function TaskCreateModal({
             </Field>
             <Field label="Срок" hint="необязательно">
               <DatePicker value={deadline} onChange={setDeadline} />
+            </Field>
+            <Field label="Объект продаж" hint="необязательно">
+              <Select
+                value={objectId}
+                onChange={setObjectId}
+                placeholder="Не привязан"
+                options={[
+                  { value: '', label: 'Не привязан' },
+                  ...(salesObjects ?? []).map((o) => ({ value: o._id, label: o.name })),
+                ]}
+              />
             </Field>
 
             <Field

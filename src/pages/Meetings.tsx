@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import {
-  CalendarDays, Check, Clock, Loader2, MapPin, MessageSquare, Plus, Trash2, Users, X,
+  AlertTriangle, CalendarDays, Check, CircleCheck, Clock, History, Loader2, MapPin,
+  MessageSquare, Plus, RefreshCw, Users, X, XCircle,
 } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -34,6 +35,12 @@ type Person = {
 
 type Meeting = {
   _id: Id<'meetings'>
+  status: 'planned' | 'held' | 'cancelled'
+  // §2.2: время прошло, результат не выбран. Это признак, а не состояние.
+  awaiting: boolean
+  originalDate: string | null
+  originalTime: string | null
+  rescheduleCount: number
   title: string
   date: string
   time: string
@@ -43,6 +50,13 @@ type Meeting = {
   createdAt: number
   createdBy: Person
   participants: Person[]
+}
+
+// §2: три состояния встречи.
+const STATE: Record<Meeting['status'], { label: string; chip: string }> = {
+  planned: { label: 'Запланирована', chip: 'bg-chip text-muted' },
+  held: { label: 'Состоялась', chip: 'bg-[#e2f2ef] text-green-d' },
+  cancelled: { label: 'Отменена', chip: 'bg-[#fdeaea] text-[#c53030]' },
 }
 
 const inputCls =
@@ -58,6 +72,10 @@ export default function Meetings() {
   const [to, setTo] = useState(TODAY)
   const [scope, setScope] = useState<'mine' | 'all'>('mine')
   const [creating, setCreating] = useState(false)
+  // §4: отменённая встреча не удаляется и должна быть видна в календаре и
+  // истории. В предстоящих ей делать нечего, поэтому показываем её при
+  // просмотре периода.
+  const [showCancelled, setShowCancelled] = useState(false)
 
   const args =
     view === 'range'
@@ -67,10 +85,15 @@ export default function Meetings() {
       : // §4.3: по умолчанию — предстоящие, от ближайшей к более поздней.
         { from: TODAY }
 
-  const data = useQuery(api.meetings.list, { ...args, scope })
+  const data = useQuery(api.meetings.list, {
+    ...args,
+    scope,
+    includeCancelled: view === 'range' && showCancelled,
+  })
   const stats = useQuery(api.meetings.stats, {})
 
   const rows = (data?.rows ?? []) as Meeting[]
+  const awaiting = (data?.awaiting ?? []) as Meeting[]
   const canSeeAll = data?.canSeeAll ?? false
 
   // §4.3: внутри выбранного периода — по дате и времени. Группируем по дню,
@@ -130,6 +153,16 @@ export default function Meetings() {
             </Field>
           )}
         </div>
+        {view === 'range' && (
+          <label className="mt-3 flex items-center gap-2 text-sm text-ink-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showCancelled}
+              onChange={(e) => setShowCancelled(e.target.checked)}
+            />
+            Показывать отменённые встречи
+          </label>
+        )}
         {canSeeAll && view === 'range' && (
           <div className="mt-3 max-w-xs">
             <Field label="Чьи встречи">
@@ -160,6 +193,27 @@ export default function Meetings() {
           </div>
         )}
       </section>
+
+      {/* §2.1 и §2.2: прошедшие встречи без результата организатор видит
+          отдельно и выбирает одно из трёх действий. */}
+      {awaiting.length > 0 && (
+        <section className="mb-5">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle size={16} className="text-[#b7791f]" />
+            <h3 className="sec-title">Ожидают подтверждения</h3>
+            <span className="chip bg-[#fff6e6] text-[#b7791f]">{awaiting.length}</span>
+          </div>
+          <p className="text-xs text-muted mb-3">
+            Время встречи прошло. Отметьте, что произошло — это нужно только для статистики,
+            оценивать встречу не требуется.
+          </p>
+          <div className="flex flex-col gap-3">
+            {awaiting.map((m) => (
+              <MeetingCard key={m._id} meeting={m} meId={me.id} isOwner={role === 'owner'} />
+            ))}
+          </div>
+        </section>
+      )}
 
       {data === undefined ? (
         <div className="card p-10 grid place-items-center text-muted">
@@ -218,10 +272,33 @@ function MeetingCard({
   meId: string
   isOwner: boolean
 }) {
-  const remove = useMutation(api.meetings.remove)
-  const [confirm, setConfirm] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const markHeld = useMutation(api.meetings.markHeld)
+  const cancel = useMutation(api.meetings.cancel)
+  const reschedule = useMutation(api.meetings.reschedule)
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
+  const [moving, setMoving] = useState(false)
+  const [newDate, setNewDate] = useState(meeting.date)
+  const [newTime, setNewTime] = useState(meeting.time)
+  // §2.1: при переносе при необходимости обновляются место, ссылка и
+  // комментарий — не только дата и время.
+  const [newPlace, setNewPlace] = useState(meeting.place ?? '')
+  const [newUrl, setNewUrl] = useState(meeting.mapUrl ?? '')
+  const [newComment, setNewComment] = useState(meeting.comment ?? '')
+  const [showHistory, setShowHistory] = useState(false)
   const mine = meeting.createdBy._id === meId
+
+  const act = async (name: string, fn: () => Promise<unknown>) => {
+    setBusy(name)
+    setError('')
+    try {
+      await fn()
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось выполнить действие.'))
+    } finally {
+      setBusy('')
+    }
+  }
 
   return (
     <div className="card p-5">
@@ -230,7 +307,26 @@ function MeetingCard({
           <CalendarDays size={18} />
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-base font-semibold text-ink">{meeting.title}</div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-base font-semibold text-ink">{meeting.title}</span>
+            <span className={`chip whitespace-nowrap ${STATE[meeting.status].chip}`}>
+              {STATE[meeting.status].label}
+            </span>
+            {meeting.awaiting && (
+              <span className="chip bg-[#fff6e6] text-[#b7791f] whitespace-nowrap">
+                ожидает подтверждения
+              </span>
+            )}
+            {meeting.rescheduleCount > 0 && (
+              <button
+                onClick={() => setShowHistory((v) => !v)}
+                className="chip bg-chip text-muted whitespace-nowrap"
+                title="История переносов"
+              >
+                <History size={11} /> переносов: {meeting.rescheduleCount}
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-3 flex-wrap text-sm text-muted mt-1">
             <span className="inline-flex items-center gap-1.5">
               <Clock size={14} /> {meeting.time}
@@ -252,39 +348,140 @@ function MeetingCard({
             )}
           </div>
         </div>
-        {(mine || isOwner) &&
-          (confirm ? (
-            <div className="flex items-center gap-2 shrink-0">
+        {/* §2.1: три действия. Доступны организатору и администратору (§5). */}
+        {(mine || isOwner) && meeting.status === 'planned' && (
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            {meeting.awaiting && (
               <button
-                onClick={async () => {
-                  setBusy(true)
-                  try {
-                    await remove({ id: meeting._id })
-                  } finally {
-                    setBusy(false)
-                  }
-                }}
-                disabled={busy}
-                className="btn h-8 px-3 text-sm bg-[#c53030] text-white disabled:opacity-60"
+                onClick={() => act('held', () => markHeld({ id: meeting._id }))}
+                disabled={!!busy}
+                className="btn btn-green h-8 px-3 text-sm disabled:opacity-60"
               >
-                {busy ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                Удалить
+                {busy === 'held' ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <CircleCheck size={13} />
+                )}
+                Состоялась
               </button>
-              <button onClick={() => setConfirm(false)} className="btn btn-ghost h-8 px-3 text-sm">
-                Отмена
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirm(true)}
-              className="ico-btn w-8 h-8 text-[#c53030] shrink-0"
-              title="Удалить встречу"
-              aria-label="Удалить встречу"
-            >
-              <Trash2 size={14} />
+            )}
+            <button onClick={() => setMoving((v) => !v)} className="btn btn-ghost h-8 px-3 text-sm">
+              <RefreshCw size={13} /> Перенести
             </button>
-          ))}
+            <button
+              onClick={() => act('cancel', () => cancel({ id: meeting._id }))}
+              disabled={!!busy}
+              className="btn btn-ghost h-8 px-3 text-sm text-[#c53030]"
+            >
+              {busy === 'cancel' ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <XCircle size={13} />
+              )}
+              Отменить
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* §3: перенос правит ту же запись — новая встреча не создаётся. */}
+      {moving && (
+        <div className="mt-3 rounded-xl border border-line p-3 flex flex-col gap-3">
+          <div className="text-sm font-medium text-ink">Перенести встречу</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">
+                Новая дата
+              </div>
+              <DatePicker value={newDate} onChange={setNewDate} />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">
+                Новое время
+              </div>
+              <input
+                type="time"
+                value={newTime}
+                onChange={(e) => setNewTime(e.target.value)}
+                className={inputCls}
+              />
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">
+                Место
+              </div>
+              <input
+                className={inputCls}
+                placeholder="Не указано"
+                value={newPlace}
+                onChange={(e) => setNewPlace(e.target.value)}
+              />
+            </div>
+            <div>
+              <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">
+                Ссылка на 2GIS
+              </div>
+              <input
+                className={inputCls}
+                placeholder="Не указана"
+                value={newUrl}
+                onChange={(e) => setNewUrl(e.target.value)}
+              />
+            </div>
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">
+              Комментарий
+            </div>
+            <textarea
+              className={`${inputCls} h-auto min-h-[64px] py-2 resize-y`}
+              placeholder="Необязательно"
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value)}
+            />
+          </div>
+          <p className="text-[11px] text-muted-2">
+            Изменения поменяются сразу у всех участников, им уйдёт уведомление со старым и
+            новым временем. Запись остаётся той же — от переноса число встреч не растёт.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() =>
+                act('move', async () => {
+                  await reschedule({
+                    id: meeting._id,
+                    date: newDate,
+                    time: newTime,
+                    place: newPlace,
+                    mapUrl: newUrl,
+                    comment: newComment,
+                  })
+                  setMoving(false)
+                })
+              }
+              disabled={!!busy}
+              className="btn btn-green h-8 px-3 text-sm disabled:opacity-60"
+            >
+              {busy === 'move' ? (
+                <Loader2 size={13} className="animate-spin" />
+              ) : (
+                <Check size={13} />
+              )}
+              Перенести
+            </button>
+            <button onClick={() => setMoving(false)} className="btn btn-ghost h-8 px-3 text-sm">
+              Отмена
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* §6: журнал действий по встрече. */}
+      {showHistory && <MeetingHistory id={meeting._id} />}
+
+      {error && <p className="text-sm text-[#c53030] mt-2">{error}</p>}
 
       {meeting.comment && (
         <div className="mt-3 rounded-xl bg-chip p-3 text-sm text-ink-2 flex items-start gap-2">
@@ -307,6 +504,50 @@ function MeetingCard({
               <span className="text-[10px] text-muted">создатель</span>
             )}
           </span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// §6: журнал действий по встрече — исходные и актуальные параметры, все
+// переносы, кто и когда действовал.
+function MeetingHistory({ id }: { id: Id<'meetings'> }) {
+  const data = useQuery(api.meetings.history, { id })
+  if (!data) return null
+
+  const LABEL: Record<string, string> = {
+    created: 'создана',
+    rescheduled: 'перенесена',
+    updated: 'изменена',
+    participants: 'состав участников',
+    held: 'подтверждено проведение',
+    cancelled: 'отменена',
+  }
+
+  return (
+    <div className="mt-3 rounded-xl bg-chip p-3">
+      <div className="text-sm font-medium text-ink mb-2">История</div>
+      {data.original && data.original !== data.current && (
+        <div className="text-[11px] text-muted mb-2">
+          Первоначально: {data.original} · сейчас: {data.current}
+        </div>
+      )}
+      <div className="flex flex-col gap-1.5">
+        {data.events.map((e) => (
+          <div key={e._id} className="text-[11px] text-ink-2 flex gap-2 flex-wrap">
+            <span className="text-muted shrink-0">
+              {new Date(e.at).toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' })}
+            </span>
+            <span className="font-medium">{LABEL[e.type] ?? e.type}</span>
+            {e.from && e.to && (
+              <span className="text-muted">
+                {e.from} → {e.to}
+              </span>
+            )}
+            {e.changes && <span className="text-muted">{e.changes}</span>}
+            <span className="text-muted-2">— {e.by}</span>
+          </div>
         ))}
       </div>
     </div>

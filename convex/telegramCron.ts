@@ -61,7 +61,11 @@ async function meetingReminders(
   const { date } = businessNow()
   // Смотрим сегодня и завтра: окно напоминания может перейти через полночь.
   const rows = (await ctx.db.query('meetings').collect()).filter(
-    (m) => m.date === date || m.date === addDays(date, 1),
+    (m) =>
+      (m.date === date || m.date === addDays(date, 1)) &&
+      // §8 дополнения по встречам: для отменённой встречи напоминание не
+      // отправляется. Проведённой — тоже незачем.
+      (m.status ?? 'planned') === 'planned',
   )
   for (const m of rows) {
     const startsAt = momentIn(tz, m.date, m.time)

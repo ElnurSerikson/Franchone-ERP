@@ -60,6 +60,19 @@ type ReportStats = {
   onTimeRate: number | null
 }
 
+// §7.1 дополнения по встречам: девять показателей на сотрудника за период.
+type MeetingStats = {
+  total: number
+  organized: number
+  invited: number
+  invitedPeople: number
+  held: number
+  cancelled: number
+  upcoming: number
+  awaiting: number
+  reschedules: number
+}
+
 type TaskStats = {
   total: number
   done: number
@@ -147,6 +160,63 @@ export function taskStats(tasks: Doc<'tasks'>[], from: string, to: string, today
   }
 }
 
+// §7 дополнения по встречам. Данные приходят из модуля встреч автоматически,
+// повторного ввода нет.
+//
+// §7.3, привязка к периоду: встреча относится к периоду по своей АКТУАЛЬНОЙ
+// дате. Перенос меняет дату самой записи, поэтому перенесённая в другой месяц
+// встреча сама уходит из старого и появляется в новом. Отменённая относится к
+// последней запланированной дате — это тоже поле date.
+export function meetingStats(
+  meetings: Doc<'meetings'>[],
+  events: Doc<'meetingEvents'>[],
+  employeeId: Id<'employees'>,
+  from: string,
+  to: string,
+  nowMs: number,
+): MeetingStats {
+  const id = employeeId as string
+  const inPeriod = meetings.filter((m) => m.date >= from && m.date <= to)
+
+  // §7.2: организатор автоматически участник своей встречи, но дважды она не
+  // считается — отсюда единый список «мои встречи».
+  const mine = inPeriod.filter(
+    (m) => m.createdById === id || m.participantIds.some((p) => (p as string) === id),
+  )
+  const organized = mine.filter((m) => m.createdById === id)
+  // Приглашение — участие БЕЗ авторства, иначе своя встреча попала бы в оба.
+  const invited = mine.filter((m) => m.createdById !== id)
+
+  const status = (m: Doc<'meetings'>) => m.status ?? 'planned'
+  const started = (m: Doc<'meetings'>) => Date.parse(`${m.date}T${m.time}:00+05:00`)
+
+  return {
+    total: mine.length,
+    organized: organized.length,
+    invited: invited.length,
+    // Сколько коллег сотрудник добавил в свои встречи. Себя не считаем.
+    invitedPeople: organized.reduce(
+      (sum, m) => sum + m.participantIds.filter((p) => (p as string) !== id).length,
+      0,
+    ),
+    // §7.2: «Состоялось» и «Отменено» отражаются и у организатора, и у всех
+    // приглашённых.
+    held: mine.filter((m) => status(m) === 'held').length,
+    cancelled: mine.filter((m) => status(m) === 'cancelled').length,
+    upcoming: mine.filter((m) => status(m) === 'planned' && started(m) >= nowMs).length,
+    // §2.2: ожидают подтверждения только встречи организатора.
+    awaiting: organized.filter((m) => status(m) === 'planned' && started(m) < nowMs).length,
+    // §7.3: событие переноса относится к периоду по дате самого переноса.
+    reschedules: events.filter((e) => {
+      if (e.type !== 'rescheduled') return false
+      const day = new Date(e.at + 5 * 3600 * 1000).toISOString().slice(0, 10)
+      if (day < from || day > to) return false
+      const m = meetings.find((x) => x._id === e.meetingId)
+      return !!m && (m.createdById === id || m.participantIds.some((p) => (p as string) === id))
+    }).length,
+  }
+}
+
 // §3.1: раздел для управленческого контроля администратора.
 export const summary = query({
   args: {
@@ -202,6 +272,8 @@ export const summary = query({
       .first()
     const time = s?.reportDeadlineTime ?? '14:00'
 
+    const meetings = await ctx.db.query('meetings').collect()
+    const meetingEvents = await ctx.db.query('meetingEvents').collect()
     const tasks = await ctx.db.query('tasks').collect()
     const tasksByAssignee = new Map<string, Doc<'tasks'>[]>()
     for (const t of tasks) {
@@ -221,6 +293,7 @@ export const summary = query({
         department: e.department,
         reports: await reportStats(ctx, e, dates, nowMs, time),
         tasks: taskStats(tasksByAssignee.get(e._id as string) ?? [], from, to, today),
+        meetings: meetingStats(meetings, meetingEvents, e._id, from, to, nowMs),
       })
     }
     rows.sort((x, y) => x.name.localeCompare(y.name, 'ru'))
@@ -253,6 +326,97 @@ export const summary = query({
   },
 })
 
+// §7.3: администратор раскрывает перечень встреч, из которых сложился
+// показатель. Без этого цифра остаётся числом, которое не проверить.
+export const meetingBreakdown = query({
+  args: {
+    employeeId: v.id('employees'),
+    metric: v.union(
+      v.literal('total'),
+      v.literal('organized'),
+      v.literal('invited'),
+      v.literal('held'),
+      v.literal('cancelled'),
+      v.literal('upcoming'),
+      v.literal('awaiting'),
+      v.literal('reschedules'),
+    ),
+    from: v.string(),
+    to: v.string(),
+  },
+  handler: async (ctx, { employeeId, metric, from, to }) => {
+    const me = await currentEmployee(ctx)
+    if (!me || !isManager(me)) return []
+    const id = employeeId as string
+    const nowMs = Date.now()
+    const names = new Map(
+      (await ctx.db.query('employees').collect()).map((e) => [e._id as string, e.name]),
+    )
+    const meetings = await ctx.db.query('meetings').collect()
+    const status = (m: Doc<'meetings'>) => m.status ?? 'planned'
+    const started = (m: Doc<'meetings'>) => Date.parse(`${m.date}T${m.time}:00+05:00`)
+
+    if (metric === 'reschedules') {
+      const events = await ctx.db.query('meetingEvents').collect()
+      return events
+        .filter((e) => e.type === 'rescheduled')
+        .filter((e) => {
+          const day = new Date(e.at + 5 * 3600 * 1000).toISOString().slice(0, 10)
+          if (day < from || day > to) return false
+          const m = meetings.find((x) => x._id === e.meetingId)
+          return !!m && (m.createdById === id || m.participantIds.some((p) => (p as string) === id))
+        })
+        .sort((a, b) => b.at - a.at)
+        .map((e) => {
+          const m = meetings.find((x) => x._id === e.meetingId)
+          return {
+            _id: e._id,
+            title: m?.title ?? 'Встреча',
+            date: e.toDate ?? m?.date ?? '',
+            time: e.toTime ?? m?.time ?? '',
+            status: 'rescheduled',
+            note: `${e.fromDate ?? ''} ${e.fromTime ?? ''} → ${e.toDate ?? ''} ${e.toTime ?? ''}`.trim(),
+            by: names.get(e.byId as string) ?? '—',
+          }
+        })
+    }
+
+    const inPeriod = meetings.filter((m) => m.date >= from && m.date <= to)
+    const mine = inPeriod.filter(
+      (m) => m.createdById === id || m.participantIds.some((p) => (p as string) === id),
+    )
+    const picked =
+      metric === 'total'
+        ? mine
+        : metric === 'organized'
+          ? mine.filter((m) => m.createdById === id)
+          : metric === 'invited'
+            ? mine.filter((m) => m.createdById !== id)
+            : metric === 'held'
+              ? mine.filter((m) => status(m) === 'held')
+              : metric === 'cancelled'
+                ? mine.filter((m) => status(m) === 'cancelled')
+                : metric === 'upcoming'
+                  ? mine.filter((m) => status(m) === 'planned' && started(m) >= nowMs)
+                  : mine.filter(
+                      (m) =>
+                        m.createdById === id && status(m) === 'planned' && started(m) < nowMs,
+                    )
+
+    return picked
+      .sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time))
+      .map((m) => ({
+        _id: m._id,
+        title: m.title,
+        date: m.date,
+        time: m.time,
+        status: status(m),
+        note: m.createdById === id ? 'организатор' : 'приглашён',
+        by: names.get(m.createdById as string) ?? '—',
+      }))
+  },
+})
+
 // §3.5: карточка сотрудника — та же статистика, но помесячно, за всё время
 // его работы в системе.
 export const employeeHistory = query({
@@ -277,6 +441,8 @@ export const employeeHistory = query({
     const nowMs = Date.now()
 
     const tasks = (await ctx.db.query('tasks').collect()).filter((t) => t.assigneeId === employeeId)
+    const meetings = await ctx.db.query('meetings').collect()
+    const meetingEvents = await ctx.db.query('meetingEvents').collect()
 
     const months = []
     for (const m of monthsBetween(from, to)) {
@@ -286,6 +452,7 @@ export const employeeHistory = query({
         month: m,
         reports: await reportStats(ctx, e, datesBetween(mFrom, mTo), nowMs, time),
         tasks: taskStats(tasks, mFrom, mTo, today),
+        meetings: meetingStats(meetings, meetingEvents, employeeId, mFrom, mTo, nowMs),
       })
     }
 
