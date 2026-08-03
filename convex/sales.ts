@@ -5,6 +5,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, isManager, hiddenEmployeeIds } from './lib'
 import { can, requireCan, inScope } from './permissions'
 import { isMonthClosed } from './payroll'
+import { notifyReportFilled } from './telegramFlow'
 
 const TZ = '+05:00'
 // ТЗ СИСТЕМА §2: до 14:00 следующего календарного дня.
@@ -637,6 +638,17 @@ export const submitDaily = mutation({
       })
     }
     await syncLegacyDailyReport(ctx, me._id, args.date, me._id, existing ? 'edited' : 'submitted')
+    // §6 ТЗ Telegram: администратору уходит сводка по заполненному отчёту.
+    // Ключ уведомления привязан к дате, поэтому правка второго объекта за тот
+    // же день второго сообщения не создаёт.
+    const object = await ctx.db.get(args.objectId)
+    await notifyReportFilled(
+      ctx,
+      me._id,
+      args.date,
+      `Продажи · ${object?.name ?? 'объект'}: заявок ${args.newLeads}, ` +
+        `встреч ${args.newMeetings}, сделок ${args.newDeals}`,
+    )
   },
 })
 

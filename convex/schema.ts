@@ -300,6 +300,8 @@ export default defineSchema({
     attachments: v.number(), // денормализованный счётчик
     comments: v.number(), // денормализованный счётчик
     kpiRef: v.optional(v.string()),
+    // §9 ТЗ Telegram: откуда создана запись. Для аудита; на поведение не влияет.
+    source: v.optional(v.string()),
   })
     .index('by_status', ['status'])
     .index('by_assignee', ['assigneeId']),
@@ -490,9 +492,106 @@ export default defineSchema({
     // в этот список — по нему строится выборка «мои встречи».
     participantIds: v.array(v.id('employees')),
     createdAt: v.number(),
+    // §9 ТЗ Telegram: откуда создана запись.
+    source: v.optional(v.string()),
   })
     .index('by_date', ['date'])
     .index('by_creator', ['createdById']),
+
+  // ——— Telegram-модуль (ТЗ Telegram §3, §9, §10) ———
+  //
+  // Ключевая концепция ТЗ: Telegram — не отдельная система учёта, а второй
+  // интерфейс к ERP. Здесь не хранятся задачи, встречи и KPI: только привязка
+  // аккаунтов, черновики подтверждения, журнал и реестр отправленного.
+
+  // Привязка сотрудника к Telegram (§3). Основной идентификатор — chatId
+  // (Telegram user ID); @username хранится справочно, его можно сменить.
+  telegramLinks: defineTable({
+    employeeId: v.id('employees'),
+    // §3.4: шесть состояний подключения.
+    status: v.union(
+      v.literal('invited'), // приглашение создано, бот ещё не запущен
+      v.literal('pending'), // user ID получен, ждём решения администратора
+      v.literal('connected'), // подключён
+      v.literal('disabled'), // отключён администратором
+      v.literal('failed'), // ошибка доставки: бот заблокирован пользователем
+    ),
+    inviteCode: v.optional(v.string()),
+    inviteExpiresAt: v.optional(v.number()),
+    inviteCreatedById: v.optional(v.id('employees')),
+    chatId: v.optional(v.number()),
+    username: v.optional(v.string()),
+    tgName: v.optional(v.string()),
+    connectedAt: v.optional(v.number()),
+    connectedById: v.optional(v.id('employees')),
+    lastDeliveryAt: v.optional(v.number()),
+    lastError: v.optional(v.string()),
+    // §6.1: категории уведомлений выключаются точечно, не трогая права в ERP.
+    mutedCategories: v.optional(v.array(v.string())),
+  })
+    .index('by_employee', ['employeeId'])
+    .index('by_chat', ['chatId'])
+    .index('by_code', ['inviteCode'])
+    .index('by_status', ['status']),
+
+  // Идемпотентность webhook (§11): повторная доставка одного update не должна
+  // создавать вторую задачу, встречу или уведомление.
+  telegramUpdates: defineTable({
+    updateId: v.number(),
+    at: v.number(),
+  }).index('by_update', ['updateId']),
+
+  // Реестр отправленного. Ключ уникален для события: по нему уведомление
+  // отправляется ровно один раз — сюда же ложатся пороги KPI (§7.1).
+  telegramSent: defineTable({
+    key: v.string(),
+    employeeId: v.optional(v.id('employees')),
+    category: v.string(),
+    at: v.number(),
+    status: v.union(v.literal('ok'), v.literal('error')),
+    error: v.optional(v.string()),
+  })
+    .index('by_key', ['key'])
+    .index('by_employee', ['employeeId']),
+
+  // Карточка предварительного подтверждения (§4.1, §5.1). Задача и встреча
+  // создаются ТОЛЬКО после нажатия «Создать» — до этого данные живут здесь.
+  telegramDrafts: defineTable({
+    chatId: v.number(),
+    employeeId: v.id('employees'),
+    kind: v.union(v.literal('task'), v.literal('meeting')),
+    // Извлечённые поля, JSON. Схема полей своя у задачи и встречи.
+    payload: v.string(),
+    transcript: v.string(),
+    messageId: v.optional(v.number()),
+    // Какое поле сейчас уточняем: бот обязан спросить, а не угадывать (§4.3).
+    awaiting: v.optional(v.string()),
+    state: v.union(
+      v.literal('preview'),
+      v.literal('editing'),
+      v.literal('done'),
+      v.literal('cancelled'),
+    ),
+    createdAt: v.number(),
+  }).index('by_chat', ['chatId']),
+
+  // Журнал (§10). Доступен администратору, обычный сотрудник его не видит.
+  telegramAudit: defineTable({
+    at: v.number(),
+    kind: v.string(), // invite | confirm | reject | disable | reconnect | command | notify | error
+    employeeId: v.optional(v.id('employees')),
+    byId: v.optional(v.id('employees')),
+    chatId: v.optional(v.number()),
+    updateId: v.optional(v.number()),
+    text: v.optional(v.string()), // распознанный текст голосового
+    fields: v.optional(v.string()), // извлечённые поля до подтверждения
+    result: v.optional(v.string()),
+    objectRef: v.optional(v.string()), // id созданной задачи или встречи
+    status: v.optional(v.string()),
+    error: v.optional(v.string()),
+  })
+    .index('by_at', ['at'])
+    .index('by_employee', ['employeeId']),
 
   // Настройки (одна запись-синглтон с key = "global")
   settings: defineTable({
@@ -515,6 +614,22 @@ export default defineSchema({
     // в общем KPI таргетолога, в процентах. Пока это единственный его
     // показатель, поэтому вес равен 100.
     targetLeadWeight: v.optional(v.number()),
+    // ——— Telegram-модуль, §8.2 ———
+    // Имя бота без @: из него собирается ссылка-приглашение. Токен здесь НЕ
+    // хранится — он лежит в защищённых настройках окружения (§8.2).
+    tgBotUsername: v.optional(v.string()),
+    tgInviteTtlHours: v.optional(v.number()), // срок жизни приглашения, часов
+    tgMeetingRemindMin: v.optional(v.number()), // напоминание до встречи, минут
+    tgReportRemindMin: v.optional(v.number()), // напоминание до срока отчёта, минут
+    tgTaskRemindMin: v.optional(v.number()), // напоминание до дедлайна задачи
+    // Кто получает «отчёт заполнен» и «отчёт просрочен» (§6).
+    tgReportRecipients: v.optional(v.array(v.id('employees'))),
+    // Глобально выключенные категории уведомлений (§6.1).
+    tgDisabledCategories: v.optional(v.array(v.string())),
+    // Тексты мотивационных сообщений KPI — редактируются без правки кода (§7.2).
+    tgKpiTexts: v.optional(v.array(v.object({ threshold: v.number(), text: v.string() }))),
+    // §7.1: режим перевыполнения — пороги выше 100%.
+    tgKpiOverachieve: v.optional(v.boolean()),
   }).index('by_key', ['key']),
 
   // ——— Закрытие месяца (§5: «сохранять итоговые показатели и начисления в архиве») ———

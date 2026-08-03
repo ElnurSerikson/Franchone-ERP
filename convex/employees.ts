@@ -5,6 +5,7 @@ import { Resend as ResendAPI } from 'resend'
 import { inviteEmail } from './emails'
 import { currentEmployee } from './lib'
 import { requireCan, inScope } from './permissions'
+import { disable as disableTelegram } from './telegram'
 
 // Палитра аватаров — цвет назначается детерминированно по имени (без random,
 // т.к. мутации Convex должны быть детерминированными).
@@ -109,6 +110,9 @@ export const archive = mutation({
     if (target.role === 'owner') throw new ConvexError('Нельзя архивировать владельца')
     if (!inScope(me, target)) throw new ConvexError('Можно архивировать только сотрудников в вашем доступе')
     await ctx.db.patch(id, { status: 'archived' })
+    // §3.2 ТЗ Telegram: при увольнении или блокировке доступ к боту
+    // отключается автоматически.
+    await disableTelegram(ctx, id, me._id, 'сотрудник архивирован в ERP')
   },
 })
 

@@ -5,6 +5,7 @@ import type { Doc } from './_generated/dataModel'
 import { currentEmployee, requireEmployee } from './lib'
 import { isMonthClosed } from './payroll'
 import { targetDayForEmployee } from './target'
+import { notifyReportFilled } from './telegramFlow'
 import { can, requireCan, inScope, viewScope } from './permissions'
 
 // Бизнес-часовой пояс компании — Asia/Almaty (UTC+5, без перехода на летнее время).
@@ -66,6 +67,28 @@ async function deadlineTime(ctx: QueryCtx | MutationCtx): Promise<string> {
     .withIndex('by_key', (q) => q.eq('key', 'global'))
     .first()
   return s?.reportDeadlineTime ?? DEFAULT_DEADLINE
+}
+
+// Краткая сводка отчёта для уведомления администратору (§6 ТЗ Telegram).
+// Показываем только сами цифры — чужие KPI и зарплаты в уведомления не идут.
+function reportSummary(payload: {
+  smm?: { page: string; type: string; count: number }[]
+  targetolog?: { code: string; budget: number; leads: number }[]
+  sales?: { leads: number; meetings: number; sales: number; revenue: number }
+}): string {
+  if (payload.smm?.length) {
+    const total = payload.smm.reduce((s, r) => s + r.count, 0)
+    return `Контент: ${total} публикаций по ${payload.smm.length} строкам`
+  }
+  if (payload.targetolog?.length) {
+    const budget = payload.targetolog.reduce((s, r) => s + r.budget, 0)
+    return `Реклама: ${payload.targetolog.length} кампаний, расход ${budget}`
+  }
+  if (payload.sales) {
+    const s2 = payload.sales
+    return `Продажи: заявок ${s2.leads}, встреч ${s2.meetings}, сделок ${s2.sales}`
+  }
+  return 'Отчёт заполнен'
 }
 
 // ——— Payload-валидаторы (общие для мутации) ———
@@ -285,12 +308,13 @@ export const submit = mutation({
           { at: now, byId: me._id, action: reopened ? ('submitted' as const) : ('edited' as const) },
         ],
       })
+      await notifyReportFilled(ctx, me._id, date, reportSummary(payload))
       return existing._id
     }
 
     // Свежая отправка сюда попадает только в пределах дедлайна (иначе отсекли
     // выше), значит она всегда «в срок».
-    return await ctx.db.insert('dailyReports', {
+    const id = await ctx.db.insert('dailyReports', {
       employeeId: me._id,
       position: submittedPosition,
       date,
@@ -300,6 +324,9 @@ export const submit = mutation({
       history: [{ at: now, byId: me._id, action: 'submitted' as const }],
       ...payload,
     })
+    // §6 ТЗ Telegram: администратор получает уведомление с краткой сводкой.
+    await notifyReportFilled(ctx, me._id, date, reportSummary(payload))
+    return id
   },
 })
 

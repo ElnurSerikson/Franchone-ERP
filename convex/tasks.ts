@@ -3,6 +3,11 @@ import { v, ConvexError } from 'convex/values'
 import type { Doc } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, isManager, isOnTime } from './lib'
 import { can, requireCan, canScope, viewScope } from './permissions'
+import {
+  notifyTaskCreated,
+  notifyTaskChanged,
+  notifyTaskStatus,
+} from './telegramFlow'
 
 const statusV = v.union(v.literal('assigned'), v.literal('in_progress'), v.literal('done'))
 const priorityV = v.union(
@@ -151,6 +156,10 @@ export const create = mutation({
       kpiRef: args.kpiRef,
     })
     await ctx.db.insert('taskEvents', { taskId: id, type: 'created', byId: me._id })
+    // §9 ТЗ Telegram: изменение через ERP запускает те же уведомления, что и
+    // через бота.
+    const created = await ctx.db.get(id)
+    if (created) await notifyTaskCreated(ctx, created)
     return id
   },
 })
@@ -189,6 +198,7 @@ export const setStatus = mutation({
       toStatus: status,
       byId: me._id,
     })
+    await notifyTaskStatus(ctx, task, status, me._id)
   },
 })
 
@@ -225,6 +235,22 @@ export const update = mutation({
       await ctx.db.insert('taskEvents', { taskId: id, type: 'assignee', byId: me._id })
     }
     await ctx.db.patch(id, patch)
+
+    // §6: что именно изменилось — срок, приоритет, ответственный, название.
+    const changes: string[] = []
+    if (patch.title && patch.title !== task.title) changes.push(`название: ${patch.title}`)
+    if (patch.deadline && patch.deadline !== task.deadline) {
+      changes.push(`срок: ${task.deadline ?? 'не был задан'} → ${patch.deadline}`)
+    }
+    if (patch.priority && patch.priority !== task.priority) {
+      changes.push(`приоритет: ${task.priority} → ${patch.priority}`)
+    }
+    if (patch.assigneeId && patch.assigneeId !== task.assigneeId) {
+      const next = await ctx.db.get(patch.assigneeId)
+      changes.push(`ответственный: ${next?.name ?? '—'}`)
+    }
+    const after = await ctx.db.get(id)
+    if (after) await notifyTaskChanged(ctx, after, changes, me._id)
   },
 })
 

@@ -2320,3 +2320,131 @@ export const normalizeCampaignAccounts = internalMutation({
     }
   },
 })
+
+// Записать имя бота в настройки — из него собирается ссылка-приглашение
+// (ТЗ Telegram §3.1, §8.2). Токен сюда не попадает: он живёт в окружении.
+// npx convex run setup:setTelegramBot '{"username":"franchone_dev_bot"}'
+export const setTelegramBot = internalMutation({
+  args: { username: v.string() },
+  handler: async (ctx, { username }) => {
+    const row = await ctx.db
+      .query('settings')
+      .withIndex('by_key', (q) => q.eq('key', 'global'))
+      .first()
+    const value = username.replace('@', '').trim()
+    if (row) await ctx.db.patch(row._id, { tgBotUsername: value })
+    return { tgBotUsername: value, existed: !!row }
+  },
+})
+
+// ——— Прогон Telegram-модуля на dev ———
+// Проходит весь путь ТЗ без реального Telegram: приглашение → запуск бота →
+// подтверждение администратором. Сообщения бот отправить не сможет (чат
+// вымышленный) — это ожидаемо и видно в журнале.
+
+export const devTgInvite = internalMutation({
+  args: { email: v.optional(v.string()) },
+  handler: async (ctx, { email }) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) throw new Error('Только для dev')
+    const low = (email ?? 'almnurken@gmail.com').toLowerCase().trim()
+    const e = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (!e) throw new Error(`Сотрудник ${low} не найден`)
+    const code = 'devtest' + Math.floor(Math.random() * 1e6)
+    const existing = await ctx.db
+      .query('telegramLinks')
+      .withIndex('by_employee', (q) => q.eq('employeeId', e._id))
+      .first()
+    const fields = {
+      status: 'invited' as const,
+      inviteCode: code,
+      inviteExpiresAt: Date.now() + 24 * 3600 * 1000,
+      chatId: undefined,
+      connectedAt: undefined,
+      lastError: undefined,
+    }
+    if (existing) await ctx.db.patch(existing._id, fields)
+    else await ctx.db.insert('telegramLinks', { employeeId: e._id, ...fields })
+    return { employee: e.name, code }
+  },
+})
+
+export const devTgState = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) throw new Error('Только для dev')
+    const names = new Map(
+      (await ctx.db.query('employees').collect()).map((e) => [e._id as string, e.name]),
+    )
+    const links = (await ctx.db.query('telegramLinks').collect()).map(
+      (l) => `${names.get(l.employeeId as string) ?? '—'}: ${l.status}${l.chatId ? ` chat=${l.chatId}` : ''}`,
+    )
+    const drafts = (await ctx.db.query('telegramDrafts').collect())
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, 3)
+      .map((d) => `${d.kind}/${d.state}: ${d.payload}`)
+    const audit = (await ctx.db.query('telegramAudit').withIndex('by_at').order('desc').take(6)).map(
+      (a) => `${a.kind}${a.result ? ' · ' + a.result : ''}${a.error ? ' · ОШИБКА: ' + a.error : ''}`,
+    )
+    return { links, drafts, audit }
+  },
+})
+
+export const devTgConfirm = internalMutation({
+  args: { email: v.optional(v.string()) },
+  handler: async (ctx, { email }) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) throw new Error('Только для dev')
+    const low = (email ?? 'almnurken@gmail.com').toLowerCase().trim()
+    const e = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
+      .first()
+    if (!e) throw new Error('Сотрудник не найден')
+    const link = await ctx.db
+      .query('telegramLinks')
+      .withIndex('by_employee', (q) => q.eq('employeeId', e._id))
+      .first()
+    if (!link) throw new Error('Привязки нет')
+    await ctx.db.patch(link._id, {
+      status: 'connected',
+      connectedAt: Date.now(),
+      connectedById: e._id,
+    })
+    return { employee: e.name, status: 'connected' }
+  },
+})
+
+// Убрать следы прогона Telegram-модуля на dev: вымышленные привязки, черновики
+// и созданные ботом записи. Только dev.
+export const devTgCleanup = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) throw new Error('Только для dev')
+    let removed = 0
+    for (const t of ['telegramLinks', 'telegramDrafts', 'telegramUpdates', 'telegramSent'] as const) {
+      for (const r of await ctx.db.query(t).collect()) {
+        await ctx.db.delete(r._id)
+        removed++
+      }
+    }
+    for (const t of await ctx.db.query('tasks').collect()) {
+      if (t.source === 'telegram') {
+        await ctx.db.delete(t._id)
+        removed++
+      }
+    }
+    for (const m of await ctx.db.query('meetings').collect()) {
+      if (m.source === 'telegram') {
+        await ctx.db.delete(m._id)
+        removed++
+      }
+    }
+    return { removed }
+  },
+})

@@ -13,6 +13,7 @@ import { v, ConvexError } from 'convex/values'
 import type { QueryCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, isManager, hiddenEmployeeIds } from './lib'
+import { notifyMeetingEvent } from './telegramFlow'
 
 function businessToday(): string {
   return new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
@@ -161,7 +162,7 @@ export const create = mutation({
       if (!e) throw new ConvexError('Участник не найден')
     }
 
-    return await ctx.db.insert('meetings', {
+    const id = await ctx.db.insert('meetings', {
       title,
       date: args.date,
       time: args.time,
@@ -172,6 +173,10 @@ export const create = mutation({
       participantIds: [...ids] as Id<'employees'>[],
       createdAt: Date.now(),
     })
+    // §5.3 ТЗ Telegram: все приглашённые получают уведомление о назначении.
+    const created = await ctx.db.get(id)
+    if (created) await notifyMeetingEvent(ctx, created, 'Новая встреча', [], me._id)
+    return id
   },
 })
 
@@ -205,14 +210,74 @@ export const update = mutation({
     if (patch.place !== undefined) next.place = clean(patch.place)
     if (patch.mapUrl !== undefined) next.mapUrl = clean(patch.mapUrl)
     if (patch.comment !== undefined) next.comment = clean(patch.comment)
+    // §5.3: показываем, ЧТО именно изменилось, со старым и новым значением.
+    const changes: string[] = []
+    if (next.title && next.title !== meeting.title) {
+      changes.push(`тема: «${meeting.title}» → «${next.title}»`)
+    }
+    if ((next.date && next.date !== meeting.date) || (next.time && next.time !== meeting.time)) {
+      changes.push(
+        `перенос: ${meeting.date} ${meeting.time} → ${next.date ?? meeting.date} ${next.time ?? meeting.time}`,
+      )
+    }
+    if (next.place !== undefined && next.place !== meeting.place) {
+      changes.push(`место: ${meeting.place ?? '—'} → ${next.place ?? '—'}`)
+    }
+    if (next.mapUrl !== undefined && next.mapUrl !== meeting.mapUrl) {
+      changes.push('изменена ссылка')
+    }
+    if (next.comment !== undefined && next.comment !== meeting.comment) {
+      changes.push('изменён комментарий')
+    }
+
+    let added: Id<'employees'>[] = []
+    let removed: Id<'employees'>[] = []
     if (participantIds !== undefined) {
       const ids = new Set<string>([
         meeting.createdById as string,
         ...participantIds.map((p) => p as string),
       ])
+      const before = new Set(meeting.participantIds.map((p) => p as string))
+      added = [...ids].filter((i) => !before.has(i)) as Id<'employees'>[]
+      removed = [...before].filter((i) => !ids.has(i)) as Id<'employees'>[]
       next.participantIds = [...ids]
     }
     await ctx.db.patch(id, next)
+
+    const after = await ctx.db.get(id)
+    if (after) {
+      if (changes.length > 0) {
+        // Прежним участникам — что изменилось.
+        const stayed = after.participantIds.filter((p) => !added.includes(p))
+        await notifyMeetingEvent(
+          ctx,
+          { ...after, participantIds: stayed },
+          'Встреча изменена',
+          changes,
+          me._id,
+        )
+      }
+      // §5.3: новый участник получает полную карточку приглашения.
+      if (added.length > 0) {
+        await notifyMeetingEvent(
+          ctx,
+          { ...after, participantIds: added },
+          'Вас пригласили на встречу',
+          [],
+          me._id,
+        )
+      }
+      // Удалённый участник получает сообщение о прекращении участия.
+      if (removed.length > 0) {
+        await notifyMeetingEvent(
+          ctx,
+          { ...after, participantIds: removed },
+          'Вы больше не участник встречи',
+          [],
+          me._id,
+        )
+      }
+    }
   },
 })
 
@@ -227,6 +292,8 @@ export const remove = mutation({
     if (meeting.createdById !== me._id && me.role !== 'owner') {
       throw new ConvexError('Удалить встречу может её создатель или администратор')
     }
+    // §5.3: при отмене уведомляются все участники.
+    await notifyMeetingEvent(ctx, meeting, 'Встреча отменена', [], me._id)
     await ctx.db.delete(id)
   },
 })

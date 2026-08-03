@@ -4,6 +4,7 @@ import { Sliders, Users2, Building2, Timer, Check, Plus, Trash2, Pencil, Lock, X
 import { api } from '../../convex/_generated/api'
 import PageHeader from '@/components/PageHeader'
 import TargetLeadPlansSetup from '@/components/campaigns/TargetLeadPlansSetup'
+import TelegramSettings from '@/components/settings/TelegramSettings'
 import Select from '@/components/ui/Select'
 import SalesObjectHistoryDrawer from '@/components/campaigns/SalesObjectHistoryDrawer'
 import { useData } from '@/lib/useData'
@@ -70,13 +71,15 @@ function NumCell({
 // §5 ТЗ: «формулы расчёта и набор KPI настраиваются отдельно для каждой
 // должности». Поэтому настройки сгруппированы по должности, а не по типу
 // параметра: у каждой своя формула, свой оклад и свой набор показателей.
-type SettingsTab = 'general' | 'smm' | 'sales'
+type SettingsTab = 'general' | 'smm' | 'sales' | 'telegram'
 const SETTINGS_TABS: { id: SettingsTab; label: string }[] = [
   { id: 'general', label: 'Общие' },
   { id: 'smm', label: 'SMM' },
   // Отдельной вкладки «Таргетолог» больше нет: его секция переехала сюда,
   // потому что обе должности крутятся вокруг одного справочника объектов.
   { id: 'sales', label: 'Объекты продаж' },
+  // ТЗ Telegram §8.2: общие настройки модуля и журнал.
+  { id: 'telegram', label: 'Telegram' },
 ]
 
 export default function Settings() {
@@ -104,6 +107,7 @@ export default function Settings() {
 
       {tab === 'general' && <GeneralSettings />}
       {tab === 'smm' && <SmmKpiSetup />}
+      {tab === 'telegram' && <TelegramSettings />}
       {tab === 'sales' && (
         <div className="flex flex-col gap-5">
           <TargetologSalarySetup />

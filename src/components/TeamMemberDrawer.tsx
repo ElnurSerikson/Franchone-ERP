@@ -7,6 +7,7 @@ import type { Employee } from '@/types'
 import { errMessage } from '@/lib/errors'
 import { usePerms } from '@/lib/usePerms'
 import Select from './ui/Select'
+import TelegramBlock from './settings/TelegramBlock'
 
 const inputCls =
   'w-full rounded-lg border border-line-2 px-3 py-2.5 text-sm text-ink placeholder:text-muted focus:outline-none focus:border-green-light bg-white'
@@ -70,6 +71,8 @@ export default function TeamMemberDrawer({
   // Оклад и роль показываем/шлём только владельцу (инвариант). Роль владельца
   // не редактируем вовсе.
   const { isOwner } = usePerms()
+  // Имя бота нужно, чтобы собрать ссылку-приглашение целиком (§3.1).
+  const settings = useQuery(api.settings.get, {})
   const canSetPayRole = isOwner && !isOwnerEdit
 
   const [loading, setLoading] = useState(false)
@@ -296,6 +299,15 @@ export default function TeamMemberDrawer({
                     />
                   </Field>
                 </>
+              )}
+
+              {/* §8.1 ТЗ Telegram: блок подключения в карточке сотрудника.
+                  Виден только администратору — он один управляет привязкой. */}
+              {isEdit && employee && isOwner && (
+                <TelegramBlock
+                  employeeId={employee.id as Id<'employees'>}
+                  botUsername={settings?.tgBotUsername || null}
+                />
               )}
             </div>
 

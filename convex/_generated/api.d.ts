@@ -36,6 +36,10 @@ import type * as smm from "../smm.js";
 import type * as target from "../target.js";
 import type * as targetLeads from "../targetLeads.js";
 import type * as tasks from "../tasks.js";
+import type * as telegram from "../telegram.js";
+import type * as telegramBot from "../telegramBot.js";
+import type * as telegramCron from "../telegramCron.js";
+import type * as telegramFlow from "../telegramFlow.js";
 import type * as users from "../users.js";
 
 import type {
@@ -73,6 +77,10 @@ declare const fullApi: ApiFromModules<{
   target: typeof target;
   targetLeads: typeof targetLeads;
   tasks: typeof tasks;
+  telegram: typeof telegram;
+  telegramBot: typeof telegramBot;
+  telegramCron: typeof telegramCron;
+  telegramFlow: typeof telegramFlow;
   users: typeof users;
 }>;
 

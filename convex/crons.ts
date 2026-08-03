@@ -12,4 +12,9 @@ crons.monthly(
   internal.payroll.autoClosePreviousMonth,
 )
 
+// Telegram-уведомления по времени (ТЗ Telegram §6, §7): напоминания за час,
+// просрочки и пороги KPI. Каждые 10 минут — этого хватает для точности «за
+// час», а реестр отправленного не даёт присылать одно и то же дважды.
+crons.interval('telegram notifications', { minutes: 10 }, internal.telegramCron.tick)
+
 export default crons

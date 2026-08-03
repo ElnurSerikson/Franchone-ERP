@@ -16,6 +16,13 @@ const DEFAULTS = {
   reportMonth: 'Июль 2026',
   // ТЗ СИСТЕМА §2: 14:00 следующего календарного дня.
   reportDeadlineTime: '14:00',
+  // Telegram-модуль (§8.2). Токен бота сюда не попадает — он в окружении.
+  tgBotUsername: '',
+  tgInviteTtlHours: 24,
+  tgMeetingRemindMin: 60,
+  tgReportRemindMin: 60,
+  tgTaskRemindMin: 60,
+  tgKpiOverachieve: false,
 }
 
 export const get = query({
@@ -51,6 +58,16 @@ export const update = mutation({
     planRevenueSales: v.optional(v.number()),
     reportMonth: v.optional(v.string()),
     reportDeadlineTime: v.optional(v.string()),
+    // ——— Telegram-модуль (§8.2) ———
+    tgBotUsername: v.optional(v.string()),
+    tgInviteTtlHours: v.optional(v.number()),
+    tgMeetingRemindMin: v.optional(v.number()),
+    tgReportRemindMin: v.optional(v.number()),
+    tgTaskRemindMin: v.optional(v.number()),
+    tgReportRecipients: v.optional(v.array(v.id('employees'))),
+    tgDisabledCategories: v.optional(v.array(v.string())),
+    tgKpiTexts: v.optional(v.array(v.object({ threshold: v.number(), text: v.string() }))),
+    tgKpiOverachieve: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const me = await requireEmployee(ctx)

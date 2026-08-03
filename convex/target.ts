@@ -13,6 +13,7 @@ import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, isManager, hiddenEmployeeIds } from './lib'
+import { notifyReportFilled } from './telegramFlow'
 import {
   CAMPAIGN_GOALS,
   CAMPAIGN_GOAL_SLUGS,
@@ -484,6 +485,16 @@ export const save = mutation({
         budgetCents: r.budgetCents,
         result: r.result,
       })
+    }
+    // §6 ТЗ Telegram: сводка администратору — только по отправленному отчёту.
+    if (submit) {
+      const total = rows.reduce((s, r) => s + r.budgetCents, 0)
+      await notifyReportFilled(
+        ctx,
+        me._id,
+        date,
+        `Реклама: ${rows.length} кампаний, расход $${(total / 100).toFixed(2)}`,
+      )
     }
     return { reportId, submitted: submit }
   },
