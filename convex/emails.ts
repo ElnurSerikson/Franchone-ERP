@@ -13,11 +13,41 @@ const DARK = '#19181d'
 const INK = '#1c1d22'
 const MUTED = '#8b9096'
 
-export function otpEmail(code: string): { subject: string; html: string; text: string } {
-  const subject = 'Код для входа в FRANCHONE'
+// Одно письмо с кодом обслуживает два входа: в панель и в Telegram-бот.
+// Вёрстка общая, меняются только надписи — сотрудник видит привычное письмо,
+// но понимает, куда именно вводить код.
+type CodeCopy = {
+  subject: string
+  kicker: string
+  heading: string
+  lead: string
+  intro: string
+}
+
+const LOGIN_COPY: CodeCopy = {
+  subject: 'Код для входа в FRANCHONE',
+  kicker: 'Вход в панель',
+  heading: 'Ваш код для входа',
+  lead: 'Используйте этот код, чтобы войти в панель управления FRANCHONE.',
+  intro: 'Ваш код для входа в FRANCHONE',
+}
+
+export const BOT_CODE_COPY: CodeCopy = {
+  subject: 'Код для входа в Telegram-бот FRANCHONE',
+  kicker: 'Telegram-бот',
+  heading: 'Ваш код для входа в бота',
+  lead: 'Введите этот код в Telegram-боте FRANCHONE, чтобы подключить его к своей учётной записи.',
+  intro: 'Ваш код для входа в Telegram-бот FRANCHONE',
+}
+
+export function otpEmail(
+  code: string,
+  copy: CodeCopy = LOGIN_COPY,
+): { subject: string; html: string; text: string } {
+  const subject = copy.subject
 
   const text =
-    `Ваш код для входа в FRANCHONE: ${code}\n\n` +
+    `${copy.intro}: ${code}\n\n` +
     `Код действует 10 минут. Никому его не сообщайте.\n` +
     `Если вы не запрашивали вход — просто проигнорируйте это письмо.\n\n` +
     `— FRANCHONE · стратегический партнёр по франчайзингу`
@@ -47,10 +77,10 @@ export function otpEmail(code: string): { subject: string; html: string; text: s
           <!-- body -->
           <tr>
             <td style="padding:40px 44px 8px 44px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-              <div style="font-size:12px;font-weight:700;letter-spacing:1.5px;color:${TEAL};text-transform:uppercase;">Вход в панель</div>
-              <h1 style="margin:8px 0 12px;font-size:24px;line-height:1.25;font-weight:800;color:${INK};">Ваш код для входа</h1>
+              <div style="font-size:12px;font-weight:700;letter-spacing:1.5px;color:${TEAL};text-transform:uppercase;">${copy.kicker}</div>
+              <h1 style="margin:8px 0 12px;font-size:24px;line-height:1.25;font-weight:800;color:${INK};">${copy.heading}</h1>
               <p style="margin:0 0 24px;font-size:15px;line-height:1.6;color:#4a4e55;">
-                Используйте этот код, чтобы войти в панель управления FRANCHONE. Он действует <b style="color:${INK};">10 минут</b>.
+                ${copy.lead} Он действует <b style="color:${INK};">10 минут</b>.
               </p>
             </td>
           </tr>

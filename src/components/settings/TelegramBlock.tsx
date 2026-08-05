@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
-import { Check, Copy, Loader2, Send, ShieldCheck, X } from 'lucide-react'
+import { Check, Copy, Loader2, Send } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { errMessage } from '@/lib/errors'
@@ -8,9 +8,10 @@ import { reportTime } from '@/lib/reports'
 
 // Блок «Telegram» в карточке сотрудника (ТЗ Telegram §8.1).
 //
-// Подключение двухэтапное (§3.1): администратор выдаёт одноразовую ссылку,
-// сотрудник запускает бота, и только после подтверждения администратором
-// связь активируется. Сам сотрудник привязаться не может.
+// Подключается сотрудник сам: запускает бота, вводит свой рабочий email из ERP
+// и код, пришедший на почту. Администратору здесь остаётся то, что и должно
+// быть за ним, — видеть состояние привязки, отключать её и настраивать
+// категории уведомлений.
 
 const STATUS: Record<string, { label: string; chip: string; hint: string }> = {
   none: {
@@ -19,14 +20,14 @@ const STATUS: Record<string, { label: string; chip: string; hint: string }> = {
     hint: 'Привязка отсутствует, уведомления не отправляются.',
   },
   invited: {
-    label: 'Приглашение создано',
-    chip: 'bg-[#fff6e6] text-[#b7791f]',
-    hint: 'Ссылка выдана, сотрудник ещё не запустил бота.',
+    label: 'Не подключён',
+    chip: 'bg-chip text-muted',
+    hint: 'Сотрудник ещё не подтвердил почту в боте.',
   },
   pending: {
-    label: 'Ожидает подтверждения',
-    chip: 'bg-[#fff6e6] text-[#b7791f]',
-    hint: 'Telegram получен — требуется ваше решение.',
+    label: 'Не подключён',
+    chip: 'bg-chip text-muted',
+    hint: 'Сотрудник ещё не подтвердил почту в боте.',
   },
   connected: {
     label: 'Подключён',
@@ -50,12 +51,10 @@ export default function TelegramBlock({
   botUsername,
 }: {
   employeeId: Id<'employees'>
-  // Имя бота для ссылки-приглашения. Приходит из настроек модуля.
+  // Имя бота — чтобы дать сотруднику готовую ссылку. Приходит из настроек модуля.
   botUsername?: string | null
 }) {
   const data = useQuery(api.telegram.linkFor, { employeeId })
-  const createInvite = useMutation(api.telegram.createInvite)
-  const confirmLink = useMutation(api.telegram.confirmLink)
   const disableLink = useMutation(api.telegram.disableLink)
   const setCategories = useMutation(api.telegram.setCategories)
 
@@ -73,9 +72,8 @@ export default function TelegramBlock({
   if (data === null) return null
 
   const st = STATUS[data.status] ?? STATUS.none
-  const code = 'inviteCode' in data ? data.inviteCode : null
-  const inviteUrl =
-    code && botUsername ? `https://t.me/${botUsername}?start=${code}` : code ? code : null
+  const connected = data.status === 'connected'
+  const botUrl = botUsername ? `https://t.me/${botUsername.replace(/^@/, '')}` : null
 
   const run = async (name: string, fn: () => Promise<unknown>) => {
     setBusy(name)
@@ -105,7 +103,6 @@ export default function TelegramBlock({
           {data.tgName && <span>{data.tgName}</span>}
           {data.chatIdMasked && <span>ID {data.chatIdMasked}</span>}
           {data.connectedAt && <span>подключён {reportTime(data.connectedAt)}</span>}
-          {data.connectedBy && <span>кем: {data.connectedBy}</span>}
           {data.lastDeliveryAt && <span>последняя доставка {reportTime(data.lastDeliveryAt)}</span>}
         </div>
       )}
@@ -113,30 +110,31 @@ export default function TelegramBlock({
         <p className="text-[11px] text-[#c53030]">Ошибка доставки: {data.lastError}</p>
       )}
 
-      {/* Ссылка-приглашение. Её админ передаёт сотруднику сам (§3.1 шаг 3). */}
-      {inviteUrl && (
+      {/* Пока сотрудник не подключился — показываем, что ему для этого сделать. */}
+      {!connected && (
         <div className="rounded-lg bg-chip p-3 flex flex-col gap-2">
-          <div className="text-[11px] text-muted">
-            Одноразовая ссылка. Действует до{' '}
-            {data.inviteExpiresAt ? reportTime(data.inviteExpiresAt) : '—'} и работает один раз.
+          <div className="text-[11px] text-muted leading-relaxed">
+            Сотрудник подключается сам: открывает бота, нажимает «Старт», вводит свой рабочий email
+            из ERP и шестизначный код, который придёт на почту.
           </div>
-          <div className="flex items-center gap-2">
-            <code className="flex-1 text-[11px] text-ink-2 break-all">{inviteUrl}</code>
-            <button
-              onClick={() => {
-                navigator.clipboard?.writeText(inviteUrl)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 1500)
-              }}
-              className="ico-btn w-8 h-8 shrink-0"
-              title="Скопировать"
-            >
-              {copied ? <Check size={14} className="text-green-d" /> : <Copy size={14} />}
-            </button>
-          </div>
-          {!botUsername && (
+          {botUrl ? (
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-[11px] text-ink-2 break-all">{botUrl}</code>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(botUrl)
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 1500)
+                }}
+                className="ico-btn w-8 h-8 shrink-0"
+                title="Скопировать ссылку на бота"
+              >
+                {copied ? <Check size={14} className="text-green-d" /> : <Copy size={14} />}
+              </button>
+            </div>
+          ) : (
             <p className="text-[11px] text-[#b7791f]">
-              Укажите имя бота в Настройках → Общие, чтобы ссылка собиралась целиком.
+              Укажите имя бота в Настройках → Telegram, чтобы здесь появилась готовая ссылка.
             </p>
           )}
         </div>
@@ -144,52 +142,9 @@ export default function TelegramBlock({
 
       {error && <p className="text-sm text-[#c53030]">{error}</p>}
 
-      <div className="flex items-center gap-2 flex-wrap">
-        {/* §3.1 шаг 6: финальное подтверждение администратором. */}
-        {data.status === 'pending' && (
-          <>
-            <button
-              onClick={() => run('yes', () => confirmLink({ employeeId, approve: true }))}
-              disabled={!!busy}
-              className="btn btn-green h-8 px-3 text-sm disabled:opacity-60"
-            >
-              {busy === 'yes' ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
-              Подтвердить подключение
-            </button>
-            <button
-              onClick={() => run('no', () => confirmLink({ employeeId, approve: false }))}
-              disabled={!!busy}
-              className="btn btn-ghost h-8 px-3 text-sm"
-            >
-              <X size={13} /> Отклонить
-            </button>
-          </>
-        )}
-
-        {(data.status === 'none' || data.status === 'disabled') && (
-          <button
-            onClick={() => run('inv', () => createInvite({ employeeId }))}
-            disabled={!!busy}
-            className="btn btn-green h-8 px-3 text-sm disabled:opacity-60"
-          >
-            {busy === 'inv' ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-            Подключить Telegram
-          </button>
-        )}
-
-        {(data.status === 'invited' || data.status === 'connected' || data.status === 'failed') && (
-          <button
-            onClick={() => run('inv', () => createInvite({ employeeId }))}
-            disabled={!!busy}
-            className="btn btn-ghost h-8 px-3 text-sm"
-          >
-            {busy === 'inv' ? <Loader2 size={13} className="animate-spin" /> : null}
-            {data.status === 'invited' ? 'Новая ссылка' : 'Переподключить'}
-          </button>
-        )}
-
-        {/* §3.3: отключение. Данные ERP не удаляются. */}
-        {data.status !== 'none' && data.status !== 'disabled' && (
+      {/* §3.3: отключение. Данные ERP не удаляются. */}
+      {data.status !== 'none' && data.status !== 'disabled' && (
+        <div>
           <button
             onClick={() => run('off', () => disableLink({ employeeId }))}
             disabled={!!busy}
@@ -198,11 +153,11 @@ export default function TelegramBlock({
             {busy === 'off' ? <Loader2 size={13} className="animate-spin" /> : null}
             Отключить
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* §6.1 и §8.1: категории уведомлений сотрудника. Права в ERP не меняются. */}
-      {data.status === 'connected' && (
+      {connected && (
         <div>
           <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">
             Уведомления

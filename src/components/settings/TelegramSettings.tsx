@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useMutation, useQuery } from 'convex/react'
-import { Check, Loader2, ScrollText, Send } from 'lucide-react'
+import { useAction, useMutation, useQuery } from 'convex/react'
+import { AlertTriangle, Check, CircleCheck, Loader2, RefreshCw, ScrollText, Send } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { errMessage, errDetail } from '@/lib/errors'
@@ -120,6 +120,8 @@ export default function TelegramSettings() {
           Токен бота и ключи распознавания хранятся в защищённых настройках сервера, а не здесь.
           Подключение сотрудников — в карточке каждого: Команда → сотрудник → Telegram.
         </div>
+
+        <WebhookHealth />
 
         {error && <p className="text-sm text-[#c53030] mb-3">{error}</p>}
 
@@ -283,6 +285,104 @@ export default function TelegramSettings() {
       />
 
       <TelegramAudit />
+    </div>
+  )
+}
+
+// §11: состояние связи с Telegram. Если webhook не зарегистрирован, бот
+// молчит, и снаружи это выглядит как «ничего не происходит» — самая
+// неприятная поломка модуля. Держим её на виду и даём починить кнопкой.
+function WebhookHealth() {
+  const check = useAction(api.telegramBot.health)
+  const repair = useAction(api.telegramBot.repairWebhook)
+  const [state, setState] = useState<Awaited<ReturnType<typeof check>> | null>(null)
+  const [busy, setBusy] = useState('')
+  const [error, setError] = useState('')
+
+  const run = async (name: string, fn: () => Promise<unknown>) => {
+    setBusy(name)
+    setError('')
+    try {
+      await fn()
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось выполнить проверку.'))
+    } finally {
+      setBusy('')
+    }
+  }
+
+  const ok = state?.ok === true
+  const broken = state !== null && state.ok === false
+
+  return (
+    <div
+      className={`rounded-xl border p-3 mb-4 ${
+        broken ? 'border-[#f0b4b4] bg-[#fdeaea]' : 'border-line bg-white'
+      }`}
+    >
+      <div className="flex items-center gap-2 flex-wrap">
+        {broken ? (
+          <AlertTriangle size={15} className="text-[#c53030]" />
+        ) : ok ? (
+          <CircleCheck size={15} className="text-green-d" />
+        ) : (
+          <Send size={15} className="text-muted" />
+        )}
+        <span className="text-sm font-medium text-ink flex-1">Связь с Telegram</span>
+        <button
+          onClick={() => run('check', async () => setState(await check({})))}
+          disabled={!!busy}
+          className="mini-btn"
+        >
+          {busy === 'check' ? <Loader2 size={13} className="animate-spin" /> : null}
+          Проверить
+        </button>
+        {broken && (
+          <button
+            onClick={() =>
+              run('fix', async () => {
+                await repair({})
+                setState(await check({}))
+              })
+            }
+            disabled={!!busy}
+            className="btn btn-green h-8 px-3 text-sm disabled:opacity-60"
+          >
+            {busy === 'fix' ? (
+              <Loader2 size={13} className="animate-spin" />
+            ) : (
+              <RefreshCw size={13} />
+            )}
+            Переподключить
+          </button>
+        )}
+      </div>
+
+      {state === null && !busy && (
+        <p className="text-[11px] text-muted-2 mt-2">
+          Нажмите «Проверить», чтобы убедиться, что Telegram знает, куда доставлять сообщения.
+        </p>
+      )}
+      {ok && (
+        <p className="text-[11px] text-muted mt-2">
+          Бот @{state?.botUsername} на связи, адрес доставки зарегистрирован.
+          {state && state.pending > 0 && ` В очереди: ${state.pending}.`}
+          {state?.lastError && ` Последняя ошибка: ${state.lastError}`}
+        </p>
+      )}
+      {broken && (
+        <div className="text-[11px] text-[#7a1f1f] mt-2">
+          <b>Адрес доставки не зарегистрирован — бот не получает сообщений.</b> Нажмите
+          «Переподключить».
+          <div className="mt-1 text-[#8a5a12]">
+            Такое случается, если по токену бота вызвали getUpdates или токен перевыпустили в
+            BotFather: Telegram снимает webhook сам.
+          </div>
+          {state?.url ? <div className="mt-1">Сейчас: {state.url}</div> : null}
+          {state?.lastError ? <div className="mt-1">Ошибка: {state.lastError}</div> : null}
+        </div>
+      )}
+      {error && <p className="text-[11px] text-[#c53030] mt-2">{error}</p>}
     </div>
   )
 }

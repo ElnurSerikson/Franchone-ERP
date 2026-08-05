@@ -177,15 +177,6 @@ export async function audit(
 
 // ——— §3: подключение сотрудника ———
 
-function randomCode(): string {
-  // Одноразовый код приглашения. Длины хватает, чтобы его нельзя было
-  // подобрать перебором за срок жизни ссылки.
-  const abc = 'abcdefghijkmnpqrstuvwxyz23456789'
-  let out = ''
-  for (let i = 0; i < 24; i++) out += abc[Math.floor(Math.random() * abc.length)]
-  return out
-}
-
 async function requireAdmin(ctx: MutationCtx): Promise<Doc<'employees'>> {
   const me = await requireEmployee(ctx)
   // §2: управление подключением доступно только владельцу/администратору ERP.
@@ -239,163 +230,173 @@ export const linkFor = query({
   },
 })
 
-// §3.1 шаг 1–2: администратор создаёт персональную одноразовую ссылку.
-export const createInvite = mutation({
-  args: { employeeId: v.id('employees') },
-  handler: async (ctx, { employeeId }) => {
-    const me = await requireAdmin(ctx)
-    const employee = await ctx.db.get(employeeId)
-    if (!employee) throw new ConvexError('Сотрудник не найден')
-    if (employee.status !== 'active') {
-      throw new ConvexError('Нельзя подключить Telegram архивному сотруднику')
-    }
+// ——— Вход в бота по рабочей почте ———
+//
+// Порядок: сотрудник запускает бота → вводит свой email из ERP → получает на
+// почту шестизначный код → вводит его → доступ открыт.
+//
+// Раньше привязку выдавал администратор одноразовой ссылкой. Владелец заменил
+// этот порядок: ссылку можно переслать другому человеку, а доступ к рабочей
+// почте — нет, поэтому код на почту личность подтверждает строже. Роль
+// администратора осталась в отключении и настройке уведомлений.
 
-    const { inviteTtlHours } = await tgSettings(ctx)
-    const code = randomCode()
-    const expiresAt = Date.now() + inviteTtlHours * 3600 * 1000
+const CODE_TTL_MIN = 10
+const MAX_ATTEMPTS = 5
 
-    const existing = await ctx.db
-      .query('telegramLinks')
-      .withIndex('by_employee', (q) => q.eq('employeeId', employeeId))
+function randomCode(): string {
+  // Шесть цифр — как в письме для входа в саму ERP.
+  return String(Math.floor(100000 + Math.random() * 900000))
+}
+
+// Шаг 1: по введённому email находим сотрудника и заводим код.
+// Возвращает код, чтобы action отправил письмо: мутация в сеть не ходит.
+export const requestCode = internalMutation({
+  args: { chatId: v.number(), email: v.string() },
+  handler: async (ctx, { chatId, email }) => {
+    const low = email.trim().toLowerCase()
+    const employee = await ctx.db
+      .query('employees')
+      .withIndex('by_email', (q) => q.eq('email', low))
       .first()
 
-    const fields = {
-      status: 'invited' as const,
-      inviteCode: code,
-      inviteExpiresAt: expiresAt,
-      inviteCreatedById: me._id,
-      // Новое приглашение обнуляет прежнюю привязку: §3.3 требует запускать
-      // процесс заново, а не подменять аккаунт молча.
-      chatId: undefined,
-      username: undefined,
-      tgName: undefined,
-      connectedAt: undefined,
-      connectedById: undefined,
-      lastError: undefined,
-    }
-    if (existing) await ctx.db.patch(existing._id, fields)
-    else await ctx.db.insert('telegramLinks', { employeeId, ...fields })
-
-    await audit(ctx, { kind: 'invite', employeeId, byId: me._id, result: 'создано приглашение' })
-    return { code, expiresAt }
-  },
-})
-
-// §3.1 шаг 4–5: сотрудник запустил бота по ссылке. Вызывается из webhook.
-export const claimInvite = internalMutation({
-  args: {
-    code: v.string(),
-    chatId: v.number(),
-    username: v.optional(v.string()),
-    tgName: v.optional(v.string()),
-  },
-  handler: async (ctx, { code, chatId, username, tgName }) => {
-    const link = await ctx.db
-      .query('telegramLinks')
-      .withIndex('by_code', (q) => q.eq('inviteCode', code))
-      .first()
-    // §3.2: истёкшие, использованные и отозванные ссылки недействительны.
-    if (!link || link.status !== 'invited') return { ok: false, reason: 'invalid' as const }
-    if (!link.inviteExpiresAt || link.inviteExpiresAt < Date.now()) {
-      return { ok: false, reason: 'expired' as const }
+    // Одинаковый ответ на «нет такого» и «уволен»: подсказывать, кто работает
+    // в компании, посторонним не надо.
+    if (!employee || employee.status !== 'active') {
+      await audit(ctx, { kind: 'login', chatId, result: `неизвестный email ${low}` })
+      return { ok: false as const, reason: 'unknown' as const }
     }
 
-    // §3.2: один Telegram user ID — одна активная карточка сотрудника.
+    // §3.2 сохраняем: один Telegram-аккаунт — одна карточка сотрудника.
     const taken = await ctx.db
       .query('telegramLinks')
       .withIndex('by_chat', (q) => q.eq('chatId', chatId))
       .first()
-    if (taken && taken._id !== link._id && taken.status === 'connected') {
-      return { ok: false, reason: 'busy' as const }
+    if (taken && taken.status === 'connected' && taken.employeeId !== employee._id) {
+      return { ok: false as const, reason: 'busy' as const }
     }
 
-    await ctx.db.patch(link._id, {
-      status: 'pending',
+    // Прежние коды этого чата гасим: действующим остаётся один.
+    for (const old of await ctx.db
+      .query('telegramAuthCodes')
+      .withIndex('by_chat', (q) => q.eq('chatId', chatId))
+      .collect()) {
+      await ctx.db.delete(old._id)
+    }
+
+    const code = randomCode()
+    await ctx.db.insert('telegramAuthCodes', {
       chatId,
-      username,
-      tgName,
-      // Код погашен: повторно по той же ссылке не зайти.
-      inviteCode: undefined,
+      employeeId: employee._id,
+      email: low,
+      code,
+      expiresAt: Date.now() + CODE_TTL_MIN * 60 * 1000,
+      attempts: 0,
+      createdAt: Date.now(),
     })
-    const employee = await ctx.db.get(link.employeeId)
     await audit(ctx, {
-      kind: 'claim',
-      employeeId: link.employeeId,
+      kind: 'login',
+      employeeId: employee._id,
       chatId,
-      result: 'ожидает подтверждения администратора',
+      result: 'код отправлен на почту',
     })
-
-    // §3.1 шаг 5: администратору уходит запрос на финальное подтверждение.
-    const admins = (await ctx.db.query('employees').collect()).filter(
-      (e) => e.role === 'owner' && e.status === 'active',
-    )
-    for (const a of admins) {
-      const adminLink = await ctx.db
-        .query('telegramLinks')
-        .withIndex('by_employee', (q) => q.eq('employeeId', a._id))
-        .first()
-      if (!adminLink?.chatId || adminLink.status !== 'connected') continue
-      await ctx.scheduler.runAfter(0, internal.telegramBot.deliver, {
-        chatId: adminLink.chatId,
-        text:
-          `<b>Запрос на подключение Telegram</b>\n\n` +
-          `Сотрудник: ${employee?.name ?? '—'}\n` +
-          `Telegram: ${username ? '@' + username : tgName || '—'}\n` +
-          `User ID: <code>${chatId}</code>\n\n` +
-          `Подтвердите подключение в ERP — Команда → карточка сотрудника.`,
-        link: '/team',
-        employeeId: a._id,
-      })
+    return {
+      ok: true as const,
+      code,
+      email: low,
+      name: employee.name,
+      ttlMin: CODE_TTL_MIN,
     }
-    return { ok: true, employeeName: employee?.name ?? '' }
   },
 })
 
-// §3.1 шаг 6: только после подтверждения администратором связь активируется.
-export const confirmLink = mutation({
-  args: { employeeId: v.id('employees'), approve: v.boolean() },
-  handler: async (ctx, { employeeId, approve }) => {
-    const me = await requireAdmin(ctx)
-    const link = await ctx.db
-      .query('telegramLinks')
-      .withIndex('by_employee', (q) => q.eq('employeeId', employeeId))
+// Шаг 2: проверка кода. Совпал — доступ открыт немедленно.
+export const verifyCode = internalMutation({
+  args: {
+    chatId: v.number(),
+    code: v.string(),
+    username: v.optional(v.string()),
+    tgName: v.optional(v.string()),
+  },
+  handler: async (ctx, { chatId, code, username, tgName }) => {
+    const row = await ctx.db
+      .query('telegramAuthCodes')
+      .withIndex('by_chat', (q) => q.eq('chatId', chatId))
       .first()
-    if (!link || link.status !== 'pending') {
-      throw new ConvexError('Нет запроса на подтверждение')
+    if (!row) return { ok: false as const, reason: 'none' as const }
+
+    if (row.expiresAt < Date.now()) {
+      await ctx.db.delete(row._id)
+      return { ok: false as const, reason: 'expired' as const }
     }
 
-    if (!approve) {
-      await ctx.db.patch(link._id, {
-        status: 'disabled',
-        chatId: undefined,
-        username: undefined,
-        tgName: undefined,
-      })
-      await audit(ctx, { kind: 'reject', employeeId, byId: me._id, result: 'отклонено' })
-      return
+    if (row.code !== code.trim()) {
+      const attempts = row.attempts + 1
+      if (attempts >= MAX_ATTEMPTS) {
+        await ctx.db.delete(row._id)
+        await audit(ctx, {
+          kind: 'login',
+          employeeId: row.employeeId,
+          chatId,
+          status: 'error',
+          result: 'исчерпаны попытки ввода кода',
+        })
+        return { ok: false as const, reason: 'blocked' as const }
+      }
+      await ctx.db.patch(row._id, { attempts })
+      return { ok: false as const, reason: 'wrong' as const, left: MAX_ATTEMPTS - attempts }
     }
 
-    await ctx.db.patch(link._id, {
-      status: 'connected',
+    const employee = await ctx.db.get(row.employeeId)
+    if (!employee || employee.status !== 'active') {
+      await ctx.db.delete(row._id)
+      return { ok: false as const, reason: 'unknown' as const }
+    }
+
+    // Привязка сотрудника могла существовать с прежним Telegram-аккаунтом:
+    // почта подтверждена, поэтому просто переносим её на новый.
+    const existing = await ctx.db
+      .query('telegramLinks')
+      .withIndex('by_employee', (q) => q.eq('employeeId', row.employeeId))
+      .first()
+    const fields = {
+      status: 'connected' as const,
+      chatId,
+      username,
+      tgName,
       connectedAt: Date.now(),
-      connectedById: me._id,
+      connectedById: row.employeeId,
       lastError: undefined,
-    })
-    await audit(ctx, { kind: 'confirm', employeeId, byId: me._id, chatId: link.chatId })
+      inviteCode: undefined,
+      inviteExpiresAt: undefined,
+    }
+    if (existing) await ctx.db.patch(existing._id, fields)
+    else await ctx.db.insert('telegramLinks', { employeeId: row.employeeId, ...fields })
 
-    const employee = await ctx.db.get(employeeId)
-    if (link.chatId) {
-      await ctx.scheduler.runAfter(0, internal.telegramBot.deliver, {
-        chatId: link.chatId,
+    await ctx.db.delete(row._id)
+    await audit(ctx, {
+      kind: 'login',
+      employeeId: row.employeeId,
+      chatId,
+      result: 'подключение подтверждено кодом с почты',
+      status: 'ok',
+    })
+
+    // Администратор должен знать, кто подключился: гейта на входе больше нет,
+    // значит событие важно видеть.
+    for (const a of (await ctx.db.query('employees').collect()).filter(
+      (e) => e.role === 'owner' && e.status === 'active' && e._id !== row.employeeId,
+    )) {
+      await notify(ctx, {
+        employeeId: a._id,
+        category: 'task',
         text:
-          `<b>Подключение подтверждено</b>\n\n` +
-          `${employee?.name ?? ''}, бот FRANCHONE ERP на связи.\n\n` +
-          `Отправьте голосовое сообщение, чтобы поставить задачу или назначить встречу. ` +
-          `Например: «Поставь Арману задачу подготовить отчёт до завтра, 18:00, высокий приоритет».\n\n` +
-          `Команда /help — что умеет бот.`,
-        employeeId,
+          `<b>Подключение к боту</b>\n\n${employee.name} · ${employee.department}\n` +
+          `Telegram: ${username ? '@' + username : tgName || '—'}`,
+        link: '/team',
       })
     }
+
+    return { ok: true as const, name: employee.name, position: employee.positionLabel }
   },
 })
 
@@ -455,6 +456,16 @@ export const setCategories = mutation({
 })
 
 // ——— Служебное для webhook и действий ———
+
+// Проверка «этот вызов от администратора» для action: у него нет прямого
+// доступа к базе.
+export const callerIsOwner = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const me = await currentEmployee(ctx)
+    return me?.role === 'owner'
+  },
+})
 
 // Часовой пояс организации для разбора относительных дат (§4.3).
 export const timezone = internalQuery({

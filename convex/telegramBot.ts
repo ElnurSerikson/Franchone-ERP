@@ -9,12 +9,14 @@
 //   поля → сопоставили людей с доступными по правам ERP → карточка
 //   предпросмотра → и только после «Создать» запись появляется в ERP.
 
-import { internalAction } from './_generated/server'
+import { action, internalAction } from './_generated/server'
 import type { ActionCtx } from './_generated/server'
 import { v } from 'convex/values'
 import { internal } from './_generated/api'
 import type { Id } from './_generated/dataModel'
 import { nowIn } from './orgTime'
+import { Resend as ResendAPI } from 'resend'
+import { otpEmail, BOT_CODE_COPY } from './emails'
 
 const API = 'https://api.telegram.org'
 
@@ -274,6 +276,112 @@ const HELP =
   'Бот покажет карточку — задача или встреча создаются только после вашего подтверждения.\n\n' +
   'Заполнять отчёты через бота нельзя: это делается в ERP.'
 
+
+// ——— Вход в бота ———
+//
+// Диалог короткий: почта → код из письма → доступ. Личность подтверждает
+// доступ к рабочему ящику — тот же самый, через который сотрудник входит в
+// ERP.
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const ASK_EMAIL =
+  'Здравствуйте! Это бот <b>FRANCHONE ERP</b>.\n\n' +
+  'Отправьте рабочий email, с которым вы входите в ERP, — я пришлю на него код подтверждения.'
+
+function firstName(full: string): string {
+  return full.trim().split(/\s+/)[0] || full
+}
+
+async function mailCode(email: string, code: string): Promise<void> {
+  const apiKey = process.env.AUTH_RESEND_KEY ?? process.env.RESEND_API_KEY
+  const { subject, html, text } = otpEmail(code, BOT_CODE_COPY)
+  if (!apiKey) {
+    // dev-среда без Resend: код виден в npx convex logs.
+    console.log(`[DEV TG CODE] ${email}: ${code}`)
+    return
+  }
+  const resend = new ResendAPI(apiKey)
+  const { error } = await resend.emails.send({
+    from: process.env.AUTH_EMAIL_FROM ?? 'FRANCHONE <onboarding@resend.dev>',
+    to: [email],
+    subject,
+    html,
+    text,
+  })
+  if (error) throw new Error(JSON.stringify(error))
+}
+
+async function onAuth(
+  ctx: ActionCtx,
+  chatId: number,
+  msg: Record<string, any>,
+  raw: string,
+): Promise<void> {
+  const text = raw.trim()
+
+  if (EMAIL_RE.test(text)) {
+    const res = await ctx.runMutation(internal.telegram.requestCode, { chatId, email: text })
+    if (!res.ok) {
+      await say(
+        chatId,
+        res.reason === 'busy'
+          ? 'Этот Telegram уже подключён к другому сотруднику. Обратитесь к администратору.'
+          : 'Не нахожу такой email среди сотрудников.\n\n' +
+              'Укажите ту же почту, с которой вы входите в ERP. Если она верна, обратитесь к администратору.',
+      )
+      return
+    }
+    try {
+      await mailCode(res.email, res.code)
+    } catch (e) {
+      await ctx.runMutation(internal.telegram.logAudit, {
+        kind: 'login',
+        chatId,
+        status: 'error',
+        error: `письмо с кодом не ушло: ${String(e)}`,
+      })
+      await say(chatId, 'Не получилось отправить письмо. Попробуйте ещё раз через минуту.')
+      return
+    }
+    await say(
+      chatId,
+      `${firstName(res.name)}, код отправлен на <b>${res.email}</b>.\n\n` +
+        `Введите шесть цифр из письма. Код действует ${res.ttlMin} минут.`,
+    )
+    return
+  }
+
+  if (/^\d{6}$/.test(text)) {
+    const res = await ctx.runMutation(internal.telegram.verifyCode, {
+      chatId,
+      code: text,
+      username: msg.from?.username,
+      tgName: [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' '),
+    })
+    if (res.ok) {
+      await say(
+        chatId,
+        `<b>${firstName(res.name)}, добро пожаловать в Telegram-бот FRANCHONE!</b>\n\n` +
+          `${res.position} · доступ открыт.\n\n${HELP}`,
+      )
+      return
+    }
+    const why: Record<string, string> = {
+      none: 'Сначала отправьте свой рабочий email — я пришлю код.',
+      expired: 'Срок действия кода истёк. Отправьте email ещё раз, пришлю новый.',
+      wrong: `Код неверный. Осталось попыток: ${'left' in res ? res.left : 0}.`,
+      blocked: 'Слишком много неверных попыток. Отправьте email заново, чтобы получить новый код.',
+      unknown: 'Учётная запись недоступна. Обратитесь к администратору.',
+    }
+    await say(chatId, why[res.reason] ?? why.none)
+    return
+  }
+
+  // Голосовое и любой другой ввод до входа — возвращаем к первому шагу.
+  await say(chatId, ASK_EMAIL)
+}
+
 async function onMessage(
   ctx: ActionCtx,
   msg: Record<string, any>,
@@ -283,49 +391,21 @@ async function onMessage(
   if (!chatId) return
   const text: string = msg.text ?? ''
 
-  // §3.1 шаг 4: вход по одноразовой ссылке /start <код>.
+  // Вход в бота: сотрудник подтверждает себя рабочей почтой из ERP.
   if (text.startsWith('/start')) {
-    const code = text.split(/\s+/)[1]
-    if (code) {
-      const res = await ctx.runMutation(internal.telegram.claimInvite, {
-        code,
-        chatId,
-        username: msg.from?.username,
-        tgName: [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' '),
-      })
-      if (res.ok) {
-        await say(
-          chatId,
-          `Здравствуйте, ${res.employeeName}.\n\nЗапрос на подключение отправлен администратору. ` +
-            `Как только он подтвердит, бот начнёт принимать команды.`,
-        )
-      } else {
-        const why =
-          res.reason === 'expired'
-            ? 'Срок действия ссылки истёк.'
-            : res.reason === 'busy'
-              ? 'Этот Telegram уже привязан к другому сотруднику.'
-              : 'Ссылка недействительна или уже использована.'
-        // §3.2: до подтверждения бот не раскрывает данные ERP.
-        await say(chatId, `${why}\n\nОбратитесь к администратору за новой ссылкой.`)
-      }
+    const known: LinkInfo = await ctx.runQuery(internal.telegram.linkByChat, { chatId })
+    if (known?.active) {
+      await say(chatId, `${firstName(known.employeeName)}, вы уже подключены.\n\n${HELP}`)
       return
     }
-    await say(chatId, 'Подключение к ERP выдаёт администратор — он пришлёт вам персональную ссылку.')
+    await say(chatId, ASK_EMAIL)
     return
   }
 
   const link: LinkInfo = await ctx.runQuery(internal.telegram.linkByChat, { chatId })
-  // §3.2: команды принимаются только от подтверждённой привязки.
-  if (!link?.active) {
-    await say(
-      chatId,
-      link?.status === 'pending'
-        ? 'Запрос на подключение ещё не подтверждён администратором.'
-        : 'Ваш Telegram не подключён к ERP. Обратитесь к администратору.',
-    )
-    return
-  }
+  // Пока привязки нет, бот ведёт только диалог входа и ничего из ERP не
+  // показывает.
+  if (!link?.active) return await onAuth(ctx, chatId, msg, text)
 
   if (text === '/help' || text === '/start') return await say(chatId, HELP)
 
@@ -584,6 +664,69 @@ export const getMe = internalAction({
   handler: async () => {
     const res = await fetch(`${API}/bot${token()}/getMe`)
     return (await res.json()) as unknown
+  },
+})
+
+// §11: наблюдаемость. Состояние webhook — главная точка отказа всего модуля:
+// если Telegram некуда доставлять, бот молчит и внешне это неотличимо от
+// «ничего не происходит». Показываем администратору прямо в настройках.
+//
+// Webhook может слететь и без нашего участия: Telegram снимает его, если по
+// тому же токену кто-то вызвал getUpdates, и при отзыве токена в BotFather.
+export const health = action({
+  args: {},
+  handler: async (ctx): Promise<{
+    ok: boolean
+    url: string
+    expected: string
+    lastError: string | null
+    lastErrorAt: number | null
+    pending: number
+    botUsername: string | null
+  } | null> => {
+    const isOwner: boolean = await ctx.runQuery(internal.telegram.callerIsOwner, {})
+    if (!isOwner) return null
+
+    const expected = `${(process.env.CONVEX_SITE_URL ?? '').replace(/\/$/, '')}/telegram/webhook`
+    const info = (await (await fetch(`${API}/bot${token()}/getWebhookInfo`)).json()) as {
+      result?: {
+        url?: string
+        last_error_message?: string
+        last_error_date?: number
+        pending_update_count?: number
+      }
+    }
+    const me = (await (await fetch(`${API}/bot${token()}/getMe`)).json()) as {
+      result?: { username?: string }
+    }
+    const url = info.result?.url ?? ''
+    return {
+      ok: url === expected,
+      url,
+      expected,
+      lastError: info.result?.last_error_message ?? null,
+      lastErrorAt: info.result?.last_error_date ? info.result.last_error_date * 1000 : null,
+      pending: info.result?.pending_update_count ?? 0,
+      botUsername: me.result?.username ?? null,
+    }
+  },
+})
+
+// Починка одной кнопкой: адрес деплоймента система знает сама.
+export const repairWebhook = action({
+  args: {},
+  handler: async (ctx): Promise<{ url: string }> => {
+    const isOwner: boolean = await ctx.runQuery(internal.telegram.callerIsOwner, {})
+    if (!isOwner) throw new Error('Переподключить webhook может только администратор')
+    const secret = process.env.TELEGRAM_WEBHOOK_SECRET
+    if (!secret) throw new Error('TELEGRAM_WEBHOOK_SECRET не задан в окружении Convex')
+    const url = `${(process.env.CONVEX_SITE_URL ?? '').replace(/\/$/, '')}/telegram/webhook`
+    await tg('setWebhook', {
+      url,
+      secret_token: secret,
+      allowed_updates: ['message', 'callback_query'],
+    })
+    return { url }
   },
 })
 

@@ -558,10 +558,12 @@ export default defineSchema({
   // (Telegram user ID); @username хранится справочно, его можно сменить.
   telegramLinks: defineTable({
     employeeId: v.id('employees'),
-    // §3.4: шесть состояний подключения.
+    // Состояния подключения. 'invited' и 'pending' остались от прежнего
+    // порядка с приглашением от администратора: новых таких записей не
+    // появляется, но старые должны читаться.
     status: v.union(
-      v.literal('invited'), // приглашение создано, бот ещё не запущен
-      v.literal('pending'), // user ID получен, ждём решения администратора
+      v.literal('invited'),
+      v.literal('pending'),
       v.literal('connected'), // подключён
       v.literal('disabled'), // отключён администратором
       v.literal('failed'), // ошибка доставки: бот заблокирован пользователем
@@ -581,8 +583,28 @@ export default defineSchema({
   })
     .index('by_employee', ['employeeId'])
     .index('by_chat', ['chatId'])
-    .index('by_code', ['inviteCode'])
     .index('by_status', ['status']),
+
+  // Код подтверждения для входа в бота.
+  //
+  // Сотрудник подключается сам: вводит в боте свой рабочий email из ERP и
+  // шестизначный код, который приходит на почту — тот же способ, которым он
+  // входит в саму ERP. Доступ к почте и есть доказательство личности.
+  //
+  // Код короткоживущий и хранится как есть: таблица служебная, наружу не
+  // отдаётся, а живёт запись минуты.
+  telegramAuthCodes: defineTable({
+    chatId: v.number(),
+    employeeId: v.id('employees'),
+    email: v.string(),
+    code: v.string(),
+    expiresAt: v.number(),
+    // Ограничение попыток: перебор шестизначного кода должен упираться в стену.
+    attempts: v.number(),
+    createdAt: v.number(),
+  })
+    .index('by_chat', ['chatId'])
+    .index('by_employee', ['employeeId']),
 
   // Идемпотентность webhook (§11): повторная доставка одного update не должна
   // создавать вторую задачу, встречу или уведомление.
