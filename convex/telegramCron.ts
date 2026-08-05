@@ -222,6 +222,15 @@ async function pruneTranscripts(ctx: MutationCtx, now: number, keepDays: number)
     if (row.text === undefined && row.fields === undefined) continue
     await ctx.db.patch(row._id, { text: undefined, fields: undefined })
   }
+  // Память разговора — такой же личный текст, как расшифровка, и живёт столько
+  // же. Свежие реплики трогать нельзя: на них держится нить диалога.
+  for (const m of await ctx.db
+    .query('telegramMessages')
+    .withIndex('by_at', (q) => q.lt('at', border))
+    .take(200)) {
+    await ctx.db.delete(m._id)
+  }
+
   // Реестр обработанных update нужен только против повторной доставки —
   // Telegram повторяет считаные минуты, месяцами хранить незачем.
   for (const u of await ctx.db

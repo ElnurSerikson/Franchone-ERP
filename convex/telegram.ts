@@ -17,6 +17,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import { internal } from './_generated/api'
 import { currentEmployee, requireEmployee, isManager } from './lib'
 import { DEFAULT_TZ } from './orgTime'
+import { forgetChat } from './telegramTalk'
 
 // Категории уведомлений (§6.1): администратор включает и выключает их
 // глобально и для конкретного сотрудника, не меняя его права в ERP.
@@ -425,6 +426,9 @@ export async function disable(
     inviteCode: undefined,
     inviteExpiresAt: undefined,
   })
+  // Доступ закрыт — значит закрыт и разговор: держать переписку с человеком,
+  // которого отключили, незачем.
+  if (link.chatId !== undefined) await forgetChat(ctx, link.chatId)
   await audit(ctx, { kind: 'disable', employeeId, byId, result: reason })
 }
 
@@ -488,6 +492,92 @@ export const linkByChat = internalQuery({
       employeeName: employee?.name ?? '',
       active: link.status === 'connected' && employee?.status === 'active',
     }
+  },
+})
+
+// Сброс всех подключений: начать с чистого листа.
+//
+// Нужен, когда состояние запуталось — часть людей переподключалась, часть
+// удалила переписку, и проще раздать вход заново, чем разбирать каждый случай.
+// Стираются только связи и служебное состояние; журнал событий остаётся, иначе
+// сброс стирал бы и след самого сброса.
+//
+// Раньше это делалось командой в терминале с боевой базой — операция не для
+// повседневной работы, и место ей здесь, под правом администратора.
+export const resetAll = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const me = await requireAdmin(ctx)
+
+    // Ограничение на проход: мутация не должна упереться в лимит документов.
+    // Если записей окажется больше, кнопку жмут ещё раз — счётчики покажут,
+    // что осталось.
+    const CAP = 2000
+    let links = 0
+    for (const row of await ctx.db.query('telegramLinks').take(CAP)) {
+      if (row.chatId !== undefined) await forgetChat(ctx, row.chatId)
+      await ctx.db.delete(row._id)
+      links++
+    }
+    let codes = 0
+    for (const row of await ctx.db.query('telegramAuthCodes').take(CAP)) {
+      await ctx.db.delete(row._id)
+      codes++
+    }
+    let drafts = 0
+    for (const row of await ctx.db.query('telegramDrafts').take(CAP)) {
+      await ctx.db.delete(row._id)
+      drafts++
+    }
+    // Реестр отправленного держит ключи «это уже посылали». После сброса он
+    // помешал бы прислать те же напоминания заново.
+    let sent = 0
+    for (const row of await ctx.db.query('telegramSent').take(CAP)) {
+      await ctx.db.delete(row._id)
+      sent++
+    }
+
+    await audit(ctx, {
+      kind: 'disable',
+      byId: me._id,
+      result: `сброшены все подключения: связей ${links}, кодов ${codes}, черновиков ${drafts}`,
+      status: 'ok',
+    })
+    return { links, codes, drafts, sent, more: links >= CAP || sent >= CAP }
+  },
+})
+
+// Возвращение после разрыва.
+//
+// Если человек удалил переписку с ботом или заблокировал его, Telegram
+// отказывает в доставке, и привязка уходит в состояние «ошибка». Нажатие
+// «Старт» снимает блокировку с его стороны — и заново гонять сотрудника через
+// почту и код незачем: Telegram-аккаунт тот же самый, а личность по нему уже
+// подтверждали. Отключение администратором так не снимается: это его решение.
+export const resume = internalMutation({
+  args: { chatId: v.number() },
+  handler: async (ctx, { chatId }) => {
+    const link = await ctx.db
+      .query('telegramLinks')
+      .withIndex('by_chat', (q) => q.eq('chatId', chatId))
+      .first()
+    if (!link) return { ok: false as const, reason: 'none' as const }
+    if (link.status === 'disabled') return { ok: false as const, reason: 'disabled' as const }
+    if (link.status !== 'failed') return { ok: false as const, reason: 'none' as const }
+
+    const employee = await ctx.db.get(link.employeeId)
+    if (!employee || employee.status !== 'active') {
+      return { ok: false as const, reason: 'disabled' as const }
+    }
+    await ctx.db.patch(link._id, { status: 'connected', lastError: undefined })
+    await audit(ctx, {
+      kind: 'reconnect',
+      employeeId: link.employeeId,
+      chatId,
+      result: 'сотрудник вернулся в бота',
+      status: 'ok',
+    })
+    return { ok: true as const, name: employee.name }
   },
 })
 

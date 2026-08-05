@@ -383,6 +383,64 @@ function WebhookHealth() {
         </div>
       )}
       {error && <p className="text-[11px] text-[#c53030] mt-2">{error}</p>}
+
+      <ResetLinks />
+    </div>
+  )
+}
+
+// Сброс всех подключений. Операция редкая и необратимая, поэтому спрятана за
+// подтверждением и живёт рядом с проверкой связи — там же, где разбираются,
+// почему бот молчит.
+function ResetLinks() {
+  const reset = useMutation(api.telegram.resetAll)
+  const [asking, setAsking] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [done, setDone] = useState('')
+  const [error, setError] = useState('')
+
+  if (done) return <p className="text-[11px] text-green-d mt-2 pt-2 border-t border-line">{done}</p>
+
+  return (
+    <div className="mt-2 pt-2 border-t border-line">
+      {!asking ? (
+        <button onClick={() => setAsking(true)} className="text-[11px] text-muted hover:text-ink">
+          Сбросить все подключения
+        </button>
+      ) : (
+        <div className="text-[11px] text-[#7a1f1f]">
+          Все сотрудники будут отключены от бота и подключатся заново — по почте и коду. История
+          событий сохранится. Отменить нельзя.
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={async () => {
+                setBusy(true)
+                setError('')
+                try {
+                  const r = await reset({})
+                  setDone(
+                    `Сброшено: связей ${r.links}, кодов ${r.codes}, черновиков ${r.drafts}.` +
+                      (r.more ? ' Записей было много — нажмите ещё раз.' : ''),
+                  )
+                } catch (e) {
+                  setError(errMessage(e, 'Не удалось сбросить подключения.'))
+                } finally {
+                  setBusy(false)
+                }
+              }}
+              disabled={busy}
+              className="btn h-7 px-3 text-[11px] bg-[#c53030] text-white disabled:opacity-60"
+            >
+              {busy ? <Loader2 size={12} className="animate-spin" /> : null}
+              Да, сбросить
+            </button>
+            <button onClick={() => setAsking(false)} className="mini-btn">
+              Отмена
+            </button>
+          </div>
+          {error && <p className="text-[#c53030] mt-2">{error}</p>}
+        </div>
+      )}
     </div>
   )
 }

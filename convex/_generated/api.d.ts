@@ -41,6 +41,7 @@ import type * as telegram from "../telegram.js";
 import type * as telegramBot from "../telegramBot.js";
 import type * as telegramCron from "../telegramCron.js";
 import type * as telegramFlow from "../telegramFlow.js";
+import type * as telegramTalk from "../telegramTalk.js";
 import type * as users from "../users.js";
 
 import type {
@@ -83,6 +84,7 @@ declare const fullApi: ApiFromModules<{
   telegramBot: typeof telegramBot;
   telegramCron: typeof telegramCron;
   telegramFlow: typeof telegramFlow;
+  telegramTalk: typeof telegramTalk;
   users: typeof users;
 }>;
 

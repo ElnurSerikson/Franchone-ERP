@@ -259,22 +259,30 @@ export const handleUpdate = internalAction({
 })
 
 async function say(chatId: number, text: string, buttons?: Button[][]) {
-  await tg('sendMessage', {
+  const body = {
     chat_id: chatId,
     text,
-    parse_mode: 'HTML',
     disable_web_page_preview: true,
     ...(buttons ? { reply_markup: keyboard(buttons) } : {}),
-  })
+  }
+  try {
+    await tg('sendMessage', { ...body, parse_mode: 'HTML' })
+  } catch (e) {
+    // Разговорные ответы собирает модель, и она может выдать разметку, которую
+    // Telegram не принимает. Молчание вместо ответа — худший исход, поэтому
+    // повторяем тем же текстом без разметки.
+    if (!/parse entities|unsupported start tag|can't find end/i.test(String(e))) throw e
+    await tg('sendMessage', body)
+  }
 }
 
 const HELP =
-  '<b>Бот FRANCHONE ERP</b>\n\n' +
-  'Отправьте голосовое сообщение:\n' +
+  'Голосом или текстом — как удобнее.\n\n' +
   '• «Поставь Арману задачу подготовить отчёт по KazNaves до завтра, 18:00, высокий приоритет»\n' +
   '• «Назначь встречу с Алиной и Данияром завтра в 15:00 в офисе, обсуждаем кампанию»\n\n' +
-  'Бот покажет карточку — задача или встреча создаются только после вашего подтверждения.\n\n' +
-  'Заполнять отчёты через бота нельзя: это делается в ERP.'
+  'Задача или встреча появятся в ERP только после вашего подтверждения — сначала покажу карточку.\n\n' +
+  'А ещё можно просто спросить: «что у меня сегодня», «какие задачи горят», «как мой KPI». ' +
+  'Отчёты заполняются в самой ERP, через бота нельзя.'
 
 
 // ——— Вход в бота ———
@@ -398,6 +406,20 @@ async function onMessage(
       await say(chatId, `${firstName(known.employeeName)}, вы уже подключены.\n\n${HELP}`)
       return
     }
+    // Связь могла оборваться не по вине человека — тогда вход проходить заново
+    // не нужно.
+    const back: { ok: boolean; name?: string; reason?: string } = await ctx.runMutation(
+      internal.telegram.resume,
+      { chatId },
+    )
+    if (back.ok) {
+      await say(chatId, `С возвращением, ${firstName(back.name ?? '')}!\n\n${HELP}`)
+      return
+    }
+    if (back.reason === 'disabled') {
+      await say(chatId, 'Доступ к боту закрыт администратором. Обратитесь к нему.')
+      return
+    }
     await say(chatId, ASK_EMAIL)
     return
   }
@@ -436,6 +458,206 @@ async function onMessage(
   await runCommand(ctx, chatId, link, transcript, updateId)
 }
 
+// ——— Разговор ———
+//
+// Команда — частный случай речи, а не единственный допустимый её вид. Человек
+// здоровается, спрашивает «что у меня сегодня», уточняет, благодарит. Бот,
+// который на всё это отвечает «не понял, скажите поставь задачу», выглядит
+// сломанным, и им перестают пользоваться.
+//
+// Отвечает модель, но факты берёт не из головы: сводка по человеку собрана
+// запросами к ERP и передана готовой. Чего в ней нет — того бот не знает.
+
+type Brief = {
+  name: string
+  position: string
+  department: string
+  isOwner: boolean
+  tasks: {
+    title: string
+    status: string
+    priority: string
+    deadline: string | null
+    overdue: boolean
+  }[]
+  meetings: { title: string; date: string; time: string; place: string | null; moved: boolean }[]
+  report: { date: string; due: string; submitted: boolean } | null
+  kpi: number | null
+  month: string
+  team: {
+    name: string
+    position: string
+    openTasks: number
+    overdueTasks: number
+    kpi: number | null
+    reportMissing: boolean
+  }[]
+} | null
+
+function pct(v: number | null): string {
+  return v === null ? 'нет данных' : `${Math.round(v * 100)}%`
+}
+
+function factSheet(b: Brief, tz: string): string {
+  const now = nowIn(tz)
+  const lines: string[] = [
+    `Сегодня ${now.date} (${now.weekday}), время ${now.time}.`,
+  ]
+  if (!b) return lines.join('\n')
+
+  lines.push(`Собеседник: ${b.name}, ${b.position}, отдел «${b.department}».`)
+
+  lines.push('')
+  if (b.tasks.length === 0) lines.push('Открытых задач нет.')
+  else {
+    lines.push(`Открытые задачи (${b.tasks.length}):`)
+    for (const t of b.tasks) {
+      lines.push(
+        `— «${t.title}»: ${t.status}, приоритет ${t.priority}` +
+          (t.deadline ? `, срок ${t.deadline}${t.overdue ? ' — ПРОСРОЧЕНА' : ''}` : ', без срока'),
+      )
+    }
+  }
+
+  lines.push('')
+  if (b.meetings.length === 0) lines.push('Ближайших встреч нет.')
+  else {
+    lines.push(`Ближайшие встречи (${b.meetings.length}):`)
+    for (const m of b.meetings) {
+      lines.push(
+        `— «${m.title}»: ${m.date} в ${m.time}` +
+          (m.place ? `, место ${m.place}` : '') +
+          (m.moved ? ' (переносилась)' : ''),
+      )
+    }
+  }
+
+  if (b.report) {
+    lines.push('')
+    lines.push(
+      b.report.submitted
+        ? `Отчёт за ${b.report.date} сдан.`
+        : `Отчёт за ${b.report.date} НЕ сдан, срок сегодня до ${b.report.due}.`,
+    )
+  }
+
+  lines.push('')
+  lines.push(`KPI за ${b.month}: ${pct(b.kpi)}.`)
+
+  if (b.isOwner && b.team.length) {
+    lines.push('')
+    lines.push('Команда (собеседник — владелец, видит всех):')
+    for (const t of b.team) {
+      lines.push(
+        `— ${t.name}, ${t.position}: задач открыто ${t.openTasks}` +
+          (t.overdueTasks ? `, просрочено ${t.overdueTasks}` : '') +
+          `, KPI ${pct(t.kpi)}` +
+          (t.reportMissing ? ', вчерашний отчёт не сдан' : ''),
+      )
+    }
+  }
+
+  return lines.join('\n')
+}
+
+// Anthropic ждёт чередование ролей и первую реплику от пользователя.
+function normalize(
+  history: { role: string; text: string }[],
+  text: string,
+): { role: 'user' | 'assistant'; content: string }[] {
+  const out: { role: 'user' | 'assistant'; content: string }[] = []
+  for (const h of [...history, { role: 'user', text }]) {
+    const role = h.role === 'bot' ? 'assistant' : 'user'
+    const last = out[out.length - 1]
+    if (last && last.role === role) last.content += `\n${h.text}`
+    else out.push({ role, content: h.text })
+  }
+  while (out.length && out[0].role === 'assistant') out.shift()
+  return out
+}
+
+async function converse(
+  ctx: ActionCtx,
+  chatId: number,
+  employeeId: Id<'employees'>,
+  text: string,
+  tz: string,
+): Promise<string> {
+  const key = process.env.ANTHROPIC_API_KEY
+  if (!key) throw new Error('ANTHROPIC_API_KEY не задан в окружении Convex')
+  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5'
+
+  const brief: Brief = await ctx.runQuery(internal.telegramTalk.brief, { employeeId })
+  const history: { role: string; text: string }[] = await ctx.runQuery(
+    internal.telegramTalk.recent,
+    { chatId },
+  )
+
+  const system = [
+    'Ты — Telegram-бот ERP компании FRANCHONE. Не автоответчик, а толковый коллега:',
+    'отвечаешь живо, коротко и по делу, как человек, который в курсе дел.',
+    '',
+    'Как говорить:',
+    '— 1–4 предложения. Без канцелярита, без списка своих возможностей в каждом ответе.',
+    '— На том языке, на котором к тебе обратились.',
+    '— Разметка только Telegram HTML: <b>жирный</b>, <i>курсив</i>. Markdown и звёздочки не использовать.',
+    '— По имени обращайся к месту, а не в каждой реплике.',
+    '— Числа бери из фактов дословно, проценты — как дано.',
+    '— Даты произноси по-человечески: «4 августа», «завтра», «в пятницу», а не «2026-08-04».',
+    '',
+    'Что ты знаешь — только факты ниже. Не додумывай, не обобщай, не придумывай задачи,',
+    'встречи, суммы и имена. Если спрашивают о том, чего в фактах нет, честно скажи,',
+    'что этого не видишь, и подскажи, где это есть в ERP.',
+    '',
+    'Ты умеешь заводить задачи и встречи — голосом или текстом. Создание идёт отдельным',
+    'шагом, карточкой с подтверждением, поэтому в разговоре никогда не говори, что уже',
+    'создал, перенёс или удалил запись. Хочет действие — попроси сказать его одной фразой:',
+    '«поставь Арману задачу подготовить смету до пятницы».',
+    '',
+    'Отчёты заполняются только в ERP. Про оклады и выплаты коротко отправь в раздел',
+    '«Зарплата» — без объяснений и без цифр.',
+    '',
+    '——— ФАКТЫ ———',
+    factSheet(brief, tz),
+  ].join('\n')
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 700,
+      system,
+      messages: normalize(history, text),
+    }),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Ответ не собрался: ${res.status} ${body.slice(0, 300)}`)
+  }
+  const data = (await res.json()) as { content?: { type: string; text?: string }[] }
+  const reply = ((data.content ?? []).find((c) => c.type === 'text')?.text ?? '').trim()
+  if (!reply) throw new Error('Пустой ответ модели')
+
+  await ctx.runMutation(internal.telegramTalk.remember, {
+    chatId,
+    employeeId,
+    role: 'user',
+    text,
+  })
+  await ctx.runMutation(internal.telegramTalk.remember, {
+    chatId,
+    employeeId,
+    role: 'bot',
+    text: reply,
+  })
+  return reply
+}
+
 async function runCommand(
   ctx: ActionCtx,
   chatId: number,
@@ -465,26 +687,42 @@ async function runCommand(
       status: 'error',
       error: e instanceof Error ? e.message : String(e),
     })
-    return await say(chatId, '⚠️ Не удалось разобрать команду. Сформулируйте иначе.')
+    return await say(chatId, 'Что-то я подвис на этой фразе. Повторите, пожалуйста?')
   }
 
   // Если открыт черновик и человек уточняет поле — дополняем его, а не
   // заводим второй.
   const kind = pending && parsed.intent === 'unknown' ? pending.kind : parsed.intent
+  // Не команда — значит обычный разговор, а не ошибка пользователя.
   if (kind === 'unknown') {
+    let reply: string
+    try {
+      reply = await converse(ctx, chatId, link.employeeId, transcript, tz)
+    } catch (e) {
+      await ctx.runMutation(internal.telegram.logAudit, {
+        kind: 'command',
+        employeeId: link.employeeId,
+        chatId,
+        updateId,
+        text: transcript,
+        status: 'error',
+        error: e instanceof Error ? e.message : String(e),
+      })
+      return await say(
+        chatId,
+        'Не могу сейчас ответить — связь с помощником пропала. Попробуйте через минуту. ' +
+          'Задачу или встречу поставить смогу и так.',
+      )
+    }
     await ctx.runMutation(internal.telegram.logAudit, {
       kind: 'command',
       employeeId: link.employeeId,
       chatId,
       updateId,
       text: transcript,
-      result: 'намерение не распознано',
+      result: 'разговор',
     })
-    return await say(
-      chatId,
-      `Не понял, что нужно сделать.\n\nРаспознано: «${transcript}»\n\n` +
-        `Скажите «поставь задачу …» или «назначь встречу …».`,
-    )
+    return await say(chatId, reply)
   }
 
   // Дополняем открытый черновик, только когда человек действительно уточняет:
@@ -709,6 +947,48 @@ export const health = action({
       pending: info.result?.pending_update_count ?? 0,
       botUsername: me.result?.username ?? null,
     }
+  },
+})
+
+// Самовосстановление. За один день webhook боевого бота обнулялся дважды, и
+// оба раза это выглядело как «бот сломался»: сообщения уходили в пустоту, а
+// понять причину без терминала было нельзя.
+//
+// Поэтому адрес проверяется по расписанию и восстанавливается сам. Каждый
+// деплоймент ставит свой собственный адрес и знает его из окружения, так что
+// подменить прод на dev эта проверка не может.
+export const ensureWebhook = internalAction({
+  args: {},
+  handler: async (ctx): Promise<void> => {
+    const site = (process.env.CONVEX_SITE_URL ?? '').replace(/\/$/, '')
+    const secret = process.env.TELEGRAM_WEBHOOK_SECRET
+    if (!site || !secret || !process.env.TELEGRAM_BOT_TOKEN) return
+    const url = `${site}/telegram/webhook`
+
+    let current: string
+    try {
+      const info = (await (await fetch(`${API}/bot${token()}/getWebhookInfo`)).json()) as {
+        result?: { url?: string }
+      }
+      current = info.result?.url ?? ''
+    } catch {
+      // Telegram недоступен — не повод шуметь, вернёмся через четверть часа.
+      return
+    }
+    if (current === url) return
+
+    await tg('setWebhook', {
+      url,
+      secret_token: secret,
+      allowed_updates: ['message', 'callback_query'],
+    })
+    // Запись в журнал: если адрес слетает регулярно, это должно быть видно
+    // администратору, а не тонуть в молчаливой починке.
+    await ctx.runMutation(internal.telegram.logAudit, {
+      kind: 'reconnect',
+      result: current ? `адрес был чужим: ${current.slice(0, 120)}` : 'адрес был пуст',
+      status: 'ok',
+    })
   },
 })
 
