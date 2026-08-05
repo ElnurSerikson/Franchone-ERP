@@ -504,47 +504,62 @@ export const linkByChat = internalQuery({
 //
 // Раньше это делалось командой в терминале с боевой базой — операция не для
 // повседневной работы, и место ей здесь, под правом администратора.
+async function wipeLinks(
+  ctx: MutationCtx,
+  byId: Id<'employees'> | undefined,
+  by: string,
+): Promise<{ links: number; codes: number; drafts: number; sent: number; more: boolean }> {
+  // Ограничение на проход: мутация не должна упереться в лимит документов.
+  // Если записей окажется больше, сброс повторяют — счётчики покажут, что
+  // осталось.
+  const CAP = 2000
+  let links = 0
+  for (const row of await ctx.db.query('telegramLinks').take(CAP)) {
+    if (row.chatId !== undefined) await forgetChat(ctx, row.chatId)
+    await ctx.db.delete(row._id)
+    links++
+  }
+  let codes = 0
+  for (const row of await ctx.db.query('telegramAuthCodes').take(CAP)) {
+    await ctx.db.delete(row._id)
+    codes++
+  }
+  let drafts = 0
+  for (const row of await ctx.db.query('telegramDrafts').take(CAP)) {
+    await ctx.db.delete(row._id)
+    drafts++
+  }
+  // Реестр отправленного держит ключи «это уже посылали». После сброса он
+  // помешал бы прислать те же напоминания заново.
+  let sent = 0
+  for (const row of await ctx.db.query('telegramSent').take(CAP)) {
+    await ctx.db.delete(row._id)
+    sent++
+  }
+
+  await audit(ctx, {
+    kind: 'disable',
+    byId,
+    result: `сброшены все подключения (${by}): связей ${links}, кодов ${codes}, черновиков ${drafts}`,
+    status: 'ok',
+  })
+  return { links, codes, drafts, sent, more: links >= CAP || sent >= CAP }
+}
+
 export const resetAll = mutation({
   args: {},
   handler: async (ctx) => {
     const me = await requireAdmin(ctx)
-
-    // Ограничение на проход: мутация не должна упереться в лимит документов.
-    // Если записей окажется больше, кнопку жмут ещё раз — счётчики покажут,
-    // что осталось.
-    const CAP = 2000
-    let links = 0
-    for (const row of await ctx.db.query('telegramLinks').take(CAP)) {
-      if (row.chatId !== undefined) await forgetChat(ctx, row.chatId)
-      await ctx.db.delete(row._id)
-      links++
-    }
-    let codes = 0
-    for (const row of await ctx.db.query('telegramAuthCodes').take(CAP)) {
-      await ctx.db.delete(row._id)
-      codes++
-    }
-    let drafts = 0
-    for (const row of await ctx.db.query('telegramDrafts').take(CAP)) {
-      await ctx.db.delete(row._id)
-      drafts++
-    }
-    // Реестр отправленного держит ключи «это уже посылали». После сброса он
-    // помешал бы прислать те же напоминания заново.
-    let sent = 0
-    for (const row of await ctx.db.query('telegramSent').take(CAP)) {
-      await ctx.db.delete(row._id)
-      sent++
-    }
-
-    await audit(ctx, {
-      kind: 'disable',
-      byId: me._id,
-      result: `сброшены все подключения: связей ${links}, кодов ${codes}, черновиков ${drafts}`,
-      status: 'ok',
-    })
-    return { links, codes, drafts, sent, more: links >= CAP || sent >= CAP }
+    return await wipeLinks(ctx, me._id, 'из настроек')
   },
+})
+
+// Тот же сброс, но запускаемый со стороны обслуживания, без входа в приложение.
+// Внутренняя функция клиенту недоступна: вызвать её можно только с сервера или
+// консолью деплоймента, а туда доступ и так есть лишь у владельца проекта.
+export const resetAllOps = internalMutation({
+  args: {},
+  handler: async (ctx) => await wipeLinks(ctx, undefined, 'обслуживание'),
 })
 
 // Возвращение после разрыва.
