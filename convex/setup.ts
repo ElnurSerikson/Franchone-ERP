@@ -2928,6 +2928,33 @@ export const devAddendumCheck = internalMutation({
       `§2.2 подсказка менеджера: ${hint?.leadsHint ?? '—'} — в показатель не вошла (${sum.totals.newLeads} = 30)`,
     )
 
+    // Отсечка: за день ДО вступления правила старое ручное значение ещё
+    // читается, за день ПОСЛЕ — только отчёт таргетолога, иначе ноль.
+    for (const [label, day] of [
+      ['до отсечки 2026-08-07', '2026-08-07'],
+      ['после отсечки 2026-08-09', '2026-08-09'],
+    ] as const) {
+      await ctx.db.insert('salesObjectReports', {
+        employeeId: manager._id,
+        objectId,
+        date: day,
+        month: day.slice(0, 7),
+        // Так выглядит строка, заведённая до дополнения: заявки вбиты руками.
+        newLeads: 12,
+        newConsultations: 5,
+        repeatConsultations: 0,
+        newMeetings: 0,
+        repeatMeetings: 0,
+        newPrepayments: 0,
+        newDeals: 0,
+        revenue: 0,
+        submittedAt: Date.now(),
+        editCount: 0,
+      })
+      const one = await salesSummary(ctx, { from: day, to: day, objectId }, async () => owner)
+      log.push(`§2 фолбэк ${label}: заявок ${one.totals.newLeads} (ожидаем ${day < '2026-08-08' ? 12 : 0})`)
+    }
+
     await devAddendumWipe(ctx)
     return log
   },
