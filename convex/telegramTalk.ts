@@ -16,6 +16,7 @@ import { internalQuery, internalMutation } from './_generated/server'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc } from './_generated/dataModel'
 import { computeMonth } from './payroll'
+import { isStaff } from './lib'
 import { submissionsFor, REPORTING } from './reports'
 
 // Сколько реплик держим в памяти разговора. Шесть пар «вопрос — ответ»:
@@ -124,7 +125,7 @@ export const brief = internalQuery({
     }[] = []
     if (me.role === 'owner') {
       const staff = (await ctx.db.query('employees').collect()).filter(
-        (e) => e.status === 'active' && !e.hidden && e._id !== employeeId,
+        (e) => e.status === 'active' && !e.hidden && isStaff(e) && e._id !== employeeId,
       )
       const payroll = await computeMonth(ctx, month)
       const due = await deadlineTime(ctx)

@@ -12,7 +12,7 @@ import { query } from './_generated/server'
 import { v } from 'convex/values'
 import type { QueryCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
-import { currentEmployee, isManager, hiddenEmployeeIds } from './lib'
+import { currentEmployee, isManager, hiddenEmployeeIds, isStaff } from './lib'
 import { deadlineMs, submissionsFor, REPORTING } from './reports'
 
 function businessToday(): string {
@@ -252,6 +252,9 @@ export const summary = query({
       (e) =>
         e.status === 'active' &&
         e.role !== 'owner' &&
+        // Заказчики упаковки (ТЗ Упаковка §3) — не сотрудники: у них нет ни
+        // задач, ни отчётов, и в статистике дисциплины им делать нечего.
+        isStaff(e) &&
         (me.role === 'owner' || !hidden.has(e._id)) &&
         // Руководитель отдела видит только свой отдел.
         (me.role === 'owner' || e.department === me.department),

@@ -70,4 +70,5 @@ export const roleLabel: Record<Role, string> = {
   owner: 'Владелец',
   head: 'Руководитель',
   employee: 'Сотрудник',
+  client: 'Клиент',
 }

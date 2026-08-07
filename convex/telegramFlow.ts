@@ -11,7 +11,7 @@ import { internalMutation, internalQuery } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
-import { isOnTime } from './lib'
+import { isOnTime, isStaff } from './lib'
 import { notify, notifyMany, audit } from './telegram'
 
 type Parsed = {
@@ -81,7 +81,9 @@ function matchPeople(query: string, people: { _id: string; name: string }[]) {
 async function visibleTo(ctx: QueryCtx | MutationCtx, employeeId: Id<'employees'>) {
   const me = await ctx.db.get(employeeId)
   if (!me) return []
-  const all = (await ctx.db.query('employees').collect()).filter((e) => e.status === 'active')
+  const all = (await ctx.db
+    .query('employees')
+    .collect()).filter((e) => e.status === 'active' && isStaff(e))
   if (me.role === 'owner') return all
   if (me.role === 'head') return all.filter((e) => e.department === me.department)
   return all.filter((e) => e._id === me._id)

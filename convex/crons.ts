@@ -22,4 +22,14 @@ crons.interval('telegram notifications', { minutes: 10 }, internal.telegramCron.
 // что адрес наш, и возвращаем его, если нет.
 crons.interval('telegram webhook watchdog', { minutes: 15 }, internal.telegramBot.ensureWebhook)
 
+// Постпроектные сценарии упаковки (ТЗ Упаковка §13.2): «через N дней после
+// завершения» и «при отсутствии активности клиента». Условия суточные, поэтому
+// раз в день — 05:00 UTC, это 10:00 по Алматы.
+crons.daily('pack post-project scenarios', { hourUTC: 5, minuteUTC: 0 }, internal.packExtras.tick)
+
+// §14.1: «до срока осталось настраиваемое время» и «срок нарушен». Порог
+// задаётся в часах, поэтому проверяем ежечасно; реестр отправленного не даёт
+// прислать одно и то же дважды.
+crons.interval('pack deadlines', { hours: 1 }, internal.packExtras.deadlineTick)
+
 export default crons

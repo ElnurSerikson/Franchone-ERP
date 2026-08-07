@@ -27,6 +27,36 @@ import type { Doc, Id } from './_generated/dataModel'
 import { normalizeAccount, resultCostCents } from './campaignGoals'
 import { tgSettings } from './telegram'
 import { nowIn, offsetAt, momentIn } from './orgTime'
+import type { MutationCtx } from './_generated/server'
+// Проверка модуля упаковки использует те же функции, что и сами мутации, —
+// иначе она проверяла бы не продукт, а свою копию правил.
+import {
+  accruedReward as packAccrued,
+  packHealth as packHealthOf,
+  progressOf as packProgressOf,
+  DEFAULT_STAGES,
+} from './packModel'
+import {
+  addDays as packAddDays,
+  dayEnd as packDayEnd,
+  deadlineFrom as packDeadlineFrom,
+  openStageRewards as packOpenRewards,
+  preflight as packPreflight,
+  settleStageRewards as packSettleRewards,
+  stageLike as packStageLike,
+  stagesOf as packStagesOf,
+  today as packToday,
+} from './packs'
+import {
+  addMaterialVersion as packAddVersion,
+  approveStage as packApproveStage,
+  readiness as packReadiness,
+  returnStage as packReturnStage,
+} from './packStages'
+
+async function packProgress(ctx: MutationCtx, packId: Id<'packs'>): Promise<number> {
+  return packProgressOf((await packStagesOf(ctx, packId)).map(packStageLike))
+}
 
 // Одноразовая настройка: назначить владельцу email для входа и привести
 // все email сотрудников к нижнему регистру (email = логин).
@@ -2556,3 +2586,237 @@ export const devMeetingCleanup = internalMutation({
     return { removed }
   },
 })
+
+// ——— Проверка модуля упаковки (ТЗ Упаковка) ———
+//
+// Прогоняет проект целиком по сценарию §5.3 и сверяет цифры с примером §7.2:
+// стоимость 1 000 000 ₸, процент 20% → полное вознаграждение 200 000 ₸, и по
+// 40 000 ₸ за каждый утверждённый этап весом 20%. Только dev.
+export const devPackCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) throw new Error('Только для dev')
+    const log: string[] = []
+
+    await devPackWipe(ctx)
+
+    const owner = (await ctx.db.query('employees').collect()).find((e) => e.role === 'owner')!
+    const clientId = await ctx.db.insert('employees', {
+      name: 'Проверочный Клиент',
+      role: 'client',
+      position: 'client',
+      positionLabel: 'Кофейня у дома',
+      department: '',
+      salary: 0,
+      email: 'pack-check@example.invalid',
+      phone: '',
+      avatarColor: '#2563eb',
+      initials: 'ПК',
+      status: 'active',
+      hiredAt: packToday(),
+    })
+
+    const start = packToday()
+    const due = packAddDays(start, 60)
+    const packId = await ctx.db.insert('packs', {
+      title: 'ПРОВЕРКА · Упаковка франшизы',
+      clientId,
+      packerId: owner._id,
+      memberIds: [],
+      startDate: start,
+      dueDate: due,
+      price: 1_000_000,
+      packerPercent: 20,
+      status: 'draft',
+      createdById: owner._id,
+      createdAt: Date.now(),
+      lastActivityAt: Date.now(),
+    })
+    for (let i = 0; i < DEFAULT_STAGES.length; i++) {
+      const b = DEFAULT_STAGES[i]
+      await ctx.db.insert('packStages', {
+        packId,
+        order: i,
+        kind: b.kind,
+        title: b.title,
+        clientNote: b.clientNote,
+        startDate: start,
+        endDate: packAddDays(start, 10 * (i + 1)),
+        weight: b.weight,
+        reviewDays: 3,
+        rereviewDays: 2,
+        fixDays: 3,
+        status: 'planned',
+        returnCount: 0,
+      })
+    }
+
+    // §4.3: проверки перед запуском.
+    const pack0 = (await ctx.db.get(packId))!
+    const issues = await packPreflight(ctx, pack0)
+    log.push(
+      `§4.3 проверки: ошибок ${issues.filter((i) => i.level === 'error').length}, предупреждений ${issues.filter((i) => i.level === 'warning').length}`,
+    )
+
+    // Запуск: первый этап в работе, остальные заблокированы (§5.2).
+    let stages = await packStagesOf(ctx, packId)
+    for (let i = 0; i < stages.length; i++) {
+      await ctx.db.patch(stages[i]._id, {
+        status: i === 0 ? 'in_progress' : 'locked',
+        awaiting: i === 0 ? 'franchone' : undefined,
+        dueAt: i === 0 ? packDayEnd(stages[i].endDate!) : undefined,
+      })
+    }
+    await ctx.db.patch(packId, { status: 'active', launchedAt: Date.now(), launchedById: owner._id })
+
+    // Нулевой этап проходим сразу — он не влияет на прогресс (BR-03).
+    stages = await packStagesOf(ctx, packId)
+    await packApproveStage(ctx, (await ctx.db.get(packId))!, stages[0], owner._id)
+    log.push(`BR-03 после нулевого этапа: прогресс ${await packProgress(ctx, packId)}% (ожидаем 0)`)
+
+    // Этап 1: обязательный материал → передача → возврат → доработка → приёмка.
+    stages = await packStagesOf(ctx, packId)
+    const s1 = stages[1]
+    await ctx.db.patch(s1._id, { status: 'in_progress', awaiting: 'franchone' })
+    const materialId = await ctx.db.insert('packMaterials', {
+      packId,
+      stageId: s1._id,
+      title: 'Концепция франшизы.pdf',
+      kind: 'doc',
+      required: true,
+      status: 'planned',
+      version: 0,
+      side: 'team',
+      createdAt: Date.now(),
+      createdById: owner._id,
+    })
+    const before = await packReadiness(ctx, s1._id)
+    log.push(`§5.3.2 готовность до загрузки: ${before.done}/${before.required}, можно передавать: ${before.ready}`)
+
+    await packAddVersion(ctx, (await ctx.db.get(materialId))!, owner._id, {
+      kind: 'link',
+      name: 'https://example.com/v1',
+      url: 'https://example.com/v1',
+    })
+    const after = await packReadiness(ctx, s1._id)
+    log.push(`§5.3.2 готовность после загрузки: ${after.done}/${after.required}, можно передавать: ${after.ready}`)
+
+    // Награда за этап — станет доступной с передачей (§12, §5.4).
+    const rewardId = await ctx.db.insert('packRewards', {
+      packId,
+      stageId: s1._id,
+      title: 'Разбор воронки продаж',
+      status: 'locked',
+      createdById: owner._id,
+      createdAt: Date.now(),
+    })
+
+    // Передача клиенту (BR-06): стартует клиентский таймер.
+    const dueAt = packDeadlineFrom(Date.now(), 3, false)
+    await ctx.db.patch(s1._id, {
+      status: 'review',
+      handedAt: Date.now(),
+      handoverCount: 1,
+      awaiting: 'client',
+      dueAt,
+    })
+    await packOpenRewards(ctx, s1._id, dueAt)
+    log.push(`BR-06 после передачи: статус ${(await ctx.db.get(s1._id))!.status}, ждём ${(await ctx.db.get(s1._id))!.awaiting}, награда ${(await ctx.db.get(rewardId))!.status}`)
+    log.push(`§7.3 KPI на проверке: ${await packProgress(ctx, packId)}% (ожидаем 0 — передача KPI не даёт)`)
+
+    // Клиент возвращает на доработку в срок (BR-07, §5.4).
+    await packSettleRewards(ctx, (await ctx.db.get(s1._id))!, clientId, true)
+    await packReturnStage(ctx, (await ctx.db.get(packId))!, (await ctx.db.get(s1._id))!, clientId, 'Нужно уточнить юнит-экономику')
+    const returned = (await ctx.db.get(s1._id))!
+    log.push(
+      `BR-07 после возврата: статус ${returned.status}, ждём ${returned.awaiting}, возвратов ${returned.returnCount}, награда ${(await ctx.db.get(rewardId))!.status}`,
+    )
+
+    // Доработка и повторная передача.
+    await packAddVersion(ctx, (await ctx.db.get(materialId))!, owner._id, {
+      kind: 'link',
+      name: 'https://example.com/v2',
+      url: 'https://example.com/v2',
+    })
+    log.push(`§11.1 материал после новой версии: ${(await ctx.db.get(materialId))!.status}, версия ${(await ctx.db.get(materialId))!.version}`)
+    await ctx.db.patch(s1._id, { status: 'rereview', handoverCount: 2, awaiting: 'client', dueAt: packDeadlineFrom(Date.now(), 2, false) })
+
+    // Клиент утверждает (BR-04).
+    await packApproveStage(ctx, (await ctx.db.get(packId))!, (await ctx.db.get(s1._id))!, clientId)
+    const p1 = await packProgress(ctx, packId)
+    log.push(
+      `§7.2 после этапа 1: KPI ${p1}% (ожидаем 20), начислено ${packAccrued(1_000_000, 20, p1)} ₸ (ожидаем 40 000)`,
+    )
+    log.push(`§5.2 следующий этап разблокирован: ${(await packStagesOf(ctx, packId))[2].status}`)
+
+    // Остальные этапы.
+    for (const s of (await packStagesOf(ctx, packId)).filter((x) => x.kind === 'main' && x.status !== 'approved')) {
+      await packApproveStage(ctx, (await ctx.db.get(packId))!, s, clientId)
+    }
+    const pAll = await packProgress(ctx, packId)
+    log.push(
+      `§7.2 после всех этапов: KPI ${pAll}% (ожидаем 100), начислено ${packAccrued(1_000_000, 20, pAll)} ₸ (ожидаем 200 000)`,
+    )
+
+    // Здоровье и ответственная сторона (§6.3).
+    const finalStages = (await packStagesOf(ctx, packId)).map(packStageLike)
+    const health = packHealthOf({
+      status: 'active',
+      dueDate: due,
+      stages: finalStages,
+      now: Date.now(),
+      warnHours: 48,
+    })
+    log.push(`§6.3 здоровье: ${health.health} · ${health.reason} · сторона ${health.side}`)
+
+    // §13.1: итоговый хаб.
+    await ctx.db.patch(packId, { status: 'done', finishedAt: Date.now(), hubOpenedAt: Date.now() })
+    const events = await ctx.db.query('packEvents').withIndex('by_pack', (q) => q.eq('packId', packId)).collect()
+    log.push(
+      `§14.2 журнал: ${events.length} записей, из них финансовых ${events.filter((e) => e.financial).length} (клиенту они не отдаются)`,
+    )
+    // §14.3: аналитика берёт причины возвратов отсюда — из события, а не из
+    // всех комментариев этапа подряд.
+    const returns = events.filter((e) => e.type === 'stage_return')
+    log.push(
+      `§14.3 возвраты: ${returns.length}, причина «${returns[0]?.note ?? '—'}»`,
+    )
+    log.push(`§13.1 хаб открыт: ${!!(await ctx.db.get(packId))!.hubOpenedAt}`)
+
+    return log
+  },
+})
+
+export const devPackCleanup = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) throw new Error('Только для dev')
+    return { removed: await devPackWipe(ctx) }
+  },
+})
+
+// Снести всё, что посеяла проверка. Трогает только проекты с меткой ПРОВЕРКА
+// и проверочного клиента — реальные данные не задевает.
+async function devPackWipe(ctx: MutationCtx): Promise<number> {
+  let removed = 0
+  const packs = (await ctx.db.query('packs').collect()).filter((p) => p.title.startsWith('ПРОВЕРКА'))
+  for (const pack of packs) {
+    for (const t of ['packStages', 'packMaterials', 'packMaterialVersions', 'packComments', 'packEvents', 'packRewards', 'packNotifications'] as const) {
+      for (const row of (await ctx.db.query(t).collect()).filter((r) => r.packId === pack._id)) {
+        await ctx.db.delete(row._id)
+        removed++
+      }
+    }
+    await ctx.db.delete(pack._id)
+    removed++
+  }
+  for (const e of (await ctx.db.query('employees').collect()).filter(
+    (x) => x.email === 'pack-check@example.invalid',
+  )) {
+    await ctx.db.delete(e._id)
+    removed++
+  }
+  return removed
+}

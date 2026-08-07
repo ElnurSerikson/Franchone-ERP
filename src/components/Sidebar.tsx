@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import { useQuery } from 'convex/react'
 import {
   LayoutDashboard,
   CheckSquare,
@@ -8,6 +9,7 @@ import {
   Users,
   Activity,
   Gauge,
+  Boxes,
   CalendarDays,
   Settings,
   LogOut,
@@ -17,6 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { useAuthActions } from '@convex-dev/auth/react'
+import { api } from '../../convex/_generated/api'
 import { useCurrentUser, roleLabel } from '@/store'
 import { usePerms } from '@/lib/usePerms'
 import { useData } from '@/lib/useData'
@@ -31,6 +34,10 @@ interface NavItem {
   // иначе «section:action» из матрицы прав (§9).
   perm?: string
   badge?: number
+  // Раздел «Упаковки» открывается не только матрицей: по ТЗ Упаковка §3 и
+  // BR-11 упаковщик ведёт назначенные ему проекты, и само назначение должно
+  // показать раздел. Решение принимает сервер (packs.access).
+  packAccess?: boolean
 }
 
 const menu: NavItem[] = [
@@ -41,6 +48,8 @@ const menu: NavItem[] = [
 ]
 
 const manage: NavItem[] = [
+  // ТЗ Упаковка: производство и запуск франшизы — отдельный раздел ERP.
+  { to: '/packs', label: 'Упаковки', icon: Boxes, packAccess: true },
   { to: '/team', label: 'Команда', icon: Users, perm: 'team:view' },
   { to: '/activity', label: 'Активность', icon: Activity, perm: 'activity:view' },
   // ТЗ СИСТЕМА §3: отдельная вкладка администратора. «Активность» остаётся —
@@ -137,8 +146,10 @@ export default function Sidebar({
 
   // Видимость раздела — по матрице прав (§9). Владелец видит всё.
   const { can, isOwner } = usePerms()
+  const packAccess = useQuery(api.packs.access, {})
   const visible = (items: NavItem[]) =>
     items.filter((i) => {
+      if (i.packAccess) return packAccess?.canView === true
       if (!i.perm) return true
       if (i.perm === 'owner') return isOwner
       const [section, action] = i.perm.split(':')

@@ -3,7 +3,7 @@ import { v, ConvexError } from 'convex/values'
 import { internal } from './_generated/api'
 import { Resend as ResendAPI } from 'resend'
 import { inviteEmail } from './emails'
-import { currentEmployee } from './lib'
+import { currentEmployee, isStaff } from './lib'
 import { requireCan, inScope } from './permissions'
 import { disable as disableTelegram } from './telegram'
 
@@ -29,7 +29,11 @@ export const list = query({
   args: {},
   handler: async (ctx) => {
     const me = await currentEmployee(ctx)
-    const rows = (await ctx.db.query('employees').collect()).filter((e) => !e.hidden)
+    // Заказчики упаковки живут в этой же таблице (ТЗ Упаковка §3), но членами
+    // команды не являются — в «Команде», задачах и на дашбордах им не место.
+    const rows = (await ctx.db.query('employees').collect()).filter(
+      (e) => !e.hidden && isStaff(e),
+    )
     const strip = (e: (typeof rows)[number]) => ({ ...e, salary: 0, email: '', phone: '' })
     // Владелец — всё; руководитель — оклады/контакты только своего отдела;
     // сотрудник — без чувствительных полей (нужны только имена/аватары).

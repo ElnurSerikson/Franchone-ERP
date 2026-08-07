@@ -18,6 +18,9 @@ export const PERM_SECTIONS: { key: string; label: string; actions: PermAction[] 
   { key: 'kpi', label: 'KPI', actions: ['view', 'viewAll', 'edit'] },
   { key: 'team', label: 'Команда', actions: ['view', 'viewAll', 'create', 'edit', 'delete'] },
   { key: 'activity', label: 'Активность', actions: ['view', 'viewAll'] },
+  // ТЗ Упаковка §3: упаковщик заводит проекты и видит только назначенные ему
+  // и созданные им; владелец — все. Право «Все» открывает чужие проекты.
+  { key: 'packs', label: 'Упаковки', actions: ['view', 'viewAll', 'create', 'edit', 'delete'] },
 ]
 
 export const ACTION_LABEL: Record<PermAction, string> = {
@@ -47,6 +50,7 @@ export const DEFAULT_PERMS: Record<PermRole, string[]> = {
     'kpi:view', 'kpi:edit',
     'team:view', 'team:create', 'team:edit', 'team:delete',
     'activity:view',
+    'packs:view', 'packs:create', 'packs:edit',
   ],
   employee: [
     'tasks:view', 'tasks:create', 'tasks:edit', 'tasks:assign',

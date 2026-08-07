@@ -11,7 +11,16 @@ export default defineSchema({
 
   employees: defineTable({
     name: v.string(),
-    role: v.union(v.literal('owner'), v.literal('head'), v.literal('employee')),
+    // 'client' — заказчик упаковки франшизы (ТЗ «Производство и запуск
+    // франшизы» §3). Он входит в ERP тем же способом, что и сотрудник, но
+    // видит только собственный кабинет: матрица прав его не описывает, а
+    // requireCan/viewScope роль 'client' не пропускают ни в один раздел.
+    role: v.union(
+      v.literal('owner'),
+      v.literal('head'),
+      v.literal('employee'),
+      v.literal('client'),
+    ),
     // slug должности из справочника positions. Свободная строка (не union),
     // т.к. владелец заводит свои должности; KPI-модель определяется по slug.
     position: v.string(),
@@ -732,6 +741,17 @@ export default defineSchema({
     tgKpiTexts: v.optional(v.array(v.object({ threshold: v.number(), text: v.string() }))),
     // §7.1: режим перевыполнения — пороги выше 100%.
     tgKpiOverachieve: v.optional(v.boolean()),
+
+    // ——— Модуль «Производство и запуск франшизы» ———
+    // §6.3: «до дедлайна остаётся настраиваемый короткий период» — сколько
+    // часов до срока индикатор здоровья становится жёлтым.
+    packWarnHours: v.optional(v.number()),
+    // §6.1: сроки по умолчанию для новых этапов, в днях.
+    packReviewDays: v.optional(v.number()), // первичная проверка клиентом
+    packRereviewDays: v.optional(v.number()), // повторная проверка
+    packFixDays: v.optional(v.number()), // доработка со стороны FRANCHONE
+    // §8.1: сколько дней без событий считать проектом «без активности».
+    packIdleDays: v.optional(v.number()),
   }).index('by_key', ['key']),
 
   // ——— Закрытие месяца (§5: «сохранять итоговые показатели и начисления в архиве») ———
@@ -757,6 +777,362 @@ export default defineSchema({
       }),
     ),
   }).index('by_month', ['month']),
+
+  // ——— Модуль «Производство и запуск франшизы» (ТЗ Упаковка v1.0) ———
+  //
+  // Ключевой результат (шапка ТЗ): показать движение каждой упаковки от старта
+  // до передачи франшизы, разделить ответственность сторон, посчитать
+  // производственный и финансовый KPI упаковщика и дать клиенту прозрачный
+  // кабинет без единого внутреннего финансового поля (§3.1, BR-05).
+
+  // Проект производства франшизы для конкретного клиента (§2, §4.1).
+  packs: defineTable({
+    title: v.string(),
+    // §4.1: клиент обязателен перед публикацией, но не в черновике.
+    clientId: v.optional(v.id('employees')),
+    packerId: v.id('employees'), // ответственный упаковщик
+    memberIds: v.array(v.id('employees')), // дополнительные участники
+    startDate: v.string(), // YYYY-MM-DD
+    dueDate: v.string(), // общий срок проекта, YYYY-MM-DD
+    // §7.1: экономика задаётся отдельно для каждого проекта. Тенге целыми —
+    // как оклад сотрудника; дробных тенге в расчётах нет.
+    price: v.number(),
+    packerPercent: v.number(), // 0–100
+    description: v.optional(v.string()),
+    // §4.1: черновик → активен → приостановлен → завершён → архив.
+    status: v.union(
+      v.literal('draft'),
+      v.literal('active'),
+      v.literal('paused'),
+      v.literal('done'),
+      v.literal('archived'),
+    ),
+    // §6.1: считать сроки в календарных или рабочих днях.
+    workingDays: v.optional(v.boolean()),
+    // §4.4: до запуска проект живёт как внутренний черновик и клиенту не виден.
+    launchedAt: v.optional(v.number()),
+    launchedById: v.optional(v.id('employees')),
+    finishedAt: v.optional(v.number()),
+    // §5.2: пауза останавливает таймеры и требует причину. pausedMs копит
+    // суммарную длительность простоя, чтобы после снятия паузы дедлайны
+    // сдвинулись ровно на неё.
+    pausedAt: v.optional(v.number()),
+    pausedReason: v.optional(v.string()),
+    pausedMs: v.optional(v.number()),
+    // §4.1: «Шаблон упаковки» — из такого проекта копируется структура этапов.
+    isTemplate: v.optional(v.boolean()),
+    // §13.1: после 100% проект переходит в постоянный итоговый хаб.
+    hubOpenedAt: v.optional(v.number()),
+    hubNote: v.optional(v.string()),
+    createdById: v.id('employees'),
+    createdAt: v.number(),
+    // Денормализованное время последнего события — §8.1 «проекты без активности».
+    lastActivityAt: v.number(),
+  })
+    .index('by_status', ['status'])
+    .index('by_client', ['clientId'])
+    .index('by_packer', ['packerId']),
+
+  // Этап проекта (§2, §5.1). Нулевой этап (kind='zero') не влияет ни на
+  // прогресс клиента, ни на KPI упаковщика (BR-03).
+  packStages: defineTable({
+    packId: v.id('packs'),
+    order: v.number(), // 0 — нулевой этап, дальше 1..N
+    kind: v.union(v.literal('zero'), v.literal('main')),
+    title: v.string(),
+    clientNote: v.optional(v.string()), // описание для клиента
+    internalNote: v.optional(v.string()), // внутренний комментарий команды
+    startDate: v.optional(v.string()),
+    endDate: v.optional(v.string()),
+    weight: v.number(), // §4.3: сумма весов основных этапов ровно 100
+    // §6.1: сроки реакции сторон, в днях.
+    reviewDays: v.number(),
+    rereviewDays: v.number(),
+    fixDays: v.number(),
+    doneCondition: v.optional(v.string()), // условия завершения этапа
+    // §5.2: девять состояний этапа.
+    status: v.union(
+      v.literal('locked'),
+      v.literal('planned'),
+      v.literal('in_progress'),
+      v.literal('ready'),
+      v.literal('review'),
+      v.literal('rework'),
+      v.literal('rereview'),
+      v.literal('approved'),
+      v.literal('paused'),
+    ),
+    // §5.2/§6.3: активный таймер. dueAt — момент, к которому ждём действие;
+    // side — от кого ждём. Пусто — таймера нет.
+    dueAt: v.optional(v.number()),
+    awaiting: v.optional(v.union(v.literal('client'), v.literal('franchone'))),
+    // BR-06: клиентский таймер стартует только после официальной передачи.
+    handedAt: v.optional(v.number()),
+    handoverCount: v.optional(v.number()),
+    approvedAt: v.optional(v.number()),
+    approvedById: v.optional(v.id('employees')),
+    // §7.4: сколько раз этап возвращали и сколько суммарно шла доработка.
+    returnCount: v.number(),
+    reworkStartedAt: v.optional(v.number()),
+    reworkMs: v.optional(v.number()),
+    startedAt: v.optional(v.number()),
+    // §7.4 «процент этапов, завершённых в срок»: успел ли этап к своему
+    // плановому концу. Фиксируем в момент утверждения — потом дата может
+    // сдвинуться, а факт должен остаться.
+    approvedOnTime: v.optional(v.boolean()),
+    // Состояние, из которого этап ушёл на паузу (§5.2).
+    pausedFrom: v.optional(v.string()),
+  })
+    .index('by_pack', ['packId'])
+    .index('by_pack_order', ['packId', 'order'])
+    .index('by_due', ['dueAt']),
+
+  // Материал этапа (§2, §11): файл, ссылка, документ, макет, сайт.
+  packMaterials: defineTable({
+    packId: v.id('packs'),
+    stageId: v.id('packStages'),
+    title: v.string(),
+    description: v.optional(v.string()),
+    // §11.2 «тип и формат».
+    kind: v.union(
+      v.literal('file'),
+      v.literal('link'),
+      v.literal('doc'),
+      v.literal('design'),
+      v.literal('site'),
+      v.literal('other'),
+    ),
+    required: v.boolean(), // входит ли в обязательные элементы этапа
+    // §11.1: шесть состояний материала.
+    status: v.union(
+      v.literal('planned'),
+      v.literal('in_progress'),
+      v.literal('ready'),
+      v.literal('rework'),
+      v.literal('reworked'),
+      v.literal('approved'),
+    ),
+    ownerId: v.optional(v.id('employees')),
+    dueDate: v.optional(v.string()),
+    version: v.number(), // номер последней версии; 0 — версий ещё нет
+    approvedAt: v.optional(v.number()),
+    // §3: клиент грузит свои исходники и вложения — это его материалы.
+    side: v.union(v.literal('team'), v.literal('client')),
+    createdAt: v.number(),
+    createdById: v.id('employees'),
+  })
+    .index('by_pack', ['packId'])
+    .index('by_stage', ['stageId']),
+
+  // §11.2: история версий материала. Версия не перезаписывается — добавляется.
+  packMaterialVersions: defineTable({
+    materialId: v.id('packMaterials'),
+    packId: v.id('packs'),
+    version: v.number(),
+    kind: v.union(v.literal('file'), v.literal('link')),
+    name: v.string(),
+    url: v.optional(v.string()),
+    storageId: v.optional(v.id('_storage')),
+    note: v.optional(v.string()),
+    byId: v.id('employees'),
+    at: v.number(),
+  })
+    .index('by_material', ['materialId'])
+    .index('by_pack', ['packId']),
+
+  // §11.3: комментарии этапа, материала или версии. Внутренние обсуждения
+  // команды клиент не видит НИКОГДА (BR-12).
+  packComments: defineTable({
+    packId: v.id('packs'),
+    stageId: v.optional(v.id('packStages')),
+    materialId: v.optional(v.id('packMaterials')),
+    versionId: v.optional(v.id('packMaterialVersions')),
+    authorId: v.id('employees'),
+    scope: v.union(v.literal('internal'), v.literal('client')),
+    text: v.string(),
+    // §11.3: отметка «вопрос решён».
+    resolved: v.boolean(),
+    resolvedAt: v.optional(v.number()),
+    resolvedById: v.optional(v.id('employees')),
+    attachments: v.array(
+      v.object({
+        kind: v.union(v.literal('file'), v.literal('link')),
+        name: v.string(),
+        url: v.optional(v.string()),
+        storageId: v.optional(v.id('_storage')),
+      }),
+    ),
+    at: v.number(),
+  })
+    .index('by_pack', ['packId'])
+    .index('by_stage', ['stageId'])
+    .index('by_material', ['materialId']),
+
+  // §14.2: журнал действий. Пользователь, действие, объект, дата и время,
+  // старое и новое значение, причина.
+  packEvents: defineTable({
+    packId: v.id('packs'),
+    stageId: v.optional(v.id('packStages')),
+    materialId: v.optional(v.id('packMaterials')),
+    type: v.string(), // created | launched | stage_handover | approve | …
+    at: v.number(),
+    byId: v.id('employees'),
+    field: v.optional(v.string()),
+    from: v.optional(v.string()),
+    to: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    note: v.optional(v.string()),
+    // §3.1: строки журнала с финансовыми полями клиенту не отдаются.
+    financial: v.optional(v.boolean()),
+  })
+    .index('by_pack', ['packId'])
+    .index('by_at', ['at']),
+
+  // §7.3, §7.4: выплаты вознаграждения упаковщику. Начисление (A = W × K/100)
+  // производное и считается из утверждённых этапов, а выплата — факт: её
+  // фиксирует владелец. Держим списком, а не одним числом, чтобы «выплачено»
+  // имело историю и дату, как того требует §7.3 («видеть отдельно»).
+  packPayouts: defineTable({
+    packId: v.id('packs'),
+    amount: v.number(), // ₸
+    paidAt: v.string(), // YYYY-MM-DD — дата фактической выплаты
+    note: v.optional(v.string()),
+    byId: v.id('employees'),
+    at: v.number(),
+  }).index('by_pack', ['packId']),
+
+  // §6.1, §6.2: «платежные и иные контрольные даты» проекта и «платежные
+  // события» в календаре. Сумма — внутреннее поле: клиенту она не уходит
+  // никогда, а сама дата платежа ему как раз нужна (§3.1).
+  packMilestones: defineTable({
+    packId: v.id('packs'),
+    title: v.string(),
+    date: v.string(), // YYYY-MM-DD
+    kind: v.union(v.literal('payment'), v.literal('control')),
+    amount: v.optional(v.number()), // ₸ — ВНУТРЕННЕЕ
+    note: v.optional(v.string()),
+    // Точку можно оставить внутренней целиком — например, дату внутренней
+    // сверки, о которой клиенту знать незачем.
+    clientVisible: v.boolean(),
+    done: v.boolean(),
+    doneAt: v.optional(v.number()),
+    createdById: v.id('employees'),
+    createdAt: v.number(),
+  }).index('by_pack', ['packId']),
+
+  // §12: награда за этап. Содержание определяется позднее — архитектура
+  // допускает цифровые материалы, услуги, скидки и любые иные бонусы.
+  packRewards: defineTable({
+    packId: v.id('packs'),
+    stageId: v.optional(v.id('packStages')),
+    title: v.string(),
+    description: v.optional(v.string()),
+    imageUrl: v.optional(v.string()),
+    condition: v.optional(v.string()), // условие получения
+    dueAt: v.optional(v.number()), // срок выполнения условия
+    status: v.union(
+      v.literal('locked'),
+      v.literal('available'),
+      v.literal('earned'),
+      v.literal('granted'),
+      v.literal('missed'),
+      v.literal('restored'),
+    ),
+    earnedAt: v.optional(v.number()),
+    grantedAt: v.optional(v.number()),
+    decidedById: v.optional(v.id('employees')), // ручное решение владельца
+    createdById: v.id('employees'),
+    createdAt: v.number(),
+  })
+    .index('by_pack', ['packId'])
+    .index('by_stage', ['stageId']),
+
+  // §13.3: статьи, видео, тесты, инструкции, чек-листы, шаблоны, рекомендации
+  // и предложения. Содержание в первой итерации не детализируется — важна
+  // возможность создать, опубликовать, назначить и отключить.
+  packContent: defineTable({
+    title: v.string(),
+    kind: v.union(
+      v.literal('article'),
+      v.literal('video'),
+      v.literal('test'),
+      v.literal('guide'),
+      v.literal('checklist'),
+      v.literal('template'),
+      v.literal('offer'),
+    ),
+    body: v.optional(v.string()),
+    url: v.optional(v.string()),
+    published: v.boolean(),
+    // Когда материал доступен клиенту: сразу, после этапа N, либо только
+    // после завершения проекта.
+    availability: v.union(
+      v.literal('always'),
+      v.literal('after_stage'),
+      v.literal('post_project'),
+    ),
+    afterStageOrder: v.optional(v.number()),
+    // Пусто — виден всем клиентам; иначе только назначенным проектам.
+    packIds: v.optional(v.array(v.id('packs'))),
+    createdById: v.id('employees'),
+    createdAt: v.number(),
+  }).index('by_published', ['published']),
+
+  // §13.2: постпроектный сценарий. Владелец задаёт условие запуска и действие,
+  // не привязываясь к заранее определённому содержанию.
+  packScenarios: defineTable({
+    title: v.string(),
+    trigger: v.union(
+      v.literal('days_after_finish'),
+      v.literal('client_action'),
+      v.literal('no_activity'),
+      v.literal('test_result'),
+      v.literal('manual'),
+    ),
+    triggerDays: v.optional(v.number()),
+    action: v.union(
+      v.literal('notify'),
+      v.literal('material'),
+      v.literal('recommendation'),
+      v.literal('test'),
+      v.literal('invite'),
+      v.literal('offer'),
+    ),
+    contentId: v.optional(v.id('packContent')),
+    message: v.optional(v.string()),
+    active: v.boolean(),
+    packIds: v.optional(v.array(v.id('packs'))), // индивидуальное назначение
+    createdById: v.id('employees'),
+    createdAt: v.number(),
+  }).index('by_active', ['active']),
+
+  // Что и когда сценарий отправил: повторно одному проекту он не срабатывает.
+  packScenarioRuns: defineTable({
+    scenarioId: v.id('packScenarios'),
+    packId: v.id('packs'),
+    at: v.number(),
+    status: v.union(v.literal('sent'), v.literal('skipped'), v.literal('error')),
+    note: v.optional(v.string()),
+  })
+    .index('by_scenario', ['scenarioId'])
+    .index('by_pack', ['packId'])
+    .index('by_scenario_pack', ['scenarioId', 'packId']),
+
+  // §14.1: уведомления внутри ERP. Telegram уходит через общую интеграцию,
+  // а эти строки — лента в кабинете клиента и блок «срочные уведомления»
+  // на панели упаковщика.
+  packNotifications: defineTable({
+    employeeId: v.id('employees'),
+    packId: v.id('packs'),
+    kind: v.string(),
+    title: v.string(),
+    text: v.optional(v.string()),
+    link: v.optional(v.string()),
+    at: v.number(),
+    readAt: v.optional(v.number()),
+  })
+    .index('by_employee', ['employeeId'])
+    .index('by_pack', ['packId']),
 
   // Начисления на момент закрытия. Имя и должность копируем в строку:
   // сотрудник может уволиться или сменить должность, а архив обязан

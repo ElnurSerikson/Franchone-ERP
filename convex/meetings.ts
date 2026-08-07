@@ -17,7 +17,7 @@ import { query, mutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
-import { currentEmployee, requireEmployee, isManager, hiddenEmployeeIds } from './lib'
+import { currentEmployee, requireEmployee, isManager, hiddenEmployeeIds, isStaff } from './lib'
 import { notifyMeetingEvent } from './telegramFlow'
 
 function businessToday(): string {
@@ -148,7 +148,14 @@ export const list = query({
 
     const hidden = await hiddenEmployeeIds(ctx)
     const employees = (await ctx.db.query('employees').collect())
-      .filter((e) => e.status === 'active' && (me.role === 'owner' || !hidden.has(e._id)))
+      // Внутренняя встреча — дело команды: заказчика упаковки в список
+      // приглашаемых не подставляем (ТЗ Упаковка §3).
+      .filter(
+        (e) =>
+          e.status === 'active' &&
+          isStaff(e) &&
+          (me.role === 'owner' || !hidden.has(e._id)),
+      )
       .map((e) => ({
         _id: e._id,
         name: e.name,

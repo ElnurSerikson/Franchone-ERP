@@ -2,7 +2,7 @@ import { query, mutation, internalMutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc } from './_generated/dataModel'
-import { currentEmployee, requireEmployee, hiddenEmployeeIds } from './lib'
+import { currentEmployee, requireEmployee, hiddenEmployeeIds, isStaff } from './lib'
 import { viewScope } from './permissions'
 import { computeSmmMath, computeSalesMath, payoutOf } from './kpiMath'
 import { leadPlanKpi, leadWeight } from './targetLeads'
@@ -59,7 +59,8 @@ export async function computeMonth(ctx: QueryCtx | MutationCtx, month: string) {
   }
 
   const emps = (await ctx.db.query('employees').collect()).filter(
-    (e) => !e.hidden && e.role !== 'owner',
+    // isStaff: у заказчика упаковки нет оклада и KPI — он не член команды.
+    (e) => !e.hidden && e.role !== 'owner' && isStaff(e),
   )
 
   const rows = []

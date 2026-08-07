@@ -1,7 +1,9 @@
-import { Authenticated, Unauthenticated, AuthLoading } from 'convex/react'
+import { Suspense, lazy } from 'react'
+import { Authenticated, Unauthenticated, AuthLoading, useQuery } from 'convex/react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
-import { AppProvider, useAccessState } from './store'
+import { api } from '../convex/_generated/api'
+import { AppProvider, useAccessState, useCurrentUser } from './store'
 import { usePerms } from './lib/usePerms'
 import Layout from './components/Layout'
 import Login from './pages/Login'
@@ -15,6 +17,13 @@ import Activity from './pages/Activity'
 import Effectiveness from '@/pages/Effectiveness'
 import Meetings from '@/pages/Meetings'
 import Settings from './pages/Settings'
+
+// Модуль упаковки и кабинет клиента грузятся отдельными чанками. Раздел видят
+// не все, а кабинет — только заказчик: держать их в основном бандле значит
+// заставлять каждого сотрудника скачивать чужой экран при первом заходе.
+const Packs = lazy(() => import('@/pages/Packs'))
+const PackDetail = lazy(() => import('@/pages/PackDetail'))
+const ClientApp = lazy(() => import('@/pages/client/ClientApp'))
 
 // Гейт маршрута по матрице прав (§9). perm — 'owner' или «section:action».
 function Guard({ perm, children }: { perm: string; children: JSX.Element }) {
@@ -33,32 +42,56 @@ function FullScreenLoader() {
   )
 }
 
+// Гейт раздела «Упаковки» (ТЗ Упаковка §3). Доступ решает сервер: помимо
+// матрицы прав раздел открывает само назначение упаковщиком (BR-11).
+function PackGuard({ children }: { children: JSX.Element }) {
+  const access = useQuery(api.packs.access, {})
+  if (access === undefined) return <FullScreenLoader />
+  return access.canView ? children : <Navigate to="/" replace />
+}
+
 function AuthedApp() {
   // Деактивированного пользователя выкидываем из кабинета сразу, не дожидаясь
   // истечения сессии. Мутации дополнительно закрыты на сервере (requireEmployee).
   const access = useAccessState()
+  const me = useCurrentUser()
   if (access === 'loading') return <FullScreenLoader />
   if (access === 'blocked') return <AccessRevoked />
+
+  // ТЗ Упаковка §10: у заказчика упаковки собственная оболочка. Ни один раздел
+  // ERP ему не доступен — не только скрыт, но и не смонтирован.
+  if (me.role === 'client') {
+    return (
+      <Suspense fallback={<FullScreenLoader />}>
+        <ClientApp />
+      </Suspense>
+    )
+  }
 
   return (
     <BrowserRouter>
       <AppProvider>
-        <Routes>
-          <Route element={<Layout />}>
-            <Route index element={<Dashboard />} />
-            <Route path="tasks" element={<Guard perm="tasks:view"><Tasks /></Guard>} />
-            <Route path="reports" element={<Reports />} />
-            <Route path="kpi" element={<Guard perm="kpi:view"><Kpi /></Guard>} />
-            <Route path="team" element={<Guard perm="team:view"><Team /></Guard>} />
-            <Route path="activity" element={<Guard perm="activity:view"><Activity /></Guard>} />
-            {/* ТЗ СИСТЕМА §3: раздел для управленческого контроля админа. */}
-            <Route path="effectiveness" element={<Guard perm="owner"><Effectiveness /></Guard>} />
-            {/* §4.2: встречи создают и видят все сотрудники. */}
-            <Route path="meetings" element={<Meetings />} />
-            <Route path="settings" element={<Guard perm="owner"><Settings /></Guard>} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-        </Routes>
+        <Suspense fallback={<FullScreenLoader />}>
+          <Routes>
+            <Route element={<Layout />}>
+              <Route index element={<Dashboard />} />
+              <Route path="tasks" element={<Guard perm="tasks:view"><Tasks /></Guard>} />
+              <Route path="reports" element={<Reports />} />
+              <Route path="kpi" element={<Guard perm="kpi:view"><Kpi /></Guard>} />
+              <Route path="team" element={<Guard perm="team:view"><Team /></Guard>} />
+              <Route path="activity" element={<Guard perm="activity:view"><Activity /></Guard>} />
+              {/* ТЗ СИСТЕМА §3: раздел для управленческого контроля админа. */}
+              <Route path="effectiveness" element={<Guard perm="owner"><Effectiveness /></Guard>} />
+              {/* §4.2: встречи создают и видят все сотрудники. */}
+              <Route path="meetings" element={<Meetings />} />
+              {/* ТЗ Упаковка: производство и запуск франшизы. */}
+              <Route path="packs" element={<PackGuard><Packs /></PackGuard>} />
+              <Route path="packs/:id" element={<PackGuard><PackDetail /></PackGuard>} />
+              <Route path="settings" element={<Guard perm="owner"><Settings /></Guard>} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+          </Routes>
+        </Suspense>
       </AppProvider>
     </BrowserRouter>
   )

@@ -15,13 +15,13 @@ import { v, ConvexError } from 'convex/values'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 import { internal } from './_generated/api'
-import { currentEmployee, requireEmployee, isManager } from './lib'
+import { currentEmployee, requireEmployee, isManager, isStaff } from './lib'
 import { DEFAULT_TZ } from './orgTime'
 import { forgetChat } from './telegramTalk'
 
 // Категории уведомлений (§6.1): администратор включает и выключает их
 // глобально и для конкретного сотрудника, не меняя его права в ERP.
-export const NOTIFY_CATEGORIES = ['task', 'meeting', 'report', 'plan', 'kpi'] as const
+export const NOTIFY_CATEGORIES = ['task', 'meeting', 'report', 'plan', 'kpi', 'pack'] as const
 export type NotifyCategory = (typeof NOTIFY_CATEGORIES)[number]
 
 export const CATEGORY_LABEL: Record<NotifyCategory, string> = {
@@ -30,6 +30,9 @@ export const CATEGORY_LABEL: Record<NotifyCategory, string> = {
   report: 'Отчёты',
   plan: 'Планы и показатели',
   kpi: 'Достижения KPI',
+  // ТЗ Упаковка §14.1: каналы первой итерации — уведомления внутри ERP и
+  // Telegram по общей интеграции.
+  pack: 'Упаковка франшизы',
 }
 
 const DEFAULTS = {
@@ -702,7 +705,9 @@ export const visiblePeople = internalQuery({
   handler: async (ctx, { employeeId }) => {
     const me = await ctx.db.get(employeeId)
     if (!me) return []
-    const all = (await ctx.db.query('employees').collect()).filter((e) => e.status === 'active')
+    const all = (await ctx.db
+      .query('employees')
+      .collect()).filter((e) => e.status === 'active' && isStaff(e))
     const scoped =
       me.role === 'owner'
         ? all

@@ -1,6 +1,6 @@
 import { query } from './_generated/server'
 import { v } from 'convex/values'
-import { currentEmployee, isManager } from './lib'
+import { currentEmployee, isManager, isStaff } from './lib'
 import { viewScope } from './permissions'
 import { LOGIN_WINDOW_MS } from './auth'
 
@@ -50,6 +50,8 @@ export const overview = query({
       (e) =>
         e.status === 'active' &&
         !e.hidden &&
+        // Заказчики упаковки в сводке активности команды не участвуют.
+        isStaff(e) &&
         (scope === 'all'
           ? true
           : me.role === 'head'

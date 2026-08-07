@@ -46,6 +46,21 @@ export function isManager(me: Doc<'employees'> | null | undefined): boolean {
   return me?.role === 'owner' || me?.role === 'head'
 }
 
+// Сотрудник компании, а не заказчик упаковки (ТЗ Упаковка §3). Клиент лежит в
+// той же таблице — только так он входит в ERP тем же email-кодом, — но он не
+// член команды: ему нечего делать в «Команде», выплатах, дисциплине, выборе
+// исполнителя задачи и списке приглашённых на внутреннюю встречу.
+export function isStaff(e: Doc<'employees'> | null | undefined): boolean {
+  return !!e && e.role !== 'client'
+}
+
+// Заказчик упаковки. Прав в ERP у него нет ни одного: матрица описывает
+// только head и employee, поэтому can()/requireCan() роль 'client' не
+// пропускают. Доступ к своему проекту он получает через packClient.*.
+export function isClient(e: Doc<'employees'> | null | undefined): boolean {
+  return e?.role === 'client'
+}
+
 // Мутация только для руководства. Роутер прячет экраны, но запросы и мутации
 // доступны любому авторизованному напрямую — значит право проверяем здесь.
 export async function requireManager(ctx: MutationCtx): Promise<Doc<'employees'>> {
