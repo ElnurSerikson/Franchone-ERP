@@ -44,3 +44,39 @@ export function nowIn(tz: string, at: Date = new Date()) {
 export function momentIn(tz: string, date: string, time: string): number {
   return Date.parse(`${date}T${time}:00${offsetAt(tz, new Date(`${date}T12:00:00Z`))}`)
 }
+
+// ——— Рабочий календарь (дополнение «заявки и выходные», §3) ———
+//
+// В текущей версии выходными считаются только суббота и воскресенье.
+// Праздники и сменные графики документ явно оставляет за рамками (§3.1).
+
+const BIZ = '+05:00'
+
+export function addDays(date: string, delta: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + delta * 86400000).toISOString().slice(0, 10)
+}
+
+export function isWeekend(date: string): boolean {
+  const dow = new Date(`${date}T12:00:00Z`).getUTCDay()
+  return dow === 0 || dow === 6
+}
+
+// День, в который наступает срок сдачи отчёта за указанную дату.
+//
+// Базовое правило ТЗ СИСТЕМА §2 — следующий календарный день. Дополнение §3.2
+// добавляет к нему одно условие: в субботу и воскресенье просрочка не
+// фиксируется. Значит срок сдвигается на ближайший рабочий день — и отчёт за
+// пятницу, и за субботу, и за воскресенье сдаются до 14:00 понедельника.
+export function deadlineDate(date: string): string {
+  let d = addDays(date, 1)
+  // Максимум два шага: суббота → понедельник.
+  for (let i = 0; i < 2 && isWeekend(d); i++) d = addDays(d, 1)
+  return d
+}
+
+// Момент дедлайна в миллисекундах. Единственная реализация на всю ERP:
+// раньше формула была скопирована в четыре модуля, и правило выходных
+// пришлось бы чинить в каждом.
+export function reportDeadlineMs(date: string, time: string): number {
+  return Date.parse(`${deadlineDate(date)}T${time}:00${BIZ}`)
+}

@@ -6,8 +6,8 @@ import { currentEmployee, requireEmployee, isManager, hiddenEmployeeIds } from '
 import { can, requireCan, inScope } from './permissions'
 import { isMonthClosed } from './payroll'
 import { notifyReportFilled, notifyPlanChanged } from './telegramFlow'
+import { reportDeadlineMs } from './orgTime'
 
-const TZ = '+05:00'
 // ТЗ СИСТЕМА §2: до 14:00 следующего календарного дня.
 const DEFAULT_DEADLINE = '14:00'
 
@@ -32,10 +32,12 @@ const managerPlansV = v.array(
 // «Обработано новых заявок» убрано (дополнение 1.4, п.6): ручной ввод отменён,
 // разрыв считается как «Не доведено до консультации» = заявки − консультации.
 // В схеме поле осталось опциональным — стирать историю нельзя.
+// Дополнение «заявки и выходные» §2.3: «Количество заявок» из аргументов
+// убрано — менеджер этот показатель не вводит и не редактирует. Значение
+// приходит из отчёта таргетолога по связке «дата + объект продаж».
 const salesReportArgs = {
   date: v.string(),
   objectId: v.id('salesObjects'),
-  newLeads: v.number(),
   newConsultations: v.number(),
   repeatConsultations: v.number(),
   newMeetings: v.number(),
@@ -44,6 +46,10 @@ const salesReportArgs = {
   newDeals: v.number(),
   revenue: v.number(),
   comment: v.optional(v.string()),
+  // §2.2: обращения из каналов, недоступных таргетологу. Это исходная
+  // информация для него, а не показатель — ни один расчёт её не суммирует.
+  leadsHint: v.optional(v.number()),
+  leadsHintNote: v.optional(v.string()),
 }
 
 type SalesReportFields = Pick<
@@ -112,11 +118,9 @@ function monthsBetween(from: string, to: string): string[] {
   return out
 }
 
-// §2: срок наступает в указанное время СЛЕДУЮЩЕГО календарного дня.
-function deadlineMs(date: string, time: string): number {
-  const next = new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10)
-  return Date.parse(`${next}T${time}:00${TZ}`)
-}
+// §2: срок наступает в указанное время следующего календарного дня, а по
+// дополнению §3.2 — следующего РАБОЧЕГО. Формула одна на всю ERP.
+const deadlineMs = reportDeadlineMs
 
 async function deadlineTime(ctx: QueryCtx | MutationCtx): Promise<string> {
   const s = await ctx.db
@@ -187,6 +191,56 @@ function buildAnalytics(t: SalesTotals, planDeals: number) {
       totalInteractions,
     },
   }
+}
+
+// ——— §2 дополнения: единый учёт количества заявок ———
+//
+// Официальный владелец показателя — таргетолог. Значение хранится на уровне
+// уникальной комбинации «дата + объект продаж» и не разделяется по каналам
+// и источникам (§2.1). Здесь оно собирается один раз и дальше используется
+// всеми расчётами, чтобы одно и то же число не сложилось дважды (§2.3.6).
+async function targetLeadsByObjectDate(
+  ctx: QueryCtx,
+  from: string,
+  to: string,
+): Promise<Map<string, number>> {
+  const rows = await ctx.db
+    .query('targetLeadReports')
+    .withIndex('by_date', (q) => q.gte('date', from).lte('date', to))
+    .collect()
+  const out = new Map<string, number>()
+  for (const r of rows) {
+    const key = `${r.objectId}|${r.date}`
+    out.set(key, (out.get(key) ?? 0) + r.leads)
+  }
+  return out
+}
+
+// §2.1.5: у объекта ровно один ответственный менеджер, и все заявки по нему
+// автоматически относятся к этому менеджеру (§2.1.6). Берём его из настройки
+// месяца, а если её нет — из карточки объекта.
+function responsibleManager(
+  setting: Doc<'salesObjectMonths'> | null | undefined,
+  object: Doc<'salesObjects'> | null | undefined,
+): Id<'employees'> | null {
+  return setting?.managerPlans[0]?.managerId ?? object?.managerIds[0] ?? null
+}
+
+// Заявки таргетолога за конкретный день и объект. Пусто — таргетолог ещё не
+// заполнил отчёт за этот день.
+export async function leadsFor(
+  ctx: QueryCtx | MutationCtx,
+  objectId: Id<'salesObjects'>,
+  date: string,
+): Promise<number | null> {
+  const rows = (
+    await ctx.db
+      .query('targetLeadReports')
+      .withIndex('by_date', (q) => q.eq('date', date))
+      .collect()
+  ).filter((r) => r.objectId === objectId)
+  if (rows.length === 0) return null
+  return rows.reduce((sum, r) => sum + r.leads, 0)
 }
 
 async function salesEmployees(ctx: QueryCtx | MutationCtx, includeHidden = false) {
@@ -397,8 +451,20 @@ export const upsertObject = mutation({
     const cleanName = name.trim()
     if (!cleanName) throw new ConvexError('Название объекта продаж обязательно')
     const salesIds = new Set((await salesEmployees(ctx, me.role === 'owner')).map((e) => e._id))
+    // §2.1.5 дополнения: пересечение ответственности между менеджерами по
+    // одному объекту в текущей версии не предусматривается.
     const cleanManagers = managerIds.filter((mid) => salesIds.has(mid))
+    if (cleanManagers.length > 1) {
+      throw new ConvexError('У объекта продаж может быть только один ответственный менеджер')
+    }
     if (id) {
+      const current = await ctx.db.get(id)
+      // §2.1.4: «Другое» — системный объект. Переименовать или отключить его
+      // нельзя: без него обращения вне активных объектов некуда относить.
+      if (current?.system) {
+        await ctx.db.patch(id, { managerIds: cleanManagers, comment: cleanComment(comment) })
+        return id
+      }
       await ctx.db.patch(id, {
         name: cleanName,
         type,
@@ -456,6 +522,10 @@ export const upsertMonth = mutation({
         managerId: p.managerId,
         planDeals: Math.max(0, Math.floor(p.planDeals || 0)),
       }))
+    // §2.1.5: один объект — один ответственный менеджер и в настройке месяца.
+    if (clean.length > 1) {
+      throw new ConvexError('У объекта продаж может быть только один ответственный менеджер')
+    }
     const existing = await monthSetting(ctx, objectId, month)
     if (existing) {
       await ctx.db.patch(existing._id, { objectStatus: effectiveObjectStatus, status: effectiveMonthStatus, managerPlans: clean })
@@ -468,6 +538,60 @@ export const upsertMonth = mutation({
         managerPlans: clean,
       })
     }
+  },
+})
+
+// §2.1.4 дополнения: системный объект «Другое». Сюда таргетолог относит
+// обращения, которые нельзя привязать к конкретному активному объекту продаж.
+// Создаётся один раз и дальше живёт как обычный объект, только защищён от
+// переименования и удаления.
+export const OTHER_OBJECT_NAME = 'Другое'
+
+export const ensureOther = mutation({
+  args: { month: v.optional(v.string()) },
+  handler: async (ctx, { month }) => {
+    const me = await requireEmployee(ctx)
+    if (me.role !== 'owner') throw new ConvexError('Системный объект заводит владелец')
+    const existing = (await ctx.db.query('salesObjects').collect()).find(
+      (o) => o.system || o.name.trim().toLowerCase() === OTHER_OBJECT_NAME.toLowerCase(),
+    )
+    if (existing) {
+      if (!existing.system) await ctx.db.patch(existing._id, { system: true })
+      if (existing.status !== 'active') await ctx.db.patch(existing._id, { status: 'active' })
+      return existing._id
+    }
+    const objectId = await ctx.db.insert('salesObjects', {
+      name: OTHER_OBJECT_NAME,
+      type: 'service',
+      status: 'active',
+      system: true,
+      managerIds: [],
+      comment: 'Обращения, которые нельзя отнести к конкретному объекту продаж',
+      createdAt: Date.now(),
+      createdBy: me._id,
+    })
+    const m = month ?? businessMonth()
+    await ctx.db.insert('salesObjectMonths', {
+      objectId,
+      month: m,
+      objectStatus: 'active',
+      status: 'selling',
+      managerPlans: [],
+    })
+    return objectId
+  },
+})
+
+// Есть ли системный объект — чтобы интерфейс мог предложить его завести.
+export const otherObject = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await currentEmployee(ctx)
+    if (!me) return null
+    const row = (await ctx.db.query('salesObjects').collect()).find(
+      (o) => o.system || o.name.trim().toLowerCase() === OTHER_OBJECT_NAME.toLowerCase(),
+    )
+    return row ? { _id: row._id, name: row.name, status: row.status } : null
   },
 })
 
@@ -496,13 +620,23 @@ export const assignedObjects = query({
         .map((r) => r.objectId as string),
     )
 
+    // §2.3.1: сохранённое таргетологом количество заявок показывается
+    // менеджеру в его отчёте — только для просмотра.
+    const leads = await targetLeadsByObjectDate(ctx, date, date)
+
     const out = []
     for (const row of rows) {
       const plan = row.managerPlans.find((p) => p.managerId === me._id)
       if (!plan) continue
       const object = await ctx.db.get(row.objectId)
       if (!object || (row.objectStatus ?? object.status) !== 'active') continue
-      out.push({ ...object, planDeals: plan.planDeals, submitted: submitted.has(object._id) })
+      out.push({
+        ...object,
+        planDeals: plan.planDeals,
+        submitted: submitted.has(object._id),
+        // null — таргетолог ещё не заполнил отчёт за этот день.
+        leads: leads.get(`${object._id}|${date}`) ?? null,
+      })
     }
     out.sort((a, b) => a.name.localeCompare(b.name, 'ru'))
     return out
@@ -561,6 +695,8 @@ export const dayForEmployee = query({
       (viewer.role === 'owner' ||
         (isManager(viewer) && inScope(viewer, employee) && (await can(ctx, 'reports', 'edit'))))
 
+    const leads = await targetLeadsByObjectDate(ctx, date, date)
+
     const out = []
     for (const objectId of objectIds) {
       const object = await ctx.db.get(objectId)
@@ -570,7 +706,9 @@ export const dayForEmployee = query({
       const report = reports.find((r) => r.objectId === objectId) ?? null
       const effectiveObjectStatus = setting?.objectStatus ?? object.status
       if (!report && (effectiveObjectStatus !== 'active' || !setting)) continue
-      out.push({ object, report, planDeals })
+      // §2.3: заявки приходят из отчёта таргетолога и здесь тоже только
+      // для просмотра.
+      out.push({ object, report, planDeals, leads: leads.get(`${objectId}|${date}`) ?? null })
     }
     out.sort((a, b) => a.object.name.localeCompare(b.object.name, 'ru'))
     return { rows: out, canEdit, closed }
@@ -596,7 +734,6 @@ export const submitDaily = mutation({
     }
     await ensureAssignedObject(ctx, me._id, args.objectId, month)
 
-    assertWholeNonNegative(args.newLeads, 'Новые заявки')
     assertWholeNonNegative(args.newConsultations, 'Новые консультации')
     assertWholeNonNegative(args.repeatConsultations, 'Повторные консультации')
     assertWholeNonNegative(args.newMeetings, 'Новые встречи / Zoom')
@@ -604,6 +741,9 @@ export const submitDaily = mutation({
     assertWholeNonNegative(args.newPrepayments, 'Новые подписанные договоры')
     assertWholeNonNegative(args.newDeals, 'Новые сделки')
     assertMoney(args.revenue)
+    if (args.leadsHint !== undefined) {
+      assertWholeNonNegative(args.leadsHint, 'Заявки, недоступные таргетологу')
+    }
 
     const existing = await ctx.db
       .query('salesObjectReports')
@@ -613,7 +753,11 @@ export const submitDaily = mutation({
       .first()
     const now = Date.now()
     const payload = {
-      newLeads: args.newLeads,
+      // §2.3: показатель принадлежит таргетологу. У новых записей поле
+      // нулевое, у старых сохраняется как есть — история не переписывается.
+      newLeads: existing?.newLeads ?? 0,
+      leadsHint: args.leadsHint,
+      leadsHintNote: cleanComment(args.leadsHintNote),
       newConsultations: args.newConsultations,
       repeatConsultations: args.repeatConsultations,
       newMeetings: args.newMeetings,
@@ -646,7 +790,7 @@ export const submitDaily = mutation({
       ctx,
       me._id,
       args.date,
-      `Продажи · ${object?.name ?? 'объект'}: заявок ${args.newLeads}, ` +
+      `Продажи · ${object?.name ?? 'объект'}: консультаций ${args.newConsultations}, ` +
         `встреч ${args.newMeetings}, сделок ${args.newDeals}`,
     )
   },
@@ -672,7 +816,6 @@ export const ownerSetDaily = mutation({
       throw new ConvexError('Месяц закрыт — отчёты за него больше не изменяются')
     }
 
-    assertWholeNonNegative(args.newLeads, 'Новые заявки')
     assertWholeNonNegative(args.newConsultations, 'Новые консультации')
     assertWholeNonNegative(args.repeatConsultations, 'Повторные консультации')
     assertWholeNonNegative(args.newMeetings, 'Новые встречи / Zoom')
@@ -691,7 +834,11 @@ export const ownerSetDaily = mutation({
 
     const now = Date.now()
     const payload = {
-      newLeads: args.newLeads,
+      // §2.3: заявки правит таргетолог в своём отчёте, даже администратору
+      // они здесь не принадлежат.
+      newLeads: existing?.newLeads ?? 0,
+      leadsHint: args.leadsHint ?? existing?.leadsHint,
+      leadsHintNote: cleanComment(args.leadsHintNote) ?? existing?.leadsHintNote,
       newConsultations: args.newConsultations,
       repeatConsultations: args.repeatConsultations,
       newMeetings: args.newMeetings,
@@ -873,13 +1020,56 @@ export async function salesSummary(
     const totalsByObject = new Map<string, SalesTotals>()
     const totalsByManager = new Map<string, SalesTotals>()
     for (const r of reports) {
-      addTotals(totals, r)
+      // §2.3: заявки из отчёта менеджера не берутся — они приходят слоем ниже,
+      // из отчёта таргетолога. Всё остальное (консультации, встречи, договоры,
+      // сделки, выручка) по-прежнему его.
+      const withoutLeads = { ...r, newLeads: 0 }
+      addTotals(totals, withoutLeads)
       const objectTotals = totalsByObject.get(r.objectId) ?? zeroTotals()
-      addTotals(objectTotals, r)
+      addTotals(objectTotals, withoutLeads)
       totalsByObject.set(r.objectId, objectTotals)
       const managerTotals = totalsByManager.get(r.employeeId) ?? zeroTotals()
-      addTotals(managerTotals, r)
+      addTotals(managerTotals, withoutLeads)
       totalsByManager.set(r.employeeId, managerTotals)
+    }
+
+    // §2.1, §2.3: количество заявок — показатель таргетолога, ключ «дата +
+    // объект». Каждое значение попадает в расчёт РОВНО ОДИН РАЗ и относится к
+    // единственному ответственному менеджеру объекта (§2.1.5, §2.1.6).
+    const leadMap = await targetLeadsByObjectDate(ctx, from, to)
+    // Переходный период: пока таргетолог не завёл день, показываем то, что
+    // менеджеры вводили руками до этого дополнения. Это не суммирование —
+    // запасное значение берётся только при полном отсутствии записи.
+    const legacyLeads = new Map<string, number>()
+    for (const r of reports) {
+      if (r.newLeads > 0) legacyLeads.set(`${r.objectId}|${r.date}`, r.newLeads)
+    }
+    const inScopeObjectId = (oid: Id<'salesObjects'>) =>
+      objectId ? oid === objectId : activeObjectIds.has(oid)
+    // Объект без ответственного менеджера (например системный «Другое»)
+    // виден в сводке команды, но не приписывается никому лично.
+    const seesUnassigned = isManager(me) && !employeeId
+    const leadObjectIds = new Set<Id<'salesObjects'>>()
+
+    for (const key of new Set([...leadMap.keys(), ...legacyLeads.keys()])) {
+      const sep = key.lastIndexOf('|')
+      const oid = key.slice(0, sep) as Id<'salesObjects'>
+      if (!objectById.has(oid) || !inScopeObjectId(oid)) continue
+      const owner = responsibleManager(settingByObject.get(oid), objectById.get(oid))
+      if (owner ? !visibleEmployeeIds.has(owner) : !seesUnassigned) continue
+      const value = leadMap.get(key) ?? legacyLeads.get(key) ?? 0
+      if (value <= 0) continue
+
+      totals.newLeads += value
+      const objectTotals = totalsByObject.get(oid) ?? zeroTotals()
+      objectTotals.newLeads += value
+      totalsByObject.set(oid, objectTotals)
+      leadObjectIds.add(oid)
+      if (owner) {
+        const managerTotals = totalsByManager.get(owner) ?? zeroTotals()
+        managerTotals.newLeads += value
+        totalsByManager.set(owner, managerTotals)
+      }
     }
 
     const planByObject = new Map(planRows.map((r) => [r.objectId, r]))
@@ -889,8 +1079,7 @@ export async function salesSummary(
         .reduce((sum, p) => sum + p.planDeals, 0)
     // Сводный план — по тем же объектам, что и сводный факт (§5): иначе план
     // приостановленного объекта требовал бы сделок, которых уже никто не ждёт.
-    const inScopeObject = (oid: Id<'salesObjects'>) =>
-      objectId ? oid === objectId : activeObjectIds.has(oid)
+    const inScopeObject = inScopeObjectId
     const totalPlanDeals = planRows.reduce(
       (sum, row) =>
         sum +
@@ -904,6 +1093,9 @@ export async function salesSummary(
 
     const objectIds = new Set<Id<'salesObjects'>>([
       ...reports.map((r) => r.objectId),
+      // Объект, по которому за период есть только заявки таргетолога, тоже
+      // строка воронки: без него «Другое» из §2.4 не появилось бы вовсе.
+      ...leadObjectIds,
       ...planRows
         .filter((r) => inScopeObject(r.objectId))
         .filter((r) => r.managerPlans.some((p) => visibleEmployeeIds.has(p.managerId)))

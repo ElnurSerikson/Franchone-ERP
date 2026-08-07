@@ -18,8 +18,12 @@ type Row = {
   objectId: Id<'salesObjects'>
   name: string
   type: string
+  system: boolean
   leads: number | null
   updatedAt: number | null
+  // §2.2 дополнения: что передал ответственный менеджер по каналам, которых
+  // таргетолог не видит. Исходная информация, а не готовый показатель.
+  hint: { leads: number | null; note: string | null; from: string } | null
 }
 
 const inputCls =
@@ -124,15 +128,34 @@ export default function TargetLeadsForm({
         заявкой не считается; повторное обращение того же человека по тому же объекту новой
         заявки не создаёт.
       </p>
+      {/* §2.1, §2.3: это значение и есть официальное количество заявок — оно
+          сразу появляется в отчёте ответственного менеджера и в LIVE-воронке. */}
+      <div className="rounded-xl bg-chip p-3 text-[11px] text-ink-2 mb-4">
+        Сохранённое здесь число — официальное. Оно автоматически появится в отчёте
+        ответственного менеджера по объекту и станет первой ступенью LIVE-воронки; менеджер
+        изменить его не может. Обращения, которые не относятся ни к одному активному объекту,
+        вносите в «Другое».
+      </div>
 
       <div className="flex flex-col gap-2">
         {parsed.map(({ r, raw }) => (
           <div key={r.objectId} className="flex items-center gap-3">
             <div className="min-w-0 flex-1">
-              <div className="text-sm font-medium text-ink truncate">{r.name}</div>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-sm font-medium text-ink truncate">{r.name}</span>
+                {r.system && <span className="chip bg-chip text-muted">системный</span>}
+              </div>
               <div className="text-[11px] text-muted">
                 {raw.trim() === '' ? 'не заполнено' : raw.trim() === '0' ? 'заявок не было' : 'заполнено'}
               </div>
+              {/* §2.2: сведения менеджера — подсказка, а не слагаемое. */}
+              {r.hint && (
+                <div className="text-[11px] text-[#8a5a12] mt-0.5">
+                  {r.hint.from} передал
+                  {r.hint.leads !== null ? `: ${r.hint.leads}` : ''}
+                  {r.hint.note ? ` — ${r.hint.note}` : ''}
+                </div>
+              )}
             </div>
             <div className="w-28 shrink-0">
               <input

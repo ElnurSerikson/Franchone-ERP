@@ -650,7 +650,14 @@ function SalesForm({ report, date, readOnly }: { report: Report | null; date: st
   )
 }
 
-type SalesAssignedObject = Doc<'salesObjects'> & { planDeals: number; submitted: boolean }
+// §2.3 дополнения: количество заявок приходит из отчёта таргетолога и в форме
+// менеджера доступно только для просмотра. null — таргетолог ещё не заполнил
+// день по этому объекту.
+type SalesAssignedObject = Doc<'salesObjects'> & {
+  planDeals: number
+  submitted: boolean
+  leads: number | null
+}
 type SalesDaily = Doc<'salesObjectReports'> | null
 
 function SalesObjectEditor({
@@ -674,7 +681,6 @@ function SalesObjectEditor({
 }) {
   const submit = useMutation(api.sales.submitDaily)
   const [f, setF] = useState({
-    newLeads: daily ? String(daily.newLeads) : '',
     newConsultations: daily ? String(daily.newConsultations) : '',
     repeatConsultations: daily ? String(daily.repeatConsultations) : '',
     newMeetings: daily ? String(daily.newMeetings) : '',
@@ -683,6 +689,10 @@ function SalesObjectEditor({
     newDeals: daily ? String(daily.newDeals) : '',
     revenue: daily ? String(daily.revenue) : '',
     comment: daily?.comment ?? '',
+    // §2.2: обращения из каналов, которых таргетолог не видит. Передаются ему
+    // как исходная информация и ни в один показатель не суммируются.
+    leadsHint: daily?.leadsHint !== undefined ? String(daily.leadsHint) : '',
+    leadsHintNote: daily?.leadsHintNote ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
@@ -692,23 +702,18 @@ function SalesObjectEditor({
   // иначе галочка появлялась бы с задержкой на круг перезапроса.
   const doneCount = objects.filter((o) => o.submitted || (saved && o._id === object._id)).length
 
-  const setNum = (k: Exclude<keyof typeof f, 'comment'>, v: string) =>
+  const setNum = (k: Exclude<keyof typeof f, 'comment' | 'leadsHintNote'>, v: string) =>
     setF((p) => ({ ...p, [k]: v }))
   const toInt = (v: string) => Math.max(0, Math.floor(Number(v) || 0))
 
   const save = async () => {
     if (readOnly) return
-    if (f.newLeads.trim() === '') {
-      setError('Поле «Новые заявки» обязательно для заполнения.')
-      return
-    }
     setSaving(true)
     setError('')
     try {
       await submit({
         date,
         objectId: object._id as Id<'salesObjects'>,
-        newLeads: toInt(f.newLeads),
         newConsultations: toInt(f.newConsultations),
         repeatConsultations: toInt(f.repeatConsultations),
         newMeetings: toInt(f.newMeetings),
@@ -717,6 +722,8 @@ function SalesObjectEditor({
         newDeals: toInt(f.newDeals),
         revenue: Number(f.revenue) || 0,
         comment: f.comment.trim() || undefined,
+        leadsHint: f.leadsHint.trim() === '' ? undefined : toInt(f.leadsHint),
+        leadsHintNote: f.leadsHintNote.trim() || undefined,
       })
       setSaved(true)
     } catch (e) {
@@ -766,7 +773,7 @@ function SalesObjectEditor({
             Уникальные этапы
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <NumField label="Новые заявки *" value={f.newLeads} onChange={(v) => setNum('newLeads', v)} disabled={readOnly} />
+            <LeadsReadonly leads={object.leads} />
             <NumField label="Новые консультации" value={f.newConsultations} onChange={(v) => setNum('newConsultations', v)} disabled={readOnly} />
             <NumField label="Новые встречи / Zoom" value={f.newMeetings} onChange={(v) => setNum('newMeetings', v)} disabled={readOnly} />
             <NumField label="Новые подписанные договоры" value={f.newPrepayments} onChange={(v) => setNum('newPrepayments', v)} disabled={readOnly} />
@@ -784,6 +791,38 @@ function SalesObjectEditor({
             <div className="col-span-2">
               <NumField label="Фактически полученная сумма, ₸" value={f.revenue} onChange={(v) => setNum('revenue', v)} disabled={readOnly} />
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* §2.2: сведения о заявках и звонках из каналов, недоступных
+          таргетологу. Это исходная информация для него — она не суммируется
+          ни в один показатель и не заменяет его итоговый отчёт. */}
+      <div className="mt-4 rounded-2xl border border-[#f3d9a4] bg-[#fff6e6] p-4">
+        <div className="text-[11px] font-semibold text-[#8a5a12] uppercase tracking-wide mb-1">
+          Сообщить таргетологу
+        </div>
+        <p className="text-[11px] text-[#8a5a12] mb-3">
+          Только те обращения, которые таргетолог не видит сам: звонки, WhatsApp, личные
+          сообщения. Он сложит их со своими данными и сохранит итоговое число заявок —
+          в отчёт эти цифры напрямую не попадают.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-[160px_minmax(0,1fr)]">
+          <NumField
+            label="Заявок вне рекламы"
+            value={f.leadsHint}
+            onChange={(v) => setNum('leadsHint', v)}
+            disabled={readOnly}
+          />
+          <div>
+            <Lbl>Пояснение</Lbl>
+            <input
+              className={`${txtCls} mt-1 disabled:bg-chip disabled:text-muted`}
+              placeholder="Например: 3 звонка по визитке"
+              value={f.leadsHintNote}
+              disabled={readOnly}
+              onChange={(e) => setF((p) => ({ ...p, leadsHintNote: e.target.value }))}
+            />
           </div>
         </div>
       </div>
@@ -882,6 +921,31 @@ function Lbl({ children, right }: { children: ReactNode; right?: boolean }) {
     >
       {children}
     </span>
+  )
+}
+
+// §2.3.2: «Поле "Количество заявок" в отчёте менеджера доступно только для
+// просмотра». Показываем значение таргетолога и честно объясняем, откуда оно.
+function LeadsReadonly({ leads }: { leads: number | null }) {
+  return (
+    <div>
+      <Lbl>Новые заявки</Lbl>
+      <div className="mt-1 h-[38px] rounded-lg bg-chip border border-line px-3 flex items-center justify-between gap-2">
+        <span className="text-base font-bold text-ink tabular-nums">
+          {leads === null ? '—' : num(leads)}
+        </span>
+        <span className="text-[10px] text-muted-2 text-right leading-tight">
+          из отчёта
+          <br />
+          таргетолога
+        </span>
+      </div>
+      {leads === null && (
+        <div className="text-[10px] text-muted-2 mt-1">
+          Таргетолог ещё не заполнил этот день
+        </div>
+      )}
+    </div>
   )
 }
 

@@ -20,6 +20,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import { currentEmployee, requireEmployee, isManager, hiddenEmployeeIds } from './lib'
 import { resultCostCents } from './campaignGoals'
 import { notifyPlanChanged } from './telegramFlow'
+import { reportDeadlineMs } from './orgTime'
 
 function businessToday(): string {
   return new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
@@ -39,10 +40,9 @@ async function deadlineTime(ctx: QueryCtx | MutationCtx): Promise<string> {
   return s?.reportDeadlineTime ?? '14:00'
 }
 
-function deadlineMs(date: string, time: string): number {
-  const next = new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10)
-  return Date.parse(`${next}T${time}:00+05:00`)
-}
+// §2 + дополнение §3.2: срок — указанное время следующего РАБОЧЕГО дня.
+// Формула одна на всю ERP, см. orgTime.reportDeadlineMs.
+const deadlineMs = reportDeadlineMs
 
 function assertWholeNonNegative(value: number, label: string) {
   if (!Number.isFinite(value) || value < 0 || Math.floor(value) !== value) {
@@ -337,15 +337,37 @@ export const day = query({
     )
     const byObject = new Map(saved.map((r) => [r.objectId as string, r]))
 
+    // §2.2 дополнения: сведения об обращениях из каналов, недоступных
+    // таргетологу, передаёт ответственный менеджер. Это исходная информация —
+    // она показывается рядом с полем, но никуда не суммируется: итоговое
+    // значение таргетолог вводит сам.
+    const hints = new Map<string, { leads: number | null; note: string | null; from: string }>()
+    const names = new Map(
+      (await ctx.db.query('employees').collect()).map((e) => [e._id as string, e.name]),
+    )
+    for (const r of await ctx.db
+      .query('salesObjectReports')
+      .withIndex('by_date', (q) => q.eq('date', target))
+      .collect()) {
+      if (r.leadsHint === undefined && !r.leadsHintNote) continue
+      hints.set(r.objectId as string, {
+        leads: r.leadsHint ?? null,
+        note: r.leadsHintNote ?? null,
+        from: names.get(r.employeeId as string) ?? 'менеджер',
+      })
+    }
+
     const rows = objects.map((o) => {
       const row = byObject.get(o._id as string)
       return {
         objectId: o._id,
         name: o.name,
         type: o.type,
+        system: o.system === true,
         // null — поле не заполнено. 0 — заполнено, заявок не было (§6.1).
         leads: row ? row.leads : null,
         updatedAt: row?.updatedAt ?? null,
+        hint: hints.get(o._id as string) ?? null,
       }
     })
 

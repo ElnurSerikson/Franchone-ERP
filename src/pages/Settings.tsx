@@ -1082,6 +1082,10 @@ function SalesObjectsSetup() {
   const monthRows = useQuery(api.sales.monthSettings, { month }) ?? []
   const saveObject = useMutation(api.sales.upsertObject)
   const saveMonth = useMutation(api.sales.upsertMonth)
+  // §2.1.4 дополнения: системный объект «Другое» для обращений, которые нельзя
+  // отнести к конкретному активному объекту продаж.
+  const otherObject = useQuery(api.sales.otherObject)
+  const ensureOther = useMutation(api.sales.ensureOther)
 
   const [statusFilter, setStatusFilter] = useState<'active' | 'paused' | 'archived' | 'all'>('active')
   const [name, setName] = useState('')
@@ -1208,6 +1212,22 @@ function SalesObjectsSetup() {
           <Plus size={16} /> Создать объект
         </button>
       </div>
+
+      {/* §2.1.4: без «Другого» обращения вне активных объектов учитывать негде. */}
+      {otherObject === null && (
+        <div className="rounded-xl border border-[#d69e2e]/30 bg-[#fff6e6] px-3 py-2 text-sm text-[#8a5a00] mb-3 flex items-center gap-3 flex-wrap">
+          <span className="flex-1 min-w-[240px]">
+            Нет системного объекта «Другое». В него таргетолог относит обращения, которые нельзя
+            привязать к конкретному активному объекту продаж.
+          </span>
+          <button
+            onClick={() => void ensureOther({ month })}
+            className="btn btn-green h-8 px-3 text-sm"
+          >
+            <Plus size={14} /> Создать «Другое»
+          </button>
+        </div>
+      )}
 
       {isPastMonth && (
         <div className="rounded-xl border border-[#d69e2e]/30 bg-[#fff6e6] px-3 py-2 text-sm text-[#8a5a00] mb-3">

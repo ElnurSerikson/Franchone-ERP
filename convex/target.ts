@@ -21,6 +21,7 @@ import {
   normalizeAccount,
   resultCostCents,
 } from './campaignGoals'
+import { reportDeadlineMs } from './orgTime'
 
 const TZ = '+05:00'
 
@@ -45,10 +46,9 @@ async function deadlineTime(ctx: QueryCtx | MutationCtx): Promise<string> {
   return s?.reportDeadlineTime ?? '14:00'
 }
 
-function deadlineMs(date: string, time: string): number {
-  const next = new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10)
-  return Date.parse(`${next}T${time}:00${TZ}`)
-}
+// §2 + дополнение §3.2: срок — указанное время следующего РАБОЧЕГО дня.
+// Формула одна на всю ERP, см. orgTime.reportDeadlineMs.
+const deadlineMs = reportDeadlineMs
 
 function businessToday(): string {
   return new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)

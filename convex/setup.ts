@@ -26,7 +26,7 @@ import { v } from 'convex/values'
 import type { Doc, Id } from './_generated/dataModel'
 import { normalizeAccount, resultCostCents } from './campaignGoals'
 import { tgSettings } from './telegram'
-import { nowIn, offsetAt, momentIn } from './orgTime'
+import { nowIn, offsetAt, momentIn, deadlineDate as addendumDeadlineDate } from './orgTime'
 import type { MutationCtx } from './_generated/server'
 // Проверка модуля упаковки использует те же функции, что и сами мутации, —
 // иначе она проверяла бы не продукт, а свою копию правил.
@@ -2819,4 +2819,139 @@ async function devPackWipe(ctx: MutationCtx): Promise<number> {
     removed++
   }
   return removed
+}
+
+// ——— Проверка дополнения «заявки и выходные» ———
+//
+// §2: количество заявок принадлежит таргетологу и попадает в воронку ровно
+// один раз. §3: в субботу и воскресенье просрочки нет, срок — понедельник.
+// Только dev.
+export const devAddendumCheck = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const url = process.env.CONVEX_CLOUD_URL ?? ''
+    if (!url.includes(DEV_DEPLOYMENT)) throw new Error('Только для dev')
+    const log: string[] = []
+
+    // §3.2: срок сдачи не может выпасть на выходной.
+    const week = ['2026-08-06', '2026-08-07', '2026-08-08', '2026-08-09', '2026-08-10']
+    const names = ['чт', 'пт', 'сб', 'вс', 'пн']
+    log.push(
+      '§3.2 срок сдачи: ' +
+        week.map((d, i) => `${names[i]} ${d} → ${addendumDeadlineDate(d)}`).join(', '),
+    )
+
+    await devAddendumWipe(ctx)
+
+    const targetolog = (await ctx.db.query('employees').collect()).find(
+      (e) => e.position === 'targetolog' && e.status === 'active',
+    )
+    const manager = (await ctx.db.query('employees').collect()).find(
+      (e) => e.position === 'sales' && e.status === 'active' && e.role !== 'owner',
+    )
+    if (!targetolog || !manager) {
+      log.push('§2 пропущено: в базе нет активного таргетолога или менеджера продаж')
+      return log
+    }
+
+    const date = '2026-08-03'
+    const month = date.slice(0, 7)
+    const objectId = await ctx.db.insert('salesObjects', {
+      name: 'ПРОВЕРКА · Объект заявок',
+      type: 'franchise',
+      status: 'active',
+      managerIds: [manager._id],
+      createdAt: Date.now(),
+      createdBy: manager._id,
+    })
+    await ctx.db.insert('salesObjectMonths', {
+      objectId,
+      month,
+      objectStatus: 'active',
+      status: 'selling',
+      managerPlans: [{ managerId: manager._id, planDeals: 1 }],
+    })
+
+    // Менеджер сдал свои ступени воронки. Заявок он не вводит (§2.3.2).
+    await ctx.db.insert('salesObjectReports', {
+      employeeId: manager._id,
+      objectId,
+      date,
+      month,
+      newLeads: 0,
+      newConsultations: 18,
+      repeatConsultations: 0,
+      newMeetings: 7,
+      repeatMeetings: 0,
+      newPrepayments: 3,
+      newDeals: 2,
+      revenue: 0,
+      submittedAt: Date.now(),
+      editCount: 0,
+      // §2.2: обращения, которых таргетолог не видит.
+      leadsHint: 4,
+      leadsHintNote: 'звонки по визитке',
+    })
+
+    // Таргетолог сохранил официальное значение (§2.1).
+    await ctx.db.insert('targetLeadReports', {
+      employeeId: targetolog._id,
+      objectId,
+      date,
+      month,
+      leads: 30,
+      updatedAt: Date.now(),
+      updatedById: targetolog._id,
+    })
+
+    const owner = (await ctx.db.query('employees').collect()).find((e) => e.role === 'owner')!
+    const sum = await salesSummary(
+      ctx,
+      { from: date, to: date, objectId },
+      async () => owner,
+    )
+    const row = (sum.objectRows as { name: string; newLeads: number; newConsultations: number; conversions: { consultation: number } }[])[0]
+    log.push(
+      `§2.4 воронка: заявок ${row?.newLeads ?? 0} (ожидаем 30), консультаций ${row?.newConsultations ?? 0} (ожидаем 18), ` +
+        `конверсия ${Math.round((row?.conversions.consultation ?? 0) * 100)}% (ожидаем 60%)`,
+    )
+    log.push(`§2.3.6 без двойного счёта: итог по компании ${sum.totals.newLeads} (ожидаем 30)`)
+
+    // §2.2: подсказка менеджера видна, но в показатель не входит.
+    const hint = (
+      await ctx.db
+        .query('salesObjectReports')
+        .withIndex('by_date', (q) => q.eq('date', date))
+        .collect()
+    ).find((r) => r.objectId === objectId)
+    log.push(
+      `§2.2 подсказка менеджера: ${hint?.leadsHint ?? '—'} — в показатель не вошла (${sum.totals.newLeads} = 30)`,
+    )
+
+    await devAddendumWipe(ctx)
+    return log
+  },
+})
+
+async function devAddendumWipe(ctx: MutationCtx): Promise<void> {
+  for (const o of (await ctx.db.query('salesObjects').collect()).filter((x) =>
+    x.name.startsWith('ПРОВЕРКА'),
+  )) {
+    for (const r of (await ctx.db.query('salesObjectReports').collect()).filter(
+      (x) => x.objectId === o._id,
+    )) {
+      await ctx.db.delete(r._id)
+    }
+    for (const r of (await ctx.db.query('targetLeadReports').collect()).filter(
+      (x) => x.objectId === o._id,
+    )) {
+      await ctx.db.delete(r._id)
+    }
+    for (const r of (await ctx.db.query('salesObjectMonths').collect()).filter(
+      (x) => x.objectId === o._id,
+    )) {
+      await ctx.db.delete(r._id)
+    }
+    await ctx.db.delete(o._id)
+  }
 }

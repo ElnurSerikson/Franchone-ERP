@@ -7,9 +7,9 @@ import { isMonthClosed } from './payroll'
 import { targetDayForEmployee } from './target'
 import { notifyReportFilled } from './telegramFlow'
 import { can, requireCan, inScope, viewScope } from './permissions'
+import { reportDeadlineMs } from './orgTime'
 
 // Бизнес-часовой пояс компании — Asia/Almaty (UTC+5, без перехода на летнее время).
-const TZ = '+05:00'
 // ТЗ СИСТЕМА §2: отчёт за календарный день заполняется до 14:00 СЛЕДУЮЩЕГО
 // дня по Asia/Almaty. Значение настраивается, меняется только час — правило
 // «на следующий день» зашито в deadlineMs.
@@ -53,8 +53,12 @@ function addDays(date: string, delta: number): string {
 // Момент дедлайна для отчётной даты (ms). §2: срок наступает в указанное
 // время СЛЕДУЮЩЕГО календарного дня — отчёт за 1 августа заполняется до
 // 2 августа 14:00 и в 14:00 блокируется.
+//
+// Дополнение «заявки и выходные» §3.2: если этот день выпадает на субботу или
+// воскресенье, срок переносится на понедельник — в выходные просрочка не
+// фиксируется. Правило живёт в orgTime, чтобы совпадать во всех модулях.
 export function deadlineMs(date: string, time: string): number {
-  return Date.parse(`${addDays(date, 1)}T${time}:00${TZ}`)
+  return reportDeadlineMs(date, time)
 }
 
 function effectiveOnTime(r: Doc<'dailyReports'>, time: string): boolean {
@@ -117,8 +121,16 @@ const salesPayload = v.object({
 // вчерашний день, и только пока не пробило 14:00. Раньше — уже только
 // администратор.
 function earliestReportDate(me: Doc<'employees'>, today: string, nowMs: number, time: string): string {
-  const yesterday = addDays(today, -1)
-  const open = nowMs <= deadlineMs(yesterday, time) ? yesterday : today
+  // §3.2.3 дополнения: в понедельник до 14:00 открыты сразу суббота и
+  // воскресенье, а вместе с ними и пятница — её срок тоже сдвинулся с
+  // выходного дня. Поэтому шагаем назад, пока срок дня ещё не наступил, а не
+  // смотрим только на вчерашний день.
+  let open = today
+  for (let back = 1; back <= 3; back++) {
+    const d = addDays(today, -back)
+    if (nowMs > deadlineMs(d, time)) break
+    open = d
+  }
   return me.hiredAt > open ? me.hiredAt : open
 }
 

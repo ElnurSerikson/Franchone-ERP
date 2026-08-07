@@ -355,6 +355,7 @@ function SalesObjectReports({
           date={date}
           object={row.object}
           planDeals={row.planDeals}
+          leads={row.leads}
           report={row.report}
           canEdit={data.canEdit || canCreate}
         />
@@ -376,6 +377,9 @@ function SalesObjectReportRow({
   date,
   object,
   planDeals,
+  // §2.3 дополнения: заявки принадлежат таргетологу. Здесь они только
+  // показываются — ни менеджер, ни администратор их тут не правят.
+  leads,
   report,
   canEdit,
 }: {
@@ -383,13 +387,13 @@ function SalesObjectReportRow({
   date: string
   object: SalesObjectDoc
   planDeals: number
+  leads: number | null
   report: SalesObjectReportDoc
   canEdit: boolean
 }) {
   const save = useMutation(api.sales.ownerSetDaily)
   const [editing, setEditing] = useState(false)
   const [f, setF] = useState(() => ({
-    newLeads: report ? String(report.newLeads) : '',
     newConsultations: report ? String(report.newConsultations) : '',
     repeatConsultations: report ? String(report.repeatConsultations) : '',
     newMeetings: report ? String(report.newMeetings) : '',
@@ -406,10 +410,6 @@ function SalesObjectReportRow({
     setF((prev) => ({ ...prev, [key]: value }))
   const toInt = (value: string) => Math.max(0, Math.floor(Number(value) || 0))
   const doSave = async () => {
-    if (f.newLeads.trim() === '') {
-      setError('Поле «Новые заявки» обязательно.')
-      return
-    }
     setSaving(true)
     setError('')
     try {
@@ -417,7 +417,6 @@ function SalesObjectReportRow({
         employeeId,
         date,
         objectId: object._id as Id<'salesObjects'>,
-        newLeads: toInt(f.newLeads),
         newConsultations: toInt(f.newConsultations),
         repeatConsultations: toInt(f.repeatConsultations),
         newMeetings: toInt(f.newMeetings),
@@ -452,7 +451,11 @@ function SalesObjectReportRow({
         {report ? (
           <>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-              <Metric label="Заявки" value={num(report.newLeads)} />
+              <Metric
+                label="Заявки"
+                value={leads === null ? '—' : num(leads)}
+                hint="из отчёта таргетолога"
+              />
               <Metric label="Консультации" value={num(report.newConsultations)} />
               <Metric label="Встречи" value={num(report.newMeetings)} />
               <Metric label="Сделки" value={num(report.newDeals)} />
@@ -476,7 +479,12 @@ function SalesObjectReportRow({
     <div className="rounded-2xl border border-green-light/50 p-4 bg-[#f8fcfb]">
       <div className="font-semibold text-ink mb-3">{object.name}</div>
       <div className="grid grid-cols-2 gap-3">
-        <EditField label="Новые заявки *" value={f.newLeads} onChange={(v) => setNum('newLeads', v)} />
+        <div>
+          <div className="text-[11px] text-muted mb-1">Заявки · из отчёта таргетолога</div>
+          <div className="h-[38px] rounded-lg bg-chip border border-line px-3 flex items-center text-base font-bold text-ink tabular-nums">
+            {leads === null ? '—' : num(leads)}
+          </div>
+        </div>
         <EditField label="Новые консультации" value={f.newConsultations} onChange={(v) => setNum('newConsultations', v)} />
         <EditField label="Повторные консультации" value={f.repeatConsultations} onChange={(v) => setNum('repeatConsultations', v)} />
         <EditField label="Новые встречи / Zoom" value={f.newMeetings} onChange={(v) => setNum('newMeetings', v)} />
@@ -762,11 +770,12 @@ function HistoryBlock({ history }: { history: NamedEvent[] }) {
   )
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
     <div className="rounded-xl border border-line p-3">
       <div className="text-xs text-muted mb-1">{label}</div>
       <div className="text-lg font-bold text-ink">{value}</div>
+      {hint && <div className="text-[10px] text-muted-2 mt-0.5">{hint}</div>}
     </div>
   )
 }
