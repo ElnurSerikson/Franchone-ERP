@@ -113,22 +113,34 @@ export default function Activity() {
                     </td>
                     <td className={td}>
                       {/* Пара чисел «3 / 9» требовала расшифровки, а вся
-                          история всё равно за кнопкой. Оставляем одну цифру —
-                          за неделю, по ней и судят, работает человек сейчас
-                          или пропал. Месяц показан внутри истории. */}
-                      {act?.loginTotal ? (
-                        <button
-                          type="button"
-                          onClick={() => setHistoryOf({ employee: e, month: act.loginCount30d })}
-                          className="chip bg-[#e2f2ef] text-green-d hover:bg-[#d3ebe6] transition-colors"
-                          title="Показать историю посещений"
-                        >
-                          <History size={13} />
-                          {act.loginCount7d} за неделю
-                        </button>
-                      ) : (
-                        <span className="text-muted">—</span>
-                      )}
+                          история всё равно за кнопкой. Осталась одна цифра —
+                          сколько раз человек заходил сегодня: по ней сразу
+                          видно, кто в системе, а кто ещё не появлялся. Неделя
+                          и месяц — внутри истории.
+
+                          Ноль показываем тоже: пустая ячейка выглядит как сбой
+                          данных, а «0 за сегодня» — это факт. Зелёным он не
+                          горит: зелёный тут значит «человек на месте». */}
+                      {(() => {
+                        const n = act?.countToday ?? 0
+                        const cls = n
+                          ? 'chip bg-[#e2f2ef] text-green-d hover:bg-[#d3ebe6] transition-colors'
+                          : 'chip bg-chip text-muted hover:bg-line transition-colors'
+                        const label = `${n} за сегодня`
+                        return act?.loginTotal ? (
+                          <button
+                            type="button"
+                            onClick={() => setHistoryOf({ employee: e, month: act.loginCount30d })}
+                            className={cls}
+                            title="Показать историю посещений"
+                          >
+                            <History size={13} />
+                            {label}
+                          </button>
+                        ) : (
+                          <span className={`${cls} cursor-default`}>{label}</span>
+                        )
+                      })()}
                     </td>
                     <td className={td}>
                       {stats?.overdue ? <span className="text-[#c53030] font-semibold">{stats.overdue}</span> : '—'}

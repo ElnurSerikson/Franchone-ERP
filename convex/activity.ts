@@ -187,6 +187,10 @@ export const overview = query({
           loginTotal: starts.length,
           loginCount30d: starts.filter((t) => now - t <= 30 * DAY).length,
           loginCount7d: starts.filter((t) => now - t <= 7 * DAY).length,
+          // Заходы за сегодня — по календарным суткам организации, а не за
+          // последние 24 часа: «сегодня» для человека начинается в полночь,
+          // и вчерашний вечер в это число попадать не должен.
+          countToday: starts.filter((t) => localDate(t) === localDate(now)).length,
           lastLoginAt: lastAt,
           minutes30d: Math.round(minutes30d),
           today: !!lastAt && localDate(lastAt) === localDate(now),
