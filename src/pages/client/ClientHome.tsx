@@ -4,29 +4,22 @@
 // требуется от меня. На него страница и отвечает — в таком порядке.
 
 import { Link } from 'react-router-dom'
-import { useMutation, useQuery } from 'convex/react'
+import { useQuery } from 'convex/react'
 import {
-  ArrowRight, CheckCircle2, Clock, FileUp, Gift, Loader2, MessageSquare, Send, Sparkles,
-  type LucideIcon,
+  ArrowRight, Check, CheckCircle2, Clock, FileUp, Gift, Loader2, MessageSquare,
+  PuzzleIcon as Puzzle_, Sparkles, type LucideIcon,
 } from 'lucide-react'
-import { useState } from 'react'
 import { api } from '../../../convex/_generated/api'
 import { ProgressRing } from '@/components/ui/Progress'
-import { errMessage } from '@/lib/errors'
 import { longDate } from '@/lib/format'
 import { STAGE_STATUS } from '../../../convex/packModel'
-import { Deadline, HealthChip, RewardChip, areaCls } from '@/components/packs/ui'
+import { Deadline, HealthChip } from '@/components/packs/ui'
 import { useClientPack } from './ClientApp'
 
 export default function ClientHome() {
   const packId = useClientPack()
   const data = useQuery(api.packClient.dashboard, {})
   const todo = useQuery(api.packClient.todo, packId ? { packId } : 'skip')
-  const contact = useMutation(api.packClient.contactTeam)
-  const [message, setMessage] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [sent, setSent] = useState(false)
-  const [error, setError] = useState('')
 
   if (!data?.pack || !packId) {
     return (
@@ -77,17 +70,17 @@ export default function ClientHome() {
                   <Deadline at={p.timerDueAt} now={data.now} />
                 </span>
                 <Link to="/stages" className="btn btn-green h-8 px-3 text-sm ml-auto">
-                  Открыть этап <ArrowRight size={14} />
+                  Открыть документы <ArrowRight size={14} />
                 </Link>
               </div>
             )}
           </div>
         </div>
 
-        {/* §10.1: визуальный путь / Season Pass */}
+        {/* §6.1, §7: линейка из пяти этапов с их статусами */}
         <div className="mt-6">
           <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-3">
-            Ваш путь
+            Пять этапов упаковки
           </div>
           <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1 -mx-5 px-5 sm:mx-0 sm:px-0">
             {p.path.map((s, i) => {
@@ -124,11 +117,14 @@ export default function ClientHome() {
         </div>
       </section>
 
-      {/* §10.3: блок «Требуется от вас» */}
+      {/* §6.1, §7: блок пазла — собранные части, активная и закрытые. */}
+      <Puzzle puzzle={data.puzzle} gift={data.gift} />
+
+      {/* §6.1: блок «Требуется ваше внимание» */}
       <section className="card p-5 mb-5">
         <div className="flex items-center gap-2 mb-4">
           <Sparkles size={16} className="text-green" />
-          <h2 className="sec-title">Требуется от вас</h2>
+          <h2 className="sec-title">Требуется ваше внимание</h2>
         </div>
 
         {todo === undefined ? (
@@ -227,64 +223,85 @@ export default function ClientHome() {
         )}
       </section>
 
-      {/* §10.1: текущая и будущие награды */}
-      {data.rewards.length > 0 && (
-        <section className="card p-5 mb-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Gift size={16} className="text-green" />
-            <h2 className="sec-title">Награды</h2>
-            <Link to="/rewards" className="text-[12px] text-green-d underline ml-auto">
-              все награды
-            </Link>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {data.rewards.slice(0, 6).map((r) => (
-              <span key={r._id} className="inline-flex items-center gap-2 chip bg-chip text-ink-2">
-                {r.title} <RewardChip status={r.status} />
-              </span>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* §10.4: канал обращения к команде FRANCHONE */}
-      <section className="card p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Send size={16} className="text-green" />
-          <h2 className="sec-title">Написать команде FRANCHONE</h2>
-        </div>
-        <textarea
-          className={areaCls}
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder="Вопрос, пожелание или уточнение по проекту"
-        />
-        {error && <p className="text-sm text-[#c53030] mt-2">{error}</p>}
-        {sent && <p className="text-sm text-green-d mt-2">Сообщение отправлено команде.</p>}
-        <div className="mt-3">
-          <button
-            onClick={async () => {
-              setBusy(true)
-              setError('')
-              setSent(false)
-              try {
-                await contact({ packId, text: message })
-                setMessage('')
-                setSent(true)
-              } catch (e) {
-                setError(errMessage(e, 'Не удалось отправить сообщение.'))
-              } finally {
-                setBusy(false)
-              }
-            }}
-            disabled={busy || !message.trim()}
-            className="btn btn-green h-9 px-4 text-sm disabled:opacity-50"
-          >
-            {busy ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />} Отправить
-          </button>
-        </div>
-      </section>
     </>
+  )
+}
+
+// §7: пазл из пяти частей. Часть открывается за принятый в срок основной
+// этап; нулевой этап части не открывает (§4.2). Факт начисления приходит с
+// сервера, поэтому повторное открытие страницы ничего не начисляет (§7.1).
+function Puzzle({
+  puzzle,
+  gift,
+}: {
+  puzzle: {
+    total: number
+    collected: number
+    parts: {
+      index: number
+      title: string
+      open: boolean
+      active: boolean
+      missed: boolean
+    }[]
+  }
+  gift: { earned: boolean }
+}) {
+  return (
+    <section className="card p-5 mb-5">
+      <div className="flex items-center gap-2 flex-wrap mb-1">
+        <Puzzle_ size={16} className="text-green" />
+        <h2 className="sec-title">Пазл</h2>
+        <span
+          className={`chip ${
+            puzzle.collected === puzzle.total
+              ? 'bg-[#e2f2ef] text-green-d'
+              : 'bg-chip text-ink-2'
+          }`}
+        >
+          собрано {puzzle.collected} из {puzzle.total}
+        </span>
+      </div>
+      <p className="text-xs text-muted mb-4">
+        Каждая часть открывается, когда вы принимаете этап в срок. Полный пазл — гарантированный
+        персональный подарок от FRANCHONE.
+      </p>
+
+      <div className="grid grid-cols-5 gap-2 max-w-md">
+        {puzzle.parts.map((p) => (
+          <div
+            key={p.index}
+            title={p.title}
+            className={`aspect-square rounded-xl grid place-items-center text-lg font-bold transition-all duration-500 ${
+              p.open
+                ? 'bg-green text-white shadow-soft scale-100'
+                : p.missed
+                  ? 'bg-[#fdeaea] text-[#c53030]'
+                  : p.active
+                    ? 'bg-[#e2f2ef] text-green-d ring-2 ring-green-light animate-pulse'
+                    : 'hatch text-muted-2'
+            }`}
+          >
+            {p.open ? <Check size={20} /> : p.index}
+          </div>
+        ))}
+      </div>
+
+      {gift.earned ? (
+        <div className="mt-4 rounded-xl bg-[#e2f2ef] p-3 flex items-start gap-2.5">
+          <Gift size={16} className="text-green-d shrink-0 mt-0.5" />
+          <div className="text-sm text-green-d">
+            Пазл собран полностью. За вами закреплён гарантированный персональный подарок от
+            FRANCHONE — мы подберём его под ваш бизнес и свяжемся отдельно.
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 text-[11px] text-muted-2">
+          Осталось собрать частей: {puzzle.total - puzzle.collected}. Подготовительный этап в
+          пазле не участвует.
+        </div>
+      )}
+    </section>
   )
 }
 

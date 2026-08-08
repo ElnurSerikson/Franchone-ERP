@@ -25,10 +25,18 @@ import {
   teamOf,
   today,
 } from './packs'
-import { addMaterialVersion, addPackComment, approveStage, returnStage } from './packStages'
 import {
+  addMaterialVersion,
+  addPackComment,
+  approveStage,
+  returnStage,
+  syncStageFromMaterials,
+} from './packStages'
+import {
+  PUZZLE_PARTS,
   clientStageStatus,
   isAtClient,
+  isMaterialDone,
   packHealth,
   progressOf,
   type MaterialStatus,
@@ -117,6 +125,26 @@ export const dashboard = query({
       .withIndex('by_pack', (q) => q.eq('packId', pack._id))
       .collect()
 
+    // §6.1, §7: блок пазла — собранные части, активная и закрытые. Часть
+    // соответствует основному этапу; нулевой этап части не открывает (§4.2).
+    const mainStages = stages.filter((s) => s.kind === 'main')
+    const activeIndex = mainStages.findIndex((s) => !s.puzzleAwarded && s.status !== 'approved')
+    const puzzle = {
+      total: PUZZLE_PARTS,
+      collected: mainStages.filter((s) => s.puzzleAwarded).length,
+      parts: mainStages.map((s, i) => ({
+        index: i + 1,
+        stageId: s._id,
+        title: s.title,
+        // open — часть открыта; active — этап в работе или на проверке.
+        open: s.puzzleAwarded === true,
+        active: i === activeIndex,
+        awardedAt: s.puzzleAwardedAt ?? null,
+        // §15: принят после срока — часть автоматически не выдаётся.
+        missed: s.status === 'approved' && !s.puzzleAwarded,
+      })),
+    }
+
     const unread = (
       await ctx.db
         .query('packNotifications')
@@ -170,6 +198,13 @@ export const dashboard = query({
         status: r.status,
         dueAt: r.dueAt ?? null,
       })),
+      puzzle,
+      // §7.2: заказчик видит только ПРАВО на подарок. Содержание заранее не
+      // раскрывается, внутренний статус и описание ему не показываются (§7.3).
+      gift: {
+        earned: !!pack.giftEarnedAt,
+        earnedAt: pack.giftEarnedAt ?? null,
+      },
       unread,
       today: today(),
       now,
@@ -281,6 +316,16 @@ export const stages = query({
           side: m.side,
           dueDate: m.dueDate ?? null,
           version: m.version,
+          // §6.2: два решения доступны, пока материал на проверке.
+          canDecide:
+            m.side === 'team' &&
+            pack.status === 'active' &&
+            (m.status === 'ready' || m.status === 'reworked'),
+          // §6.3: оценка от 1 до 5 звёзд для готового или принятого материала.
+          canRate: m.side === 'team' && isMaterialDone(m.status as MaterialStatus),
+          rating: m.rating ?? null,
+          decidedAt: m.decidedAt ?? null,
+          readyAt: m.readyAt ?? null,
           versions: versions
             .filter((x) => x.materialId === m._id)
             .sort((a, b) => b.version - a.version)
@@ -376,6 +421,112 @@ export const todo = query({
 })
 
 // ——— §10.3: действия клиента ———
+
+// §6.2: «Принять». Материал получает статус «Принят», решение и дата
+// фиксируются. Когда приняты все обязательные материалы этапа, этап
+// принимается сам (§5.3, §13.2) — отдельного действия по этапу у клиента нет.
+export const acceptMaterial = mutation({
+  args: { materialId: v.id('packMaterials') },
+  handler: async (ctx, { materialId }) => {
+    const material = await ctx.db.get(materialId)
+    if (!material) throw new ConvexError('Материал не найден')
+    const { me, pack } = await requireMyPack(ctx, material.packId)
+    if (pack.status !== 'active') throw new ConvexError('Проект не активен')
+    if (material.side !== 'team') throw new ConvexError('Этот материал загружаете вы сами')
+    if (!isMaterialDone(material.status as MaterialStatus)) {
+      throw new ConvexError('Материал ещё не передан на проверку')
+    }
+    if (material.status === 'approved') return
+
+    const now = Date.now()
+    await ctx.db.patch(materialId, {
+      status: 'approved',
+      approvedAt: now,
+      decidedAt: now,
+      decidedById: me._id,
+    })
+    await logPackEvent(ctx, {
+      packId: pack._id,
+      stageId: material.stageId,
+      materialId,
+      type: 'material_status',
+      byId: me._id,
+      field: material.title,
+      to: 'принят',
+    })
+    // Этап пересобирается по материалам: если приняты все обязательные —
+    // он принимается, открывается часть пазла и растёт KPI (§13.2).
+    await syncStageFromMaterials(ctx, material.stageId)
+    await notifyPack(ctx, teamOf(pack), {
+      packId: pack._id,
+      kind: 'material_accepted',
+      title: 'Заказчик принял материал',
+      text: `${pack.title} · ${material.title}`,
+      link: `/packs/${pack._id}`,
+    })
+  },
+})
+
+// §6.2: «На доработку». Обязательный комментарий не требуется — содержание
+// правок стороны обсуждают во внешних каналах (§1.2, §16).
+export const returnMaterial = mutation({
+  args: { materialId: v.id('packMaterials') },
+  handler: async (ctx, { materialId }) => {
+    const material = await ctx.db.get(materialId)
+    if (!material) throw new ConvexError('Материал не найден')
+    const { me, pack } = await requireMyPack(ctx, material.packId)
+    if (pack.status !== 'active') throw new ConvexError('Проект не активен')
+    if (material.side !== 'team') throw new ConvexError('Этот материал загружаете вы сами')
+    if (!isMaterialDone(material.status as MaterialStatus)) {
+      throw new ConvexError('Материал ещё не передан на проверку')
+    }
+    const now = Date.now()
+    await ctx.db.patch(materialId, {
+      status: 'rework',
+      decidedAt: now,
+      decidedById: me._id,
+      returnCount: (material.returnCount ?? 0) + 1,
+      approvedAt: undefined,
+    })
+    await logPackEvent(ctx, {
+      packId: pack._id,
+      stageId: material.stageId,
+      materialId,
+      type: 'material_status',
+      byId: me._id,
+      field: material.title,
+      to: 'на доработке',
+    })
+    // §15 «Материал возвращен»: этап не считается принятым до повторной
+    // приёмки, а срок доработки идёт по настройке этапа.
+    await syncStageFromMaterials(ctx, material.stageId)
+    await notifyPack(ctx, teamOf(pack), {
+      packId: pack._id,
+      kind: 'material_rework',
+      title: 'Заказчик вернул материал на доработку',
+      text: `${pack.title} · ${material.title}`,
+      link: `/packs/${pack._id}`,
+    })
+  },
+})
+
+// §6.3: оценка от 1 до 5 звёзд. Не заменяет «Принять» и на статус не влияет.
+export const rateMaterial = mutation({
+  args: { materialId: v.id('packMaterials'), rating: v.number() },
+  handler: async (ctx, { materialId, rating }) => {
+    const material = await ctx.db.get(materialId)
+    if (!material) throw new ConvexError('Материал не найден')
+    const { pack } = await requireMyPack(ctx, material.packId)
+    void pack
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+      throw new ConvexError('Оценка — целое число от 1 до 5')
+    }
+    if (!isMaterialDone(material.status as MaterialStatus)) {
+      throw new ConvexError('Оценить можно готовый или принятый материал')
+    }
+    await ctx.db.patch(materialId, { rating, ratedAt: Date.now() })
+  },
+})
 
 // §5.3.5: клиент утверждает этап.
 export const approve = mutation({
@@ -657,7 +808,12 @@ export const content = query({
     const maxApproved = approvedOrders.length ? Math.max(...approvedOrders) : -1
     const finished = pack.status === 'done' || pack.status === 'archived'
 
-    return (
+    const results = await ctx.db
+      .query('packTestResults')
+      .withIndex('by_pack', (q) => q.eq('packId', packId))
+      .collect()
+
+    const list = (
       await ctx.db
         .query('packContent')
         .withIndex('by_published', (q) => q.eq('published', true))
@@ -669,13 +825,84 @@ export const content = query({
         if (c.availability === 'post_project') return finished
         return maxApproved >= (c.afterStageOrder ?? 0)
       })
-      .map((c) => ({
+      .filter((c) => {
+        // §8.1: тест можно назначить конкретному этапу — до его приёмки он
+        // в кабинете не показывается.
+        if (c.stageOrder === undefined || c.stageOrder === null) return true
+        return maxApproved >= c.stageOrder
+      })
+    const out = []
+    for (const c of list) {
+      out.push({
         _id: c._id,
         title: c.title,
         kind: c.kind,
+        summary: c.summary ?? null,
         body: c.body ?? null,
         url: c.url ?? null,
-      }))
+        coverUrl: c.coverId ? await ctx.storage.getUrl(c.coverId) : null,
+        // §8.1: вопросы отдаются БЕЗ правильных ответов — иначе тест можно
+        // было бы пройти, посмотрев сетевой запрос.
+        questions: await Promise.all(
+          (c.questions ?? []).map(async (q) => ({
+            text: q.text,
+            multiple: q.multiple,
+            imageUrl: q.imageId ? await ctx.storage.getUrl(q.imageId) : null,
+            options: await Promise.all(
+              q.options.map(async (o) => ({
+                text: o.text,
+                imageUrl: o.imageId ? await ctx.storage.getUrl(o.imageId) : null,
+              })),
+            ),
+          })),
+        ),
+        // Последний результат прохождения — чтобы не проходить заново вслепую.
+        result:
+          results
+            .filter((r) => r.contentId === c._id)
+            .sort((a, b) => b.at - a.at)
+            .map((r) => ({ correct: r.correct, total: r.total, at: r.at }))[0] ?? null,
+      })
+    }
+    return out
+  },
+})
+
+// §8.1: прохождение теста и подсчёт результата после завершения. Тесты не
+// влияют на прогресс, KPI, сроки приёмки и пазл (§8, §16).
+export const submitTest = mutation({
+  args: {
+    contentId: v.id('packContent'),
+    packId: v.id('packs'),
+    // Номера выбранных вариантов по каждому вопросу.
+    answers: v.array(v.array(v.number())),
+  },
+  handler: async (ctx, { contentId, packId, answers }) => {
+    const { me, pack } = await requireMyPack(ctx, packId)
+    void pack
+    const content = await ctx.db.get(contentId)
+    if (!content || !content.published || content.kind !== 'test') {
+      throw new ConvexError('Тест не найден')
+    }
+    const questions = content.questions ?? []
+    let correct = 0
+    questions.forEach((q, i) => {
+      const picked = new Set(answers[i] ?? [])
+      const right = new Set(q.options.map((o, k) => (o.correct ? k : -1)).filter((k) => k >= 0))
+      // Ответ засчитывается, только если выбраны ровно все правильные.
+      const same =
+        picked.size === right.size && [...right].every((k) => picked.has(k))
+      if (same) correct += 1
+    })
+    await ctx.db.insert('packTestResults', {
+      contentId,
+      packId,
+      employeeId: me._id,
+      correct,
+      total: questions.length,
+      at: Date.now(),
+    })
+    return { correct, total: questions.length }
   },
 })
 

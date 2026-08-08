@@ -6,8 +6,8 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery } from 'convex/react'
 import {
-  CalendarDays, CheckSquare, Check, Gift, History, ListTree, Loader2, Plus, Rows3, Trash2, Users,
-  Wallet,
+  CalendarDays, CheckSquare, Check, Gift, ListTree, Loader2, Plus,
+  PuzzleIcon, Rows3, Trash2, Users, Wallet,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -15,8 +15,8 @@ import Select from '@/components/ui/Select'
 import DatePicker from '@/components/ui/DatePicker'
 import { errMessage } from '@/lib/errors'
 import { kzt, longDate } from '@/lib/format'
-import { EVENT_LABEL, MILESTONE_KIND_LABEL, REWARD_STATUS } from '../../../convex/packModel'
-import { Empty, Field, RewardChip, areaCls, dateTime, inputCls, tabStrip } from './ui'
+import { GIFT_STATUS, MILESTONE_KIND_LABEL, type GiftStatus } from '../../../convex/packModel'
+import { Field, areaCls, inputCls, tabStrip } from './ui'
 
 // ——— §6.2: календарь проекта ———
 
@@ -286,52 +286,12 @@ function Milestones({ packId }: { packId: Id<'packs'> }) {
   )
 }
 
-// ——— §14.2: журнал действий ———
+// §15.1, §16: подробного журнала пользователю не показываем — события
+// продолжают сохраняться в базе, потому что на них держится логика.
 
-export function PackJournalTab({ packId }: { packId: Id<'packs'> }) {
-  const rows = useQuery(api.packs.journal, { id: packId })
-  if (rows === undefined) {
-    return (
-      <div className="card p-10 grid place-items-center text-muted">
-        <Loader2 className="animate-spin" size={20} />
-      </div>
-    )
-  }
-  if (rows.length === 0) {
-    return <Empty icon={History} title="Журнал пуст" text="Здесь появятся все действия по проекту." />
-  }
-  return (
-    <div className="card p-5">
-      <div className="flex items-center gap-2 mb-4">
-        <History size={16} className="text-green" />
-        <h3 className="sec-title">Журнал действий</h3>
-        <span className="chip bg-chip text-muted">{rows.length}</span>
-      </div>
-      <div className="flex flex-col gap-1.5">
-        {rows.map((e) => (
-          <div key={e._id} className="text-[12px] text-ink-2 flex gap-2 flex-wrap py-1.5 border-b border-line last:border-0">
-            <span className="text-muted-2 shrink-0 w-32">{dateTime(e.at)}</span>
-            <span className="font-medium">{EVENT_LABEL[e.type] ?? e.type}</span>
-            {e.stage && <span className="text-muted">· {e.stage}</span>}
-            {e.field && <span className="text-muted">· {e.field}</span>}
-            {(e.from || e.to) && (
-              <span className="text-muted">
-                {e.from ?? '—'} → {e.to ?? '—'}
-              </span>
-            )}
-            {e.reason && <span className="text-[#b7791f]">причина: {e.reason}</span>}
-            {e.note && <span className="text-muted">{e.note}</span>}
-            {e.financial && <span className="chip bg-[#fff6e6] text-[#b7791f]">финансы</span>}
-            <span className="text-muted-2">— {e.by}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-// ——— §12: награды проекта ———
-
+// §7, §11.3: состояние пазла и персонального подарка. Администратор видит
+// право на подарок и внутренний статус, может вручную сохранить или
+// восстановить право на часть пазла в исключительной ситуации.
 export function PackRewardsTab({
   packId,
   isOwner,
@@ -339,23 +299,16 @@ export function PackRewardsTab({
   packId: Id<'packs'>
   isOwner: boolean
 }) {
-  const rows = useQuery(api.packExtras.rewards, { packId })
-  const board = useQuery(api.packStages.board, { packId })
-  const create = useMutation(api.packExtras.createReward)
-  const update = useMutation(api.packExtras.updateReward)
-  const remove = useMutation(api.packExtras.removeReward)
-
-  const [open, setOpen] = useState(false)
-  const [title, setTitle] = useState('')
-  const [description, setDescription] = useState('')
-  const [imageUrl, setImageUrl] = useState('')
-  const [condition, setCondition] = useState('')
-  const [stageId, setStageId] = useState('')
-  const [dueDate, setDueDate] = useState('')
+  const pack = useQuery(api.packs.get, { id: packId })
+  const setPart = useMutation(api.packs.setPuzzlePart)
+  const setGift = useMutation(api.packs.setGift)
+  const [reason, setReason] = useState('')
+  const [editing, setEditing] = useState<string | null>(null)
+  const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  if (rows === undefined) {
+  if (!pack) {
     return (
       <div className="card p-10 grid place-items-center text-muted">
         <Loader2 className="animate-spin" size={20} />
@@ -365,131 +318,137 @@ export function PackRewardsTab({
 
   return (
     <>
-      <div className="flex items-center gap-2 flex-wrap mb-4">
-        <Gift size={16} className="text-green" />
-        <h3 className="sec-title">Награды клиента</h3>
-        <span className="chip bg-chip text-muted">{rows.length}</span>
-        <div className="flex-1" />
-        {isOwner && (
-          <button onClick={() => setOpen((v) => !v)} className="btn btn-green h-9 px-3 text-sm">
-            <Plus size={15} /> Добавить награду
-          </button>
-        )}
-      </div>
+      <section className="card p-5 mb-4">
+        <div className="flex items-center gap-2 flex-wrap mb-3">
+          <PuzzleIcon size={16} className="text-green" />
+          <h3 className="sec-title">Пазл заказчика</h3>
+          <span
+            className={`chip ${
+              pack.puzzle.collected === pack.puzzle.total
+                ? 'bg-[#e2f2ef] text-green-d'
+                : 'bg-chip text-ink-2'
+            }`}
+          >
+            {pack.puzzle.collected} из {pack.puzzle.total}
+          </span>
+        </div>
+        <p className="text-[12px] text-muted mb-4">
+          Часть открывается, когда заказчик принимает основной этап в пределах срока приёмки.
+          Нулевой этап части не открывает. Принял после срока — часть автоматически не выдаётся,
+          но администратор может применить исключение.
+        </p>
 
-      <div className="rounded-xl bg-chip p-3 text-[12px] text-ink-2 mb-4">
-        §5.4: награда сохраняется, если клиент в срок либо утверждает этап, либо присылает
-        замечания. Возврат на доработку награду не отнимает — иначе система подталкивала бы
-        принимать результат без проверки.
-      </div>
-
-      {open && isOwner && (
-        <section className="card p-5 mb-4 flex flex-col gap-3">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Название награды">
-              <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Разбор воронки продаж" />
-            </Field>
-            <Field label="За какой этап">
-              <Select
-                value={stageId}
-                onChange={setStageId}
-                options={[
-                  { value: '', label: 'Без привязки к этапу' },
-                  ...(board?.stages ?? []).map((s) => ({ value: s._id as string, label: s.title })),
-                ]}
-              />
-            </Field>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field label="Условие получения">
-              <input className={inputCls} value={condition} onChange={(e) => setCondition(e.target.value)} placeholder="Ответить по этапу в срок" />
-            </Field>
-            {/* §12: «срок выполнения условия». Пусто — срок берётся от этапа. */}
-            <Field label="Срок условия" hint="Пусто — столько же, сколько у клиента на ответ по этапу.">
-              <DatePicker value={dueDate} onChange={setDueDate} />
-            </Field>
-          </div>
-          <Field label="Описание">
-            <textarea className={areaCls} value={description} onChange={(e) => setDescription(e.target.value)} />
-          </Field>
-          <Field label="Ссылка на изображение">
-            <input className={inputCls} value={imageUrl} onChange={(e) => setImageUrl(e.target.value)} placeholder="https://" />
-          </Field>
-          {error && <p className="text-sm text-[#c53030]">{error}</p>}
-          <div>
-            <button
-              onClick={async () => {
-                setBusy(true)
-                setError('')
-                try {
-                  await create({
-                    packId,
-                    stageId: stageId ? (stageId as Id<'packStages'>) : undefined,
-                    title,
-                    description: description || undefined,
-                    imageUrl: imageUrl || undefined,
-                    condition: condition || undefined,
-                    dueDate: dueDate || undefined,
-                  })
-                  setOpen(false)
-                  setTitle('')
-                  setDescription('')
-                  setCondition('')
-                  setImageUrl('')
-                } catch (e) {
-                  setError(errMessage(e, 'Не удалось создать награду.'))
-                } finally {
-                  setBusy(false)
-                }
-              }}
-              disabled={busy}
-              className="btn btn-green disabled:opacity-60"
-            >
-              {busy && <Loader2 size={15} className="animate-spin" />} Создать
-            </button>
-          </div>
-        </section>
-      )}
-
-      {rows.length === 0 ? (
-        <Empty
-          icon={Gift}
-          title="Наград нет"
-          text="Награда мотивирует клиента быстро давать обратную связь. Состав и ценность определяются отдельно."
-        />
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {rows.map((r) => (
-            <div key={r._id} className="card p-4">
-              <div className="flex items-start gap-2 flex-wrap">
-                <span className="text-sm font-semibold text-ink flex-1">{r.title}</span>
-                <RewardChip status={r.status} />
+        <div className="flex flex-col gap-2">
+          {pack.puzzle.parts.map((p) => (
+            <div key={p.stageId} className="rounded-xl border border-line p-3 flex items-center gap-3 flex-wrap">
+              <span
+                className={`w-9 h-9 rounded-xl grid place-items-center text-sm font-bold shrink-0 ${
+                  p.awarded ? 'bg-green text-white' : 'hatch text-muted-2'
+                }`}
+              >
+                {p.index}
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="text-[13px] font-semibold text-ink truncate">{p.title}</div>
+                <div className="text-[11px] text-muted">
+                  {p.awarded ? 'часть открыта' : p.accepted ? 'этап принят после срока' : 'этап ещё не принят'}
+                  {p.manual ? ' · вручную' : ''}
+                  {p.reason ? ` · ${p.reason}` : ''}
+                </div>
               </div>
-              <div className="text-[11px] text-muted mt-1">
-                {r.stage ? `этап: ${r.stage}` : 'без привязки к этапу'}
-                {r.condition ? ` · ${r.condition}` : ''}
-              </div>
-              {r.description && <p className="text-[13px] text-ink-2 mt-2">{r.description}</p>}
-              {r.earnedAt && (
-                <div className="text-[11px] text-green-d mt-1">заработана {dateTime(r.earnedAt)}</div>
-              )}
               {isOwner && (
-                <div className="mt-3 pt-3 border-t border-line flex items-center gap-2 flex-wrap">
-                  <Select
-                    variant="ghost"
-                    value={r.status}
-                    onChange={(v) => void update({ id: r._id, status: v as 'granted' })}
-                    options={Object.entries(REWARD_STATUS).map(([value, x]) => ({ value, label: x.label }))}
-                  />
-                  <button onClick={() => void remove({ id: r._id })} className="mini-btn text-[#c53030]">
-                    <Trash2 size={12} /> Удалить
-                  </button>
+                <button
+                  onClick={() => {
+                    setEditing(editing === (p.stageId as string) ? null : (p.stageId as string))
+                    setReason('')
+                  }}
+                  className="mini-btn"
+                >
+                  {p.awarded ? 'Снять часть' : 'Выдать часть'}
+                </button>
+              )}
+              {isOwner && editing === (p.stageId as string) && (
+                <div className="w-full flex flex-col gap-2 pt-2 border-t border-line">
+                  <Field label="Административная причина" hint="Обязательна для ручной корректировки.">
+                    <input className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} />
+                  </Field>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        setBusy(true)
+                        setError('')
+                        try {
+                          await setPart({ stageId: p.stageId, awarded: !p.awarded, reason })
+                          setEditing(null)
+                        } catch (e) {
+                          setError(errMessage(e, 'Не удалось изменить часть пазла.'))
+                        } finally {
+                          setBusy(false)
+                        }
+                      }}
+                      disabled={busy || !reason.trim()}
+                      className="btn btn-green h-8 px-3 text-sm disabled:opacity-50"
+                    >
+                      {busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Сохранить
+                    </button>
+                    <button onClick={() => setEditing(null)} className="btn btn-ghost h-8 px-3 text-sm">
+                      Отмена
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
           ))}
         </div>
-      )}
+        {error && <p className="text-sm text-[#c53030] mt-3">{error}</p>}
+      </section>
+
+      <section className="card p-5">
+        <div className="flex items-center gap-2 flex-wrap mb-3">
+          <Gift size={16} className="text-green" />
+          <h3 className="sec-title">Персональный подарок</h3>
+          {pack.gift.earned ? (
+            <span className="chip bg-[#e2f2ef] text-green-d">право подтверждено</span>
+          ) : (
+            <span className="chip bg-chip text-muted">пазл не собран</span>
+          )}
+          <span className={`chip ${GIFT_STATUS[pack.gift.status as GiftStatus].chip}`}>
+            {GIFT_STATUS[pack.gift.status as GiftStatus].label}
+          </span>
+        </div>
+        <p className="text-[12px] text-muted mb-4">
+          Содержание подарка заказчику не раскрывается — он видит только право на него. Выбор,
+          подготовка и отправка идут вне ERP, здесь ведётся только внутренний статус.
+        </p>
+
+        {isOwner ? (
+          <div className="flex flex-col gap-3">
+            <Field label="Внутреннее описание" hint="Клиенту не показывается.">
+              <textarea
+                className={areaCls}
+                value={note || (pack.gift.note ?? '')}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Что дарим и почему"
+              />
+            </Field>
+            <div className="flex items-center gap-2 flex-wrap">
+              {(Object.keys(GIFT_STATUS) as GiftStatus[]).map((st) => (
+                <button
+                  key={st}
+                  onClick={() => void setGift({ packId, status: st, note: note || undefined })}
+                  className={`chip ${
+                    pack.gift.status === st ? 'bg-green text-white' : 'bg-chip text-muted'
+                  }`}
+                >
+                  {GIFT_STATUS[st].label}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted">Подарком управляет администратор.</p>
+        )}
+      </section>
     </>
   )
 }

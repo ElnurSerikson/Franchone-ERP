@@ -6,8 +6,8 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery } from 'convex/react'
 import {
-  Archive, ArrowLeft, Boxes, CalendarDays, CheckCircle2, Gift, History, ListChecks, Loader2,
-  Pause, Play, Rocket, Settings2, Users, Wallet,
+  Archive, ArrowLeft, Boxes, CalendarDays, CheckCircle2, Gift, ListChecks, Loader2,
+  Pause, Play, PuzzleIcon, Rocket, Settings2, Star, Users, Wallet,
 } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -18,14 +18,12 @@ import { errMessage } from '@/lib/errors'
 import { kzt } from '@/lib/format'
 import StageBoard from '@/components/packs/StageBoard'
 import PackStructure from '@/components/packs/PackStructure'
-import {
-  PackCalendarTab, PackJournalTab, PackRewardsTab, PackWorkTab,
-} from '@/components/packs/PackTabs'
+import { PackCalendarTab, PackRewardsTab, PackWorkTab } from '@/components/packs/PackTabs'
 import {
   Deadline, HealthChip, PackStatusChip, SideChip, areaCls, dateOnly, tabStrip,
 } from '@/components/packs/ui'
 
-type Tab = 'stages' | 'structure' | 'calendar' | 'rewards' | 'work' | 'journal'
+type Tab = 'stages' | 'structure' | 'calendar' | 'rewards' | 'work'
 
 export default function PackDetail() {
   const { id } = useParams<{ id: string }>()
@@ -86,9 +84,8 @@ export default function PackDetail() {
     { key: 'stages', label: 'Этапы и материалы', icon: ListChecks, show: true },
     { key: 'structure', label: 'Структура и экономика', icon: Settings2, show: pack.canManage },
     { key: 'calendar', label: 'Календарь', icon: CalendarDays, show: true },
-    { key: 'rewards', label: 'Награды', icon: Gift, show: true },
+    { key: 'rewards', label: 'Пазл и подарок', icon: Gift, show: true },
     { key: 'work', label: 'Задачи и встречи', icon: Users, show: true },
-    { key: 'journal', label: 'Журнал', icon: History, show: true },
   ]
 
   return (
@@ -255,6 +252,20 @@ export default function PackDetail() {
         )}
 
         <div className="mt-4 pt-4 border-t border-line flex items-center gap-3 flex-wrap">
+          {/* §7, §11.2: пазл, подарок и средняя оценка заказчика. */}
+          <span className="chip bg-chip text-ink-2">
+            <PuzzleIcon size={12} /> пазл {pack.puzzle.collected}/{pack.puzzle.total}
+          </span>
+          {pack.gift.earned && (
+            <span className="chip bg-[#e2f2ef] text-green-d">
+              <Gift size={12} /> подарок заслужен
+            </span>
+          )}
+          {pack.rating !== null && (
+            <span className="chip bg-[#fff6e6] text-[#b7791f]">
+              <Star size={12} /> оценка {pack.rating.toFixed(1)}
+            </span>
+          )}
           {pack.client && (
             <span className="inline-flex items-center gap-2 chip bg-chip text-ink-2">
               <Avatar initials={pack.client.initials} color={pack.client.avatarColor} size={18} />
@@ -325,7 +336,6 @@ export default function PackDetail() {
       {tab === 'calendar' && <PackCalendarTab packId={packId} canManage={pack.canManage} />}
       {tab === 'rewards' && <PackRewardsTab packId={packId} isOwner={pack.isOwner} />}
       {tab === 'work' && <PackWorkTab packId={packId} />}
-      {tab === 'journal' && <PackJournalTab packId={packId} />}
     </>
   )
 }

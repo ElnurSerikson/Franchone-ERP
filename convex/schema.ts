@@ -674,7 +674,17 @@ export default defineSchema({
   telegramDrafts: defineTable({
     chatId: v.number(),
     employeeId: v.id('employees'),
-    kind: v.union(v.literal('task'), v.literal('meeting')),
+    // Что человек просит сделать. Создание было первым, остальное добавлено
+    // позже: закрыть задачу, перенести или отменить встречу, сдвинуть срок.
+    // Любое из этих действий проходит через карточку с подтверждением.
+    kind: v.union(
+      v.literal('task'),
+      v.literal('meeting'),
+      v.literal('task_done'),
+      v.literal('task_deadline'),
+      v.literal('meeting_move'),
+      v.literal('meeting_cancel'),
+    ),
     // Извлечённые поля, JSON. Схема полей своя у задачи и встречи.
     payload: v.string(),
     transcript: v.string(),
@@ -753,6 +763,14 @@ export default defineSchema({
     tgKpiTexts: v.optional(v.array(v.object({ threshold: v.number(), text: v.string() }))),
     // §7.1: режим перевыполнения — пороги выше 100%.
     tgKpiOverachieve: v.optional(v.boolean()),
+    // Утренняя сводка: бот сам пишет первым в начале рабочего дня.
+    tgDigestAt: v.optional(v.string()), // «HH:MM», по умолчанию 09:00
+    tgDigestOn: v.optional(v.boolean()),
+    // Окно, в котором допустимы «мягкие» сообщения — сводка, напоминания,
+    // пороги KPI. Событие, которое человек ждёт прямо сейчас (ему поставили
+    // задачу, назначили встречу), уходит немедленно и в это окно не смотрит.
+    tgQuietFrom: v.optional(v.string()), // «HH:MM», начало окна, по умолчанию 09:00
+    tgQuietTo: v.optional(v.string()), // «HH:MM», конец окна, по умолчанию 20:00
 
     // ——— Модуль «Производство и запуск франшизы» ———
     // §6.3: «до дедлайна остаётся настраиваемый короткий период» — сколько
@@ -836,6 +854,19 @@ export default defineSchema({
     // §13.1: после 100% проект переходит в постоянный итоговый хаб.
     hubOpenedAt: v.optional(v.number()),
     hubNote: v.optional(v.string()),
+    // ТЗ v1.1 §7.2, §7.3: гарантированный персональный подарок за полный
+    // пазл. Заказчик видит только право на него — содержание не раскрывается,
+    // внутренний статус и описание остаются администратору.
+    giftEarnedAt: v.optional(v.number()),
+    giftStatus: v.optional(
+      v.union(
+        v.literal('none'),
+        v.literal('chosen'),
+        v.literal('prepared'),
+        v.literal('sent'),
+      ),
+    ),
+    giftNote: v.optional(v.string()),
     createdById: v.id('employees'),
     createdAt: v.number(),
     // Денормализованное время последнего события — §8.1 «проекты без активности».
@@ -894,6 +925,23 @@ export default defineSchema({
     approvedOnTime: v.optional(v.boolean()),
     // Состояние, из которого этап ушёл на паузу (§5.2).
     pausedFrom: v.optional(v.string()),
+
+    // ——— ТЗ v1.1 ———
+    // §7.1: часть пазла за этап. Открывается при приёмке в пределах срока,
+    // настроенного для этого этапа; нулевой этап части не открывает (§4.2).
+    // Повторное открытие страницы начислить её второй раз не может — факт
+    // хранится здесь, а не считается на лету (§7.1, §15.1).
+    puzzleAwarded: v.optional(v.boolean()),
+    puzzleAwardedAt: v.optional(v.number()),
+    // §7.3, §11.3: администратор может вручную сохранить или восстановить
+    // право на часть в исключительной ситуации — с обязательной причиной.
+    puzzleManual: v.optional(v.boolean()),
+    puzzleReason: v.optional(v.string()),
+    // §15.1: фактический срок приёмки этапа — с ним сравнивается дата решения.
+    acceptDueAt: v.optional(v.number()),
+    // §15: этап нельзя активировать без обязательных материалов, если
+    // администратор явно не разрешил этап без документов.
+    allowNoDocs: v.optional(v.boolean()),
   })
     .index('by_pack', ['packId'])
     .index('by_pack_order', ['packId', 'order'])
@@ -928,6 +976,21 @@ export default defineSchema({
     dueDate: v.optional(v.string()),
     version: v.number(), // номер последней версии; 0 — версий ещё нет
     approvedAt: v.optional(v.number()),
+    // ——— ТЗ v1.1 ———
+    // §6.3: оценка заказчика от 1 до 5 звёзд. Не заменяет «Принять» и на
+    // статус не влияет; нужна упаковщику, администратору и сводной аналитике.
+    rating: v.optional(v.number()),
+    ratedAt: v.optional(v.number()),
+    // §15.1: минимально необходимые системные данные. Журнал пользователю не
+    // показывается, но эти отметки нужны логике и расчётам.
+    // Дата перевода в «Готов к проверке» — по ней считается своевременность
+    // упаковщика (§10), а не по дате решения заказчика.
+    readyAt: v.optional(v.number()),
+    readyOnTime: v.optional(v.boolean()),
+    // Дата и автор решения «Принять» или «На доработку».
+    decidedAt: v.optional(v.number()),
+    decidedById: v.optional(v.id('employees')),
+    returnCount: v.optional(v.number()),
     // §3: клиент грузит свои исходники и вложения — это его материалы.
     side: v.union(v.literal('team'), v.literal('client')),
     createdAt: v.number(),
@@ -1075,6 +1138,32 @@ export default defineSchema({
     ),
     body: v.optional(v.string()),
     url: v.optional(v.string()),
+    // ТЗ v1.1 §8: короткое описание и обложка. Обложка — файл в хранилище
+    // ERP (JPG/JPEG, PNG, WebP в пределах общих лимитов).
+    summary: v.optional(v.string()),
+    coverId: v.optional(v.id('_storage')),
+    // §8.1: минимальный конструктор тестов. Вопросы лежат в самой карточке —
+    // отдельная таблица здесь только усложнила бы редактирование: тест
+    // всегда правится целиком.
+    questions: v.optional(
+      v.array(
+        v.object({
+          text: v.string(),
+          imageId: v.optional(v.id('_storage')),
+          // Несколько правильных ответов допускаются (§8.1).
+          multiple: v.boolean(),
+          options: v.array(
+            v.object({
+              text: v.string(),
+              imageId: v.optional(v.id('_storage')),
+              correct: v.boolean(),
+            }),
+          ),
+        }),
+      ),
+    ),
+    // §8.1: тест можно назначить конкретному проекту или этапу.
+    stageOrder: v.optional(v.number()),
     published: v.boolean(),
     // Когда материал доступен клиенту: сразу, после этапа N, либо только
     // после завершения проекта.
@@ -1089,6 +1178,20 @@ export default defineSchema({
     createdById: v.id('employees'),
     createdAt: v.number(),
   }).index('by_published', ['published']),
+
+  // §8.1: результат прохождения теста заказчиком. Подсчёт после завершения;
+  // на прогресс, KPI и пазл тесты не влияют (§8).
+  packTestResults: defineTable({
+    contentId: v.id('packContent'),
+    packId: v.id('packs'),
+    employeeId: v.id('employees'),
+    correct: v.number(),
+    total: v.number(),
+    at: v.number(),
+  })
+    .index('by_content', ['contentId'])
+    .index('by_pack', ['packId'])
+    .index('by_employee', ['employeeId']),
 
   // §13.2: постпроектный сценарий. Владелец задаёт условие запуска и действие,
   // не привязываясь к заранее определённому содержанию.

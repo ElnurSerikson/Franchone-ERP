@@ -8,17 +8,14 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import {
-  Check, ChevronDown, ChevronRight, Clock, FileUp, Link2, Loader2, MessageSquare, Paperclip,
-  Send, Undo2,
+  Check, ChevronDown, ChevronRight, Clock, FileUp, Link2, Loader2, Paperclip, Star, Undo2,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import type { Id } from '../../../convex/_generated/dataModel'
-import Avatar from '@/components/ui/Avatar'
 import { errMessage } from '@/lib/errors'
 import { uploadToStorage } from '@/lib/packUpload'
 import { MATERIAL_KIND_LABEL } from '../../../convex/packModel'
 import {
-  AttachmentLink, Deadline, MaterialChip, StageChip, areaCls, dateTime, inputCls,
+  AttachmentLink, Deadline, MaterialChip, StageChip, dateTime, inputCls,
 } from '@/components/packs/ui'
 import { useClientPack } from './ClientApp'
 
@@ -38,17 +35,17 @@ export default function ClientStages() {
 
   return (
     <>
-      <h1 className="text-xl font-bold text-ink mb-1">Этапы проекта</h1>
+      <h1 className="text-xl font-bold text-ink mb-1">Документы по этапам</h1>
       <p className="text-sm text-muted mb-5">
-        Прогресс складывается из весов утверждённых этапов. Нулевой этап — подготовительный, он на
-        процент готовности не влияет.
+        Откройте документ, при желании поставьте оценку и выберите: принять или вернуть на
+        доработку. Правки обсуждаем в привычном канале — комментарий здесь не нужен. Этап
+        считается принятым, когда приняты все его обязательные документы.
       </p>
 
       <div className="flex flex-col gap-3">
         {data.stages.map((s) => (
           <StageCard
             key={s._id}
-            packId={packId}
             stage={s}
             now={data.now}
             open={open === (s._id as string)}
@@ -64,44 +61,16 @@ type Data = NonNullable<ReturnType<typeof useQuery<typeof api.packClient.stages>
 type Stage = Data['stages'][number]
 
 function StageCard({
-  packId,
   stage,
   now,
   open,
   onToggle,
 }: {
-  packId: Id<'packs'>
   stage: Stage
   now: number
   open: boolean
   onToggle: () => void
 }) {
-  const approve = useMutation(api.packClient.approve)
-  const requestChanges = useMutation(api.packClient.requestChanges)
-  const genUrl = useMutation(api.packClient.generateUploadUrl)
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  const [mode, setMode] = useState<'' | 'approve' | 'changes'>('')
-  const [text, setText] = useState('')
-  const [files, setFiles] = useState<{ kind: 'file'; name: string; storageId: Id<'_storage'> }[]>([])
-  const [busy, setBusy] = useState('')
-  const [error, setError] = useState('')
-
-  const act = async (name: string, fn: () => Promise<unknown>) => {
-    setBusy(name)
-    setError('')
-    try {
-      await fn()
-      setMode('')
-      setText('')
-      setFiles([])
-    } catch (e) {
-      setError(errMessage(e, 'Не удалось выполнить действие.'))
-    } finally {
-      setBusy('')
-    }
-  }
-
   return (
     <section className="card overflow-hidden">
       <button
@@ -115,11 +84,10 @@ function StageCard({
           <span className="flex items-center gap-2 flex-wrap">
             <span className="text-[15px] font-semibold text-ink">{stage.title}</span>
             <StageChip status={stage.status} />
-            {stage.kind === 'zero' ? (
+            {stage.kind === 'zero' && (
               <span className="chip bg-chip text-muted">подготовительный</span>
-            ) : (
-              <span className="chip bg-chip text-ink-2">{stage.weight}% готовности</span>
             )}
+            <span className="chip bg-chip text-ink-2">{stage.weight}% готовности</span>
             {stage.canAct && (
               <span className="chip bg-[#e8effd] text-[#2563eb]">нужен ваш ответ</span>
             )}
@@ -155,104 +123,11 @@ function StageCard({
             </div>
           )}
 
-          {/* §10.3: утвердить или отправить единый пакет замечаний */}
           {stage.canAct && (
-            <div className="rounded-xl border border-[#cddcf9] bg-[#f5f8ff] p-3 flex flex-col gap-3">
-              <div className="text-sm font-semibold text-ink">Этап на вашей проверке</div>
-              <p className="text-[12px] text-ink-2">
-                Посмотрите материалы и выберите: утвердить этап или отправить одним пакетом все
-                замечания. Успеть в срок важно — так сохраняется награда за этап.
-              </p>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={() => setMode(mode === 'approve' ? '' : 'approve')}
-                  className="btn btn-green h-9 px-3 text-sm"
-                >
-                  <Check size={14} /> Утвердить этап
-                </button>
-                <button
-                  onClick={() => setMode(mode === 'changes' ? '' : 'changes')}
-                  className="btn btn-ghost h-9 px-3 text-sm"
-                >
-                  <Undo2 size={14} /> Отправить на доработку
-                </button>
-              </div>
-
-              {mode !== '' && (
-                <div className="flex flex-col gap-2">
-                  <textarea
-                    className={areaCls}
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    placeholder={
-                      mode === 'approve'
-                        ? 'Комментарий к утверждению (необязательно)'
-                        : 'Опишите все замечания одним сообщением'
-                    }
-                  />
-                  {mode === 'changes' && (
-                    <>
-                      {files.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {files.map((f, i) => (
-                            <span key={i} className="chip bg-chip text-ink-2">
-                              <Paperclip size={11} /> {f.name}
-                              <button onClick={() => setFiles((p) => p.filter((_, j) => j !== i))}>
-                                ×
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <div>
-                        <input
-                          ref={fileRef}
-                          type="file"
-                          className="hidden"
-                          onChange={async (e) => {
-                            const f = e.target.files?.[0]
-                            e.target.value = ''
-                            if (!f) return
-                            try {
-                              const storageId = await uploadToStorage(() => genUrl({}), f)
-                              setFiles((p) => [...p, { kind: 'file', name: f.name, storageId }])
-                            } catch (err) {
-                              setError(errMessage(err, 'Не удалось загрузить файл.'))
-                            }
-                          }}
-                        />
-                        <button onClick={() => fileRef.current?.click()} className="mini-btn">
-                          <Paperclip size={12} /> Приложить скриншот или файл
-                        </button>
-                      </div>
-                    </>
-                  )}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() =>
-                        mode === 'approve'
-                          ? act('approve', () => approve({ stageId: stage._id, note: text }))
-                          : act('changes', () =>
-                              requestChanges({
-                                stageId: stage._id,
-                                comment: text,
-                                attachments: files,
-                              }),
-                            )
-                      }
-                      disabled={!!busy || (mode === 'changes' && !text.trim())}
-                      className="btn btn-green h-8 px-3 text-sm disabled:opacity-50"
-                    >
-                      {busy ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                      {mode === 'approve' ? 'Подтвердить' : 'Отправить замечания'}
-                    </button>
-                    <button onClick={() => setMode('')} className="btn btn-ghost h-8 px-3 text-sm">
-                      Отмена
-                    </button>
-                  </div>
-                </div>
-              )}
-              {error && <p className="text-sm text-[#c53030]">{error}</p>}
+            <div className="rounded-xl border border-[#cddcf9] bg-[#f5f8ff] p-3 text-[12px] text-ink-2">
+              Этап ждёт вашего решения. Примите или верните на доработку каждый обязательный
+              документ ниже — как только приняты все, этап закрывается, а часть пазла открывается
+              (при условии, что вы успели в срок).
             </div>
           )}
 
@@ -276,8 +151,6 @@ function StageCard({
             )}
           </div>
 
-          {/* Обсуждение этапа */}
-          <StageComments packId={packId} stage={stage} />
         </div>
       )}
     </section>
@@ -328,6 +201,12 @@ function MaterialRow({ material }: { material: Stage['materials'][number] }) {
           {material.description && (
             <div className="text-[12px] text-ink-2">{material.description}</div>
           )}
+
+          {/* §6.3: оценка от 1 до 5 звёзд. Не заменяет «Принять». */}
+          {material.canRate && <Stars material={material} />}
+
+          {/* §6.2: два решения. Обязательный комментарий не требуется. */}
+          {material.canDecide && <Decision material={material} />}
 
           <div>
             <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">
@@ -416,142 +295,94 @@ function MaterialRow({ material }: { material: Stage['materials'][number] }) {
           )}
           {error && <p className="text-sm text-[#c53030]">{error}</p>}
 
-          {material.comments.length > 0 && (
-            <div className="flex flex-col gap-2">
-              {material.comments.map((c) => (
-                <CommentRow key={c._id} comment={c} />
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>
   )
 }
 
-function StageComments({ packId, stage }: { packId: Id<'packs'>; stage: Stage }) {
-  const add = useMutation(api.packClient.comment)
-  const genUrl = useMutation(api.packClient.generateUploadUrl)
-  const fileRef = useRef<HTMLInputElement>(null)
-  const [text, setText] = useState('')
-  const [files, setFiles] = useState<{ kind: 'file'; name: string; storageId: Id<'_storage'> }[]>([])
-  const [busy, setBusy] = useState(false)
+// §6.3: оценка заказчика от 1 до 5 звёзд. На статус не влияет и «Принять»
+// не заменяет — нужна упаковщику, администратору и сводной аналитике.
+function Stars({ material }: { material: Stage['materials'][number] }) {
+  const rate = useMutation(api.packClient.rateMaterial)
+  const [busy, setBusy] = useState(0)
+  const value = material.rating ?? 0
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <span className="text-[12px] text-muted">Ваша оценка:</span>
+      <div className="flex items-center gap-0.5">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button
+            key={n}
+            onClick={async () => {
+              setBusy(n)
+              try {
+                await rate({ materialId: material._id, rating: n })
+              } finally {
+                setBusy(0)
+              }
+            }}
+            disabled={busy > 0}
+            aria-label={`Оценка ${n}`}
+            className="p-0.5 disabled:opacity-60"
+          >
+            <Star
+              size={18}
+              className={n <= value ? 'text-[#d69e2e]' : 'text-muted-2'}
+              fill={n <= value ? '#d69e2e' : 'none'}
+            />
+          </button>
+        ))}
+      </div>
+      {value > 0 && <span className="text-[11px] text-muted-2">{value} из 5</span>}
+    </div>
+  )
+}
+
+// §6.2: «Принять» и «На доработку». Комментарий не требуется — содержание
+// правок стороны обсуждают вне ERP (§1.2, §16).
+function Decision({ material }: { material: Stage['materials'][number] }) {
+  const accept = useMutation(api.packClient.acceptMaterial)
+  const back = useMutation(api.packClient.returnMaterial)
+  const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
 
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-2">
-        <MessageSquare size={14} className="text-green" />
-        <span className="text-sm font-semibold text-ink">Обсуждение</span>
-        <span className="chip bg-chip text-muted">{stage.comments.length}</span>
-      </div>
-      {stage.comments.length === 0 ? (
-        <p className="text-[12px] text-muted">Комментариев пока нет.</p>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {stage.comments.map((c) => (
-            <CommentRow key={c._id} comment={c} />
-          ))}
-        </div>
-      )}
+  const act = async (name: string, fn: () => Promise<unknown>) => {
+    setBusy(name)
+    setError('')
+    try {
+      await fn()
+    } catch (e) {
+      setError(errMessage(e, 'Не удалось сохранить решение.'))
+    } finally {
+      setBusy('')
+    }
+  }
 
-      <div className="mt-3 rounded-xl border border-line p-3 flex flex-col gap-2">
-        <textarea
-          className={areaCls}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Комментарий команде"
-        />
-        {files.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {files.map((f, i) => (
-              <span key={i} className="chip bg-chip text-ink-2">
-                <Paperclip size={11} /> {f.name}
-                <button onClick={() => setFiles((p) => p.filter((_, j) => j !== i))}>×</button>
-              </span>
-            ))}
-          </div>
-        )}
-        {error && <p className="text-sm text-[#c53030]">{error}</p>}
-        <div className="flex items-center gap-2">
-          <input
-            ref={fileRef}
-            type="file"
-            className="hidden"
-            onChange={async (e) => {
-              const f = e.target.files?.[0]
-              e.target.value = ''
-              if (!f) return
-              try {
-                const storageId = await uploadToStorage(() => genUrl({}), f)
-                setFiles((p) => [...p, { kind: 'file', name: f.name, storageId }])
-              } catch (err) {
-                setError(errMessage(err, 'Не удалось загрузить файл.'))
-              }
-            }}
-          />
-          <button onClick={() => fileRef.current?.click()} className="mini-btn">
-            <Paperclip size={12} /> Вложение
-          </button>
-          <div className="flex-1" />
-          <button
-            onClick={async () => {
-              setBusy(true)
-              setError('')
-              try {
-                await add({ packId, stageId: stage._id, text, attachments: files })
-                setText('')
-                setFiles([])
-              } catch (e) {
-                setError(errMessage(e, 'Не удалось отправить комментарий.'))
-              } finally {
-                setBusy(false)
-              }
-            }}
-            disabled={busy || !text.trim()}
-            className="btn btn-green h-8 px-3 text-sm disabled:opacity-60"
-          >
-            {busy ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Отправить
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function CommentRow({ comment }: { comment: Stage['comments'][number] }) {
-  const resolve = useMutation(api.packClient.resolveComment)
   return (
-    <div className={`rounded-xl p-3 ${comment.mine ? 'bg-[#e8effd]' : 'bg-chip'}`}>
+    <div className="rounded-xl border border-[#cddcf9] bg-[#f5f8ff] p-3 flex flex-col gap-2">
+      <div className="text-[12px] text-ink-2">
+        Документ ждёт вашего решения.
+      </div>
       <div className="flex items-center gap-2 flex-wrap">
-        {comment.author && (
-          <Avatar initials={comment.author.initials} color={comment.author.avatarColor} size={20} />
-        )}
-        <span className="text-[12px] font-semibold text-ink">
-          {comment.mine ? 'Вы' : (comment.author?.name ?? 'FRANCHONE')}
-        </span>
-        <span className="text-[11px] text-muted-2">{dateTime(comment.at)}</span>
-        {comment.resolved && (
-          <span className="chip bg-[#e2f2ef] text-green-d">
-            <Check size={11} /> решено
-          </span>
-        )}
-        <div className="flex-1" />
         <button
-          onClick={() => void resolve({ id: comment._id, resolved: !comment.resolved })}
-          className="text-[11px] text-muted hover:text-ink-2"
+          onClick={() => act('accept', () => accept({ materialId: material._id }))}
+          disabled={!!busy}
+          className="btn btn-green h-9 px-3 text-sm disabled:opacity-60"
         >
-          {comment.resolved ? 'вернуть в работу' : 'вопрос решён'}
+          {busy === 'accept' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+          Принять
+        </button>
+        <button
+          onClick={() => act('back', () => back({ materialId: material._id }))}
+          disabled={!!busy}
+          className="btn btn-ghost h-9 px-3 text-sm disabled:opacity-60"
+        >
+          {busy === 'back' ? <Loader2 size={14} className="animate-spin" /> : <Undo2 size={14} />}
+          На доработку
         </button>
       </div>
-      <div className="text-[13px] text-ink-2 mt-1.5 whitespace-pre-line">{comment.text}</div>
-      {comment.attachments.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {comment.attachments.map((a, i) => (
-            <AttachmentLink key={i} kind={a.kind} name={a.name} url={a.url} />
-          ))}
-        </div>
-      )}
+      {error && <p className="text-sm text-[#c53030]">{error}</p>}
     </div>
   )
 }

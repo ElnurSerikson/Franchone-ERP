@@ -4,16 +4,17 @@
 // видеороликов, тексты статей и точные цепочки определяются позднее. Здесь —
 // именно возможность создать, опубликовать, назначить и отключить.
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import {
-  BookOpen, Check, Loader2, Pencil, Play, Plus, Power, Trash2, Workflow, X,
+  BookOpen, Check, ImageIcon, Loader2, Pencil, Play, Plus, Power, Trash2, Workflow, X,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
 import Select from '@/components/ui/Select'
 import ConfirmDialog from '@/components/ConfirmDialog'
 import { errMessage } from '@/lib/errors'
+import { uploadToStorage } from '@/lib/packUpload'
 import {
   CONTENT_AVAILABILITY_LABEL,
   CONTENT_KIND_LABEL,
@@ -62,6 +63,11 @@ function ContentTab() {
   const [availability, setAvailability] = useState('always')
   const [afterStage, setAfterStage] = useState('1')
   const [packIds, setPackIds] = useState<string[]>([])
+  // §8.1: краткое описание, обложка и вопросы теста.
+  const [summary, setSummary] = useState('')
+  const [coverId, setCoverId] = useState<Id<'_storage'> | null>(null)
+  const [coverName, setCoverName] = useState('')
+  const [questions, setQuestions] = useState<Question[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [confirm, setConfirm] = useState<{ id: Id<'packContent'>; title: string } | null>(null)
@@ -83,6 +89,9 @@ function ContentTab() {
         kind: kind as 'article',
         body: body || undefined,
         url: url || undefined,
+        summary: summary || undefined,
+        coverId: coverId ?? undefined,
+        questions: kind === 'test' ? questions : undefined,
         availability: availability as 'always',
         afterStageOrder: Number(afterStage) || 1,
         packIds: packIds as Id<'packs'>[],
@@ -91,6 +100,10 @@ function ContentTab() {
       setTitle('')
       setBody('')
       setUrl('')
+      setSummary('')
+      setCoverId(null)
+      setCoverName('')
+      setQuestions([])
       setPackIds([])
     } catch (e) {
       setError(errMessage(e, 'Не удалось сохранить материал.'))
@@ -124,12 +137,36 @@ function ContentTab() {
               />
             </Field>
           </div>
-          <Field label="Ссылка" hint="Видео, статья, тест — любой внешний адрес.">
-            <input className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://" />
+          {/* §8: видео — ссылка YouTube, ролик проигрывается внутри ERP. */}
+          {kind === 'video' && (
+            <Field label="Ссылка YouTube" hint="Ролик встроится в кабинет — переходить на сайт не нужно.">
+              <input className={inputCls} value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://youtu.be/..." />
+            </Field>
+          )}
+          <Field label="Краткое описание">
+            <input className={inputCls} value={summary} onChange={(e) => setSummary(e.target.value)} placeholder="Одна строка для карточки" />
           </Field>
-          <Field label="Текст или описание">
-            <textarea className={areaCls} value={body} onChange={(e) => setBody(e.target.value)} placeholder="Необязательно" />
-          </Field>
+          {/* §8: статья читается внутри ERP. */}
+          {kind !== 'video' && (
+            <Field label="Текст материала" hint="Показывается в кабинете как есть, без перехода на внешний сайт.">
+              <textarea className={`${areaCls} min-h-[140px]`} value={body} onChange={(e) => setBody(e.target.value)} />
+            </Field>
+          )}
+          {/* §8.1: обложка с предпросмотром, заменой и удалением до публикации. */}
+          <ImagePick
+            label="Обложка"
+            storageId={coverId}
+            name={coverName}
+            onPick={(id, n) => {
+              setCoverId(id)
+              setCoverName(n)
+            }}
+            onClear={() => {
+              setCoverId(null)
+              setCoverName('')
+            }}
+          />
+          {kind === 'test' && <TestBuilder questions={questions} onChange={setQuestions} />}
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Когда доступен">
               <Select
@@ -488,6 +525,224 @@ function ManualRun({
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+
+// §8.1: изображение обложки, вопроса или варианта ответа. Предпросмотр,
+// замена и удаление до публикации; JPG/JPEG, PNG и WebP.
+type Question = {
+  text: string
+  imageId?: Id<'_storage'>
+  multiple: boolean
+  options: { text: string; imageId?: Id<'_storage'>; correct: boolean }[]
+}
+
+function ImagePick({
+  label,
+  storageId,
+  name,
+  onPick,
+  onClear,
+}: {
+  label: string
+  storageId: Id<'_storage'> | null | undefined
+  name: string
+  onPick: (id: Id<'_storage'>, name: string) => void
+  onClear: () => void
+}) {
+  const genUrl = useMutation(api.packExtras.contentUploadUrl)
+  const ref = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  return (
+    <div>
+      <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">
+        {label}
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <input
+          ref={ref}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={async (e) => {
+            const f = e.target.files?.[0]
+            e.target.value = ''
+            if (!f) return
+            if (!['image/jpeg', 'image/png', 'image/webp'].includes(f.type)) {
+              setError('Поддерживаются JPG, PNG и WebP')
+              return
+            }
+            setBusy(true)
+            setError('')
+            try {
+              const id = await uploadToStorage(() => genUrl({}), f)
+              onPick(id, f.name)
+            } catch (err) {
+              setError(errMessage(err, 'Не удалось загрузить изображение.'))
+            } finally {
+              setBusy(false)
+            }
+          }}
+        />
+        <button onClick={() => ref.current?.click()} disabled={busy} className="mini-btn">
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <ImageIcon size={12} />}
+          {storageId ? 'Заменить' : 'Загрузить'}
+        </button>
+        {storageId && (
+          <>
+            <span className="chip bg-chip text-ink-2">{name || 'изображение'}</span>
+            <button onClick={onClear} className="mini-btn text-[#c53030]">
+              <Trash2 size={12} /> Удалить
+            </button>
+          </>
+        )}
+      </div>
+      {error && <p className="text-[11px] text-[#c53030] mt-1">{error}</p>}
+    </div>
+  )
+}
+
+// §8.1: минимальный конструктор тестов — вопросы, варианты, правильные
+// ответы и изображения к вопросам и вариантам.
+function TestBuilder({
+  questions,
+  onChange,
+}: {
+  questions: Question[]
+  onChange: (q: Question[]) => void
+}) {
+  const patch = (i: number, next: Partial<Question>) =>
+    onChange(questions.map((q, k) => (k === i ? { ...q, ...next } : q)))
+
+  return (
+    <div className="rounded-2xl border border-line p-4 flex flex-col gap-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-sm font-semibold text-ink">Вопросы теста</span>
+        <span className="chip bg-chip text-muted">{questions.length}</span>
+        <div className="flex-1" />
+        <button
+          onClick={() =>
+            onChange([
+              ...questions,
+              { text: '', multiple: false, options: [{ text: '', correct: true }] },
+            ])
+          }
+          className="mini-btn"
+        >
+          <Plus size={12} /> Вопрос
+        </button>
+      </div>
+
+      {questions.length === 0 && (
+        <p className="text-[12px] text-muted">
+          Добавьте вопросы — тест проходится прямо в кабинете заказчика.
+        </p>
+      )}
+
+      {questions.map((q, i) => (
+        <div key={i} className="rounded-xl bg-chip p-3 flex flex-col gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[12px] font-semibold text-ink">Вопрос {i + 1}</span>
+            <div className="flex-1" />
+            <button
+              onClick={() => onChange(questions.filter((_, k) => k !== i))}
+              className="mini-btn text-[#c53030]"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+          <input
+            className={inputCls}
+            value={q.text}
+            onChange={(e) => patch(i, { text: e.target.value })}
+            placeholder="Текст вопроса"
+          />
+          <ImagePick
+            label="Изображение к вопросу"
+            storageId={q.imageId ?? null}
+            name="загружено"
+            onPick={(id) => patch(i, { imageId: id })}
+            onClear={() => patch(i, { imageId: undefined })}
+          />
+          <label className="flex items-center gap-2 text-[12px] text-ink-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={q.multiple}
+              onChange={(e) => patch(i, { multiple: e.target.checked })}
+            />
+            Несколько правильных ответов
+          </label>
+
+          <div className="flex flex-col gap-2">
+            {q.options.map((o, oi) => (
+              <div key={oi} className="rounded-lg bg-white border border-line p-2.5 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={o.correct}
+                    onChange={(e) =>
+                      patch(i, {
+                        options: q.options.map((x, k) =>
+                          k === oi ? { ...x, correct: e.target.checked } : x,
+                        ),
+                      })
+                    }
+                    title="Правильный ответ"
+                  />
+                  <input
+                    className={`${inputCls} h-8`}
+                    value={o.text}
+                    onChange={(e) =>
+                      patch(i, {
+                        options: q.options.map((x, k) =>
+                          k === oi ? { ...x, text: e.target.value } : x,
+                        ),
+                      })
+                    }
+                    placeholder={`Вариант ${oi + 1}`}
+                  />
+                  <button
+                    onClick={() =>
+                      patch(i, { options: q.options.filter((_, k) => k !== oi) })
+                    }
+                    className="mini-btn text-[#c53030]"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+                <ImagePick
+                  label="Изображение к варианту"
+                  storageId={o.imageId ?? null}
+                  name="загружено"
+                  onPick={(id) =>
+                    patch(i, {
+                      options: q.options.map((x, k) => (k === oi ? { ...x, imageId: id } : x)),
+                    })
+                  }
+                  onClear={() =>
+                    patch(i, {
+                      options: q.options.map((x, k) =>
+                        k === oi ? { ...x, imageId: undefined } : x,
+                      ),
+                    })
+                  }
+                />
+              </div>
+            ))}
+            <button
+              onClick={() =>
+                patch(i, { options: [...q.options, { text: '', correct: false }] })
+              }
+              className="mini-btn self-start"
+            >
+              <Plus size={12} /> Вариант ответа
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   )
 }

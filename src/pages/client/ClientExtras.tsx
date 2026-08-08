@@ -2,17 +2,19 @@
 // история версий, календарь проекта, награды, обучающие материалы,
 // уведомления и итоговый хаб готовой франшизы.
 
-import { useEffect } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import {
-  BellRing, BookOpen, CalendarDays, CheckCircle2, FolderOpen, Gift, Loader2, Sparkles,
+  ArrowLeft, BookOpen, CalendarDays, CheckCircle2, FolderOpen, Gift, Loader2, Play, Sparkles,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { longDate } from '@/lib/format'
-import { CONTENT_KIND_LABEL, EVENT_LABEL, MATERIAL_KIND_LABEL } from '../../../convex/packModel'
+import type { Id } from '../../../convex/_generated/dataModel'
+import { errMessage } from '@/lib/errors'
 import {
-  AttachmentLink, Empty, MaterialChip, RewardChip, dateTime,
-} from '@/components/packs/ui'
+  CONTENT_KIND_LABEL, EVENT_LABEL, MATERIAL_KIND_LABEL, youtubeId,
+} from '../../../convex/packModel'
+import { AttachmentLink, Empty, MaterialChip, dateTime } from '@/components/packs/ui'
 import { useClientPack } from './ClientApp'
 
 function Loading() {
@@ -133,92 +135,130 @@ export function ClientCalendar() {
   )
 }
 
-// §12, §10.4: награды.
+// §7: пазл и гарантированный персональный подарок. Содержание подарка
+// заранее не раскрывается — заказчик видит только право на него (§7.2, §7.3).
 export function ClientRewards() {
   const data = useQuery(api.packClient.dashboard, {})
   if (data === undefined) return <Loading />
-  const rewards = data?.rewards ?? []
+  const puzzle = data?.puzzle
+  const gift = data?.gift
+  if (!puzzle || !gift) return null
 
   return (
     <>
-      <h1 className="text-xl font-bold text-ink mb-1">Награды</h1>
+      <h1 className="text-xl font-bold text-ink mb-1">Пазл и персональный подарок</h1>
       <p className="text-sm text-muted mb-5">
-        Награда сохраняется, если вы отвечаете по этапу в срок — утверждаете его или присылаете
-        замечания. Принимать результат без проверки не требуется.
+        Пять частей — по одной за каждый основной этап, принятый в срок. Подготовительный этап
+        части не открывает.
       </p>
-      {rewards.length === 0 ? (
-        <Empty
-          icon={Gift}
-          title="Наград пока нет"
-          text="Они появятся по мере прохождения этапов."
-        />
-      ) : (
-        <div className="grid gap-3 md:grid-cols-2">
-          {rewards.map((r) => (
-            <div key={r._id} className="card p-4 flex items-start gap-3">
-              {r.imageUrl ? (
-                <img src={r.imageUrl} alt="" className="w-12 h-12 rounded-xl object-cover shrink-0" />
-              ) : (
-                <span className="w-12 h-12 rounded-xl bg-[#e2f2ef] text-green-d grid place-items-center shrink-0">
-                  <Gift size={20} />
-                </span>
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-semibold text-ink">{r.title}</span>
-                  <RewardChip status={r.status} />
-                </div>
-                {r.condition && <div className="text-[11px] text-muted mt-0.5">{r.condition}</div>}
-                {r.description && <p className="text-[13px] text-ink-2 mt-1">{r.description}</p>}
+
+      <section className="card p-5 mb-4">
+        <div className="grid grid-cols-5 gap-3 max-w-lg">
+          {puzzle.parts.map((p) => (
+            <div key={p.index} className="text-center">
+              <div
+                className={`aspect-square rounded-xl grid place-items-center text-xl font-bold transition-all duration-500 ${
+                  p.open
+                    ? 'bg-green text-white shadow-soft'
+                    : p.missed
+                      ? 'bg-[#fdeaea] text-[#c53030]'
+                      : p.active
+                        ? 'bg-[#e2f2ef] text-green-d ring-2 ring-green-light'
+                        : 'hatch text-muted-2'
+                }`}
+              >
+                {p.open ? <CheckCircle2 size={22} /> : p.index}
+              </div>
+              <div className="text-[10px] text-muted-2 mt-1 leading-tight line-clamp-2">
+                {p.title}
               </div>
             </div>
           ))}
         </div>
-      )}
+        <div className="mt-4 text-sm text-ink-2">
+          Собрано {puzzle.collected} из {puzzle.total}.
+        </div>
+      </section>
+
+      <section className="card p-5">
+        <div className="flex items-center gap-2 mb-2">
+          <Gift size={16} className="text-green" />
+          <h2 className="sec-title">Персональный подарок</h2>
+        </div>
+        {gift.earned ? (
+          <p className="text-sm text-green-d">
+            Право на подарок подтверждено. Мы подберём его индивидуально — с учётом вашего
+            бизнеса, бренда и интересов — и свяжемся отдельно.
+          </p>
+        ) : (
+          <p className="text-sm text-muted">
+            Соберите все пять частей, принимая этапы в срок, — и получите гарантированный
+            персональный подарок от FRANCHONE. Что именно это будет, узнаете в конце.
+          </p>
+        )}
+      </section>
     </>
   )
 }
 
-// §10.4, §13.3: обучающие материалы, тесты, видео и рекомендации.
+// §8: полезные материалы — видео, статьи и тесты. Блок самостоятельный: на
+// прогресс, KPI, сроки приёмки и пазл он не влияет.
 export function ClientLearn() {
   const packId = useClientPack()
   const rows = useQuery(api.packClient.content, packId ? { packId } : 'skip')
+  const [openId, setOpenId] = useState<string | null>(null)
   if (!packId || rows === undefined) return <Loading />
+
+  const active = rows.find((c) => (c._id as string) === openId) ?? null
 
   return (
     <>
-      <h1 className="text-xl font-bold text-ink mb-1">Обучение и материалы</h1>
+      <h1 className="text-xl font-bold text-ink mb-1">Полезные материалы</h1>
       <p className="text-sm text-muted mb-5">
-        Статьи, видео, тесты, инструкции и рекомендации от команды FRANCHONE.
+        Видео, статьи и тесты от команды FRANCHONE. На ход проекта они не влияют — это польза
+        сверх упаковки.
       </p>
-      {rows.length === 0 ? (
+
+      {active ? (
+        <ContentView content={active} packId={packId} onBack={() => setOpenId(null)} />
+      ) : rows.length === 0 ? (
         <Empty
           icon={BookOpen}
           title="Материалов пока нет"
-          text="Часть материалов открывается по мере прохождения этапов, часть — после завершения проекта."
+          text="Часть открывается по мере прохождения этапов, часть — после завершения проекта."
         />
       ) : (
-        <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((c) => (
-            <div key={c._id} className="card p-4">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold text-ink flex-1">{c.title}</span>
-                <span className="chip bg-chip text-muted">
-                  {CONTENT_KIND_LABEL[c.kind] ?? c.kind}
-                </span>
-              </div>
-              {c.body && <p className="text-[13px] text-ink-2 mt-2 whitespace-pre-line">{c.body}</p>}
-              {c.url && (
-                <a
-                  href={c.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="btn btn-ghost h-8 px-3 text-sm mt-3 inline-flex"
-                >
-                  Открыть
-                </a>
+            <button
+              key={c._id}
+              onClick={() => setOpenId(c._id as string)}
+              className="card overflow-hidden text-left hover:shadow-soft transition-shadow"
+            >
+              {c.coverUrl ? (
+                <img src={c.coverUrl} alt="" className="w-full h-36 object-cover" />
+              ) : (
+                <div className="w-full h-36 hatch grid place-items-center text-muted-2">
+                  {c.kind === 'video' ? <Play size={28} /> : <BookOpen size={28} />}
+                </div>
               )}
-            </div>
+              <div className="p-4">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="chip bg-chip text-muted">
+                    {CONTENT_KIND_LABEL[c.kind] ?? c.kind}
+                  </span>
+                  {c.result && (
+                    <span className="chip bg-[#e2f2ef] text-green-d">
+                      результат {c.result.correct}/{c.result.total}
+                    </span>
+                  )}
+                </div>
+                <div className="text-sm font-semibold text-ink mt-2">{c.title}</div>
+                {c.summary && (
+                  <p className="text-[12px] text-muted mt-1 line-clamp-2">{c.summary}</p>
+                )}
+              </div>
+            </button>
           ))}
         </div>
       )}
@@ -226,43 +266,176 @@ export function ClientLearn() {
   )
 }
 
-// §10.4, §14.1: уведомления внутри кабинета.
-export function ClientNotifications() {
-  const rows = useQuery(api.packClient.notifications, {})
-  const markRead = useMutation(api.packClient.markRead)
+type ContentRow = NonNullable<ReturnType<typeof useQuery<typeof api.packClient.content>>>[number]
 
-  // Открыли ленту — значит, прочитали. Счётчик в шапке гаснет сам.
-  useEffect(() => {
-    if (rows && rows.some((n) => !n.read)) void markRead({})
-  }, [rows, markRead])
-
-  if (rows === undefined) return <Loading />
-
+// §8: видео проигрывается внутри ERP, статья читается внутри ERP, тест
+// проходится внутри ERP — без обязательного перехода на внешний сайт.
+function ContentView({
+  content,
+  packId,
+  onBack,
+}: {
+  content: ContentRow
+  packId: Id<'packs'>
+  onBack: () => void
+}) {
+  const video = youtubeId(content.url)
   return (
     <>
-      <h1 className="text-xl font-bold text-ink mb-1">Уведомления</h1>
-      <p className="text-sm text-muted mb-5">
-        Ключевые события проекта: передача этапа, сроки, награды и завершение.
-      </p>
-      {rows.length === 0 ? (
-        <Empty icon={BellRing} title="Уведомлений нет" />
-      ) : (
-        <div className="flex flex-col gap-2">
-          {rows.map((n) => (
-            <div key={n._id} className={`card p-4 ${n.read ? '' : 'border-green-light'}`}>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold text-ink">{n.title}</span>
-                <span className="text-[11px] text-muted-2">{dateTime(n.at)}</span>
-                {!n.read && <span className="chip bg-[#e2f2ef] text-green-d">новое</span>}
-              </div>
-              {n.text && (
-                <div className="text-[13px] text-ink-2 mt-1 whitespace-pre-line">{n.text}</div>
-              )}
-            </div>
-          ))}
+      <button onClick={onBack} className="btn btn-ghost h-9 px-3 text-sm mb-4">
+        <ArrowLeft size={14} /> Ко всем материалам
+      </button>
+
+      <article className="card p-5 sm:p-6">
+        <div className="flex items-center gap-2 flex-wrap mb-2">
+          <span className="chip bg-chip text-muted">
+            {CONTENT_KIND_LABEL[content.kind] ?? content.kind}
+          </span>
         </div>
-      )}
+        <h2 className="text-lg font-bold text-ink">{content.title}</h2>
+        {content.summary && <p className="text-sm text-muted mt-1">{content.summary}</p>}
+
+        {content.coverUrl && content.kind !== 'video' && (
+          <img src={content.coverUrl} alt="" className="w-full rounded-xl mt-4 max-h-80 object-cover" />
+        )}
+
+        {content.kind === 'video' && (
+          <div className="mt-4">
+            {video ? (
+              <div className="relative w-full overflow-hidden rounded-xl" style={{ paddingTop: '56.25%' }}>
+                <iframe
+                  className="absolute inset-0 w-full h-full"
+                  src={`https://www.youtube.com/embed/${video}`}
+                  title={content.title}
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
+              </div>
+            ) : (
+              <p className="text-sm text-muted">Ссылка на видео не распознана.</p>
+            )}
+          </div>
+        )}
+
+        {content.body && (
+          <div className="text-[14px] text-ink-2 mt-4 whitespace-pre-line leading-relaxed">
+            {content.body}
+          </div>
+        )}
+
+        {content.kind === 'test' && content.questions.length > 0 && (
+          <TestRunner content={content} packId={packId} />
+        )}
+      </article>
     </>
+  )
+}
+
+// §8.1: прохождение теста и подсчёт результата после завершения.
+function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'packs'> }) {
+  const submit = useMutation(api.packClient.submitTest)
+  const [answers, setAnswers] = useState<number[][]>(() => content.questions.map(() => []))
+  const [result, setResult] = useState<{ correct: number; total: number } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const toggle = (qi: number, oi: number, multiple: boolean) => {
+    setAnswers((prev) => {
+      const next = prev.map((x) => [...x])
+      if (multiple) {
+        next[qi] = next[qi].includes(oi) ? next[qi].filter((k) => k !== oi) : [...next[qi], oi]
+      } else {
+        next[qi] = next[qi][0] === oi ? [] : [oi]
+      }
+      return next
+    })
+  }
+
+  if (result) {
+    return (
+      <div className="mt-5 rounded-xl bg-[#e2f2ef] p-4">
+        <div className="text-sm font-semibold text-green-d">Тест пройден</div>
+        <div className="text-2xl font-bold text-green-d mt-1 tabular-nums">
+          {result.correct} из {result.total}
+        </div>
+        <button
+          onClick={() => {
+            setResult(null)
+            setAnswers(content.questions.map(() => []))
+          }}
+          className="btn btn-ghost h-8 px-3 text-sm mt-3"
+        >
+          Пройти заново
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-5 flex flex-col gap-4">
+      {content.questions.map((q, qi) => (
+        <div key={qi} className="rounded-xl border border-line p-4">
+          <div className="text-sm font-semibold text-ink">
+            {qi + 1}. {q.text}
+          </div>
+          {q.imageUrl && (
+            <img src={q.imageUrl} alt="" className="rounded-lg mt-3 max-h-56 object-contain" />
+          )}
+          <div className="mt-3 flex flex-col gap-2">
+            {q.options.map((o, oi) => {
+              const on = answers[qi]?.includes(oi)
+              return (
+                <button
+                  key={oi}
+                  onClick={() => toggle(qi, oi, q.multiple)}
+                  className={`text-left rounded-lg border p-2.5 transition-colors flex items-start gap-2.5 ${
+                    on ? 'border-green-light bg-[#e2f2ef]' : 'border-line hover:bg-chip'
+                  }`}
+                >
+                  <span
+                    className={`w-4 h-4 shrink-0 mt-0.5 grid place-items-center border ${
+                      q.multiple ? 'rounded' : 'rounded-full'
+                    } ${on ? 'bg-green border-green text-white' : 'border-muted-2'}`}
+                  >
+                    {on && <CheckCircle2 size={10} />}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="text-[13px] text-ink-2">{o.text}</span>
+                    {o.imageUrl && (
+                      <img src={o.imageUrl} alt="" className="rounded-md mt-2 max-h-40 object-contain" />
+                    )}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+          {q.multiple && (
+            <div className="text-[11px] text-muted-2 mt-2">Можно выбрать несколько вариантов</div>
+          )}
+        </div>
+      ))}
+      {error && <p className="text-sm text-[#c53030]">{error}</p>}
+      <div>
+        <button
+          onClick={async () => {
+            setBusy(true)
+            setError('')
+            try {
+              const r = await submit({ contentId: content._id, packId, answers })
+              setResult(r)
+            } catch (e) {
+              setError(errMessage(e, 'Не удалось отправить ответы.'))
+            } finally {
+              setBusy(false)
+            }
+          }}
+          disabled={busy}
+          className="btn btn-green disabled:opacity-60"
+        >
+          {busy && <Loader2 size={15} className="animate-spin" />} Завершить тест
+        </button>
+      </div>
+    </div>
   )
 }
 

@@ -298,6 +298,15 @@ export default function PacksBoard({ onCreate }: { onCreate: () => void }) {
                 </div>
                 <span className="chip bg-chip text-ink-2">активных: {p.active}</span>
                 <span className="chip bg-chip text-ink-2">завершено: {p.done}</span>
+                {/* §11.2: своевременность передачи и средняя оценка заказчиков. */}
+                <span className="chip bg-chip text-ink-2">
+                  в срок: {Math.round(p.onTimeRate * 100)}%
+                </span>
+                {p.rating !== null && (
+                  <span className="chip bg-[#fff6e6] text-[#b7791f]">
+                    оценка {p.rating.toFixed(1)}
+                  </span>
+                )}
                 <div className="text-right tabular-nums w-48">
                   <div className="text-sm font-bold text-ink">{kzt(p.accrued)}</div>
                   <div className="text-[11px] text-muted">

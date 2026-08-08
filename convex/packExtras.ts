@@ -13,7 +13,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import { currentEmployee, requireEmployee } from './lib'
 import { viewScope } from './permissions'
 import { notifyMeetingEvent } from './telegramFlow'
-import { DAY_MS } from './packModel'
+import { DAY_MS, youtubeId } from './packModel'
 import {
   dayEnd,
   logPackEvent,
@@ -21,7 +21,6 @@ import {
   notifyPack,
   packSettings,
   requirePack,
-  settleStageRewards,
   stagesOf,
   teamOf,
 } from './packs'
@@ -215,6 +214,10 @@ export const contentList = query({
         kind: c.kind,
         body: c.body ?? null,
         url: c.url ?? null,
+        summary: c.summary ?? null,
+        coverId: c.coverId ?? null,
+        questions: c.questions ?? [],
+        stageOrder: c.stageOrder ?? null,
         published: c.published,
         availability: c.availability,
         afterStageOrder: c.afterStageOrder ?? null,
@@ -239,12 +242,31 @@ export const createContent = mutation({
     ),
     body: v.optional(v.string()),
     url: v.optional(v.string()),
+    // §8.1: краткое описание и обложка теста или статьи.
+    summary: v.optional(v.string()),
+    coverId: v.optional(v.id('_storage')),
+    questions: v.optional(v.array(
+        v.object({
+          text: v.string(),
+          imageId: v.optional(v.id('_storage')),
+          multiple: v.boolean(),
+          options: v.array(
+            v.object({
+              text: v.string(),
+              imageId: v.optional(v.id('_storage')),
+              correct: v.boolean(),
+            }),
+          ),
+        }),
+      )),
     availability: v.union(
       v.literal('always'),
       v.literal('after_stage'),
       v.literal('post_project'),
     ),
     afterStageOrder: v.optional(v.number()),
+    // §8.1: тест можно назначить конкретному проекту или этапу.
+    stageOrder: v.optional(v.number()),
     packIds: v.optional(v.array(v.id('packs'))),
     published: v.optional(v.boolean()),
   },
@@ -252,14 +274,21 @@ export const createContent = mutation({
     const me = await requireOwner(ctx)
     const title = args.title.trim()
     if (!title) throw new ConvexError('Укажите название материала')
+    if (args.kind === 'video' && !youtubeId(args.url)) {
+      throw new ConvexError('Для видео нужна ссылка YouTube — ролик проигрывается внутри ERP')
+    }
     return await ctx.db.insert('packContent', {
       title,
       kind: args.kind,
       body: args.body?.trim() || undefined,
       url: args.url?.trim() || undefined,
+      summary: args.summary?.trim() || undefined,
+      coverId: args.coverId,
+      questions: args.questions?.length ? args.questions : undefined,
       published: args.published !== false,
       availability: args.availability,
       afterStageOrder: args.availability === 'after_stage' ? (args.afterStageOrder ?? 1) : undefined,
+      stageOrder: args.stageOrder,
       packIds: args.packIds?.length ? args.packIds : undefined,
       createdById: me._id,
       createdAt: Date.now(),
@@ -273,11 +302,28 @@ export const updateContent = mutation({
     title: v.optional(v.string()),
     body: v.optional(v.string()),
     url: v.optional(v.string()),
+    summary: v.optional(v.string()),
+    coverId: v.optional(v.id('_storage')),
+    questions: v.optional(v.array(
+        v.object({
+          text: v.string(),
+          imageId: v.optional(v.id('_storage')),
+          multiple: v.boolean(),
+          options: v.array(
+            v.object({
+              text: v.string(),
+              imageId: v.optional(v.id('_storage')),
+              correct: v.boolean(),
+            }),
+          ),
+        }),
+      )),
     published: v.optional(v.boolean()),
     availability: v.optional(
       v.union(v.literal('always'), v.literal('after_stage'), v.literal('post_project')),
     ),
     afterStageOrder: v.optional(v.number()),
+    stageOrder: v.optional(v.number()),
     packIds: v.optional(v.array(v.id('packs'))),
   },
   handler: async (ctx, { id, ...patch }) => {
@@ -285,6 +331,11 @@ export const updateContent = mutation({
     const row = await ctx.db.get(id)
     if (!row) throw new ConvexError('Материал не найден')
     const next: Record<string, unknown> = {}
+    if (patch.summary !== undefined) next.summary = patch.summary.trim() || undefined
+    // §8.1: обложку можно заменить или удалить до публикации.
+    if (patch.coverId !== undefined) next.coverId = patch.coverId
+    if (patch.questions !== undefined) next.questions = patch.questions.length ? patch.questions : undefined
+    if (patch.stageOrder !== undefined) next.stageOrder = patch.stageOrder
     if (patch.title !== undefined) {
       const t = patch.title.trim()
       if (!t) throw new ConvexError('Название не может быть пустым')
@@ -310,6 +361,16 @@ export const removeContent = mutation({
       if (s.contentId === id) await ctx.db.patch(s._id, { contentId: undefined })
     }
     await ctx.db.delete(id)
+  },
+})
+
+// §8.1: изображения обложки, вопросов и вариантов ответа. Загружаются в
+// хранилище ERP и подчиняются его общим лимитам.
+export const contentUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    await requireOwner(ctx)
+    return await ctx.storage.generateUploadUrl()
   },
 })
 
@@ -536,92 +597,30 @@ export const deadlineTick = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now()
-    const settings = await packSettings(ctx)
-    const warnMs = settings.warnHours * 3600 * 1000
     const packs = (await ctx.db.query('packs').collect()).filter((p) => p.status === 'active')
 
     for (const pack of packs) {
-      const stages = await stagesOf(ctx, pack._id)
-      for (const s of stages) {
-        if (!s.dueAt || !s.awaiting || s.status === 'approved' || s.status === 'paused') continue
-        const round = s.handoverCount ?? 0
-        const toClient = s.awaiting === 'client'
-        const recipients = toClient
-          ? pack.clientId
-            ? [pack.clientId]
-            : []
-          : teamOf(pack)
-        if (recipients.length === 0) continue
-
-        if (now >= s.dueAt) {
-          // §12, §5.4: клиент промолчал — награда за этап не получена.
-          // Раньше статус менялся только когда он отвечал, и молчание
-          // оставляло награду «доступной» навсегда.
-          if (toClient) await settleStageRewards(ctx, s, pack.packerId, false)
-          await notifyPack(ctx, recipients, {
-            packId: pack._id,
-            kind: 'overdue',
-            title: 'Срок нарушен',
-            text: `${pack.title} · ${s.title}. ${
-              toClient
-                ? 'Мы ждём вашего решения по этапу.'
-                : 'Этап ждёт работы со стороны FRANCHONE.'
-            }`,
-            link: toClient ? '/' : `/packs/${pack._id}`,
-            key: `pack_overdue:${s._id}:${round}`,
-          })
-        } else if (s.dueAt - now <= warnMs) {
-          await notifyPack(ctx, recipients, {
-            packId: pack._id,
-            kind: 'due_soon',
-            title: 'Скоро срок',
-            text: `${pack.title} · ${s.title}. Осталось меньше ${settings.warnHours} ч.`,
-            link: toClient ? '/' : `/packs/${pack._id}`,
-            key: `pack_due_soon:${s._id}:${round}`,
-          })
-        }
-      }
-
-      // §10.3: исходники, которые ждём от клиента. Срок у материала свой, и
-      // без напоминания он молча протухает — этап при этом стоит.
       if (!pack.clientId) continue
-      const stageTitle = new Map(stages.map((x) => [x._id as string, x.title]))
-      for (const m of await ctx.db
-        .query('packMaterials')
-        .withIndex('by_pack', (q) => q.eq('packId', pack._id))
-        .collect()) {
-        // Напоминаем только про то, что клиент ещё не загрузил.
-        if (m.side !== 'client' || m.version > 0 || !m.dueDate) continue
-        const dueAt = dayEnd(m.dueDate)
-        const where = `${pack.title} · ${stageTitle.get(m.stageId as string) ?? ''} · ${m.title}`
-        if (now >= dueAt) {
-          // О просрочке узнаёт и команда: этап без исходников не двинется.
-          await notifyPack(ctx, [pack.clientId], {
-            packId: pack._id,
-            kind: 'material_overdue',
-            title: 'Просрочен материал от вас',
-            text: `${where}. Загрузите его в разделе «Этапы».`,
-            link: '/',
-            key: `pack_material_overdue:${m._id}`,
-          })
-          await notifyPack(ctx, teamOf(pack), {
-            packId: pack._id,
-            kind: 'material_overdue',
-            title: 'Клиент не загрузил материал в срок',
-            text: where,
-            link: `/packs/${pack._id}`,
-            key: `pack_material_overdue_team:${m._id}`,
-          })
-        } else if (dueAt - now <= warnMs) {
-          await notifyPack(ctx, [pack.clientId], {
-            packId: pack._id,
-            kind: 'material_due_soon',
-            title: 'Скоро срок по вашим материалам',
-            text: `${where}. Осталось меньше ${settings.warnHours} ч.`,
-            link: '/',
-            key: `pack_material_due_soon:${m._id}`,
-          })
-        }
+      for (const s of await stagesOf(ctx, pack._id)) {
+        // §12.1: если этап уже принят, напоминание о его приёмке не шлём.
+        if (s.status === 'approved' || !s.acceptDueAt) continue
+        if (s.awaiting !== 'client') continue
+        const left = s.acceptDueAt - now
+        // §12: «До срока приемки этапа остались сутки».
+        if (left <= 0 || left > DAY_MS) continue
+        await notifyPack(ctx, [pack.clientId], {
+          packId: pack._id,
+          kind: 'accept_due',
+          title: 'Сутки до срока приёмки',
+          text:
+            `${pack.title} · ${s.title}. Примите работу до срока, ` +
+            'чтобы сохранить часть пазла.',
+          // §12.1: прямая ссылка на соответствующий материал или проект.
+          link: '/stages',
+          // §12.1: повторная обработка события дубля не создаёт. Номер
+          // передачи в ключе — после повторной передачи напоминание новое.
+          key: `pack_accept_due:${s._id}:${s.handoverCount ?? 0}`,
+        })
       }
     }
   },

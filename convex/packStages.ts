@@ -23,6 +23,7 @@ import {
   maySeePack,
   mayManagePack,
   mayWorkOnPack,
+  awardPuzzle,
   notifyPack,
   openStageRewards,
   packSettings,
@@ -82,7 +83,7 @@ export const addStage = mutation({
       internalNote: args.internalNote?.trim() || undefined,
       startDate: args.startDate,
       endDate: args.endDate,
-      weight: args.kind === 'zero' ? 0 : (args.weight ?? 0),
+      weight: args.weight ?? 0,
       reviewDays: settings.reviewDays,
       rereviewDays: settings.rereviewDays,
       fixDays: settings.fixDays,
@@ -149,9 +150,8 @@ export const updateStage = mutation({
     if (patch.startDate !== undefined) set('дата начала', 'startDate', stage.startDate, patch.startDate, 'stage_dates')
     if (patch.endDate !== undefined) set('дата завершения', 'endDate', stage.endDate, patch.endDate, 'stage_dates')
     if (patch.weight !== undefined) {
-      if (stage.kind === 'zero' && patch.weight !== 0) {
-        throw new ConvexError('BR-03: нулевой этап не влияет на прогресс — его вес всегда 0%')
-      }
+      // §4.2: вес нулевого этапа настраивается так же, как вес основного —
+      // он участвует в прогрессе и KPI (но части пазла не открывает).
       if (patch.weight < 0 || patch.weight > 100) throw new ConvexError('Вес этапа — от 0 до 100%')
       set('вес', 'weight', stage.weight, patch.weight, 'stage_weight')
     }
@@ -254,8 +254,9 @@ export const equalizeWeights = mutation({
   handler: async (ctx, { packId }) => {
     const { me, pack } = await requirePack(ctx, packId, 'manage')
     if (pack.launchedAt) throw new ConvexError('Веса запущенного проекта меняются по одному, с причиной')
-    const stages = (await stagesOf(ctx, packId)).filter((s) => s.kind === 'main')
-    if (stages.length === 0) throw new ConvexError('В проекте нет основных этапов')
+    // §4.2: делим 100% между ВСЕМИ активными этапами, включая нулевой.
+    const stages = await stagesOf(ctx, packId)
+    if (stages.length === 0) throw new ConvexError('В проекте нет этапов')
     const base = Math.floor(100 / stages.length)
     // Остаток отдаём последнему этапу: сумма обязана быть ровно 100 (BR-02).
     for (let i = 0; i < stages.length; i++) {
@@ -403,9 +404,10 @@ export async function approveStage(
     approvedById: byId,
     awaiting: undefined,
     dueAt: undefined,
-    // §7.4 «процент этапов, завершённых в срок». Считаем по плановой дате
-    // завершения этапа: она и есть обязательство FRANCHONE.
-    approvedOnTime: stage.endDate ? now <= dayEnd(stage.endDate) : true,
+    // §13.2: дата решения сравнивается с настроенным сроком приёмки этапа.
+    // Своевременность самого упаковщика считается отдельно — по дате
+    // перевода материалов в «Готов к проверке» (§10).
+    approvedOnTime: stage.acceptDueAt ? now <= stage.acceptDueAt : true,
     reworkMs: stage.reworkStartedAt ? (stage.reworkMs ?? 0) + (now - stage.reworkStartedAt) : stage.reworkMs,
     reworkStartedAt: undefined,
   })
@@ -415,6 +417,10 @@ export async function approveStage(
     .collect()) {
     if (m.status !== 'approved') await ctx.db.patch(m._id, { status: 'approved', approvedAt: now })
   }
+
+  // §7.1, §13.2: часть пазла открывается, если этап принят в срок.
+  const fresh = await ctx.db.get(stage._id)
+  if (fresh) await awardPuzzle(ctx, pack, fresh, now)
 
   // Следующий этап выходит из блокировки (§5.2 «Заблокирован»).
   const stages = await stagesOf(ctx, pack._id)
@@ -436,10 +442,11 @@ export async function approveStage(
     note: note?.trim() || undefined,
   })
 
-  // BR-04: KPI начисляется только после утверждения этапа.
+  // §10: этап включается в фактический KPI только после принятия заказчиком.
+  // Принятый нулевой этап тоже входит — по назначенному ему весу (§4.2).
   const after = await stagesOf(ctx, pack._id)
   const progress = progressOf(after.map(stageLike))
-  if (stage.kind === 'main') {
+  {
     await logPackEvent(ctx, {
       packId: pack._id,
       stageId: stage._id,
@@ -708,8 +715,25 @@ export const updateMaterial = mutation({
     if (patch.ownerId !== undefined) next.ownerId = patch.ownerId
     if (patch.dueDate !== undefined) next.dueDate = patch.dueDate || undefined
     if (patch.status !== undefined && patch.status !== material.status) {
+      // §5.2: «Принят» и «На доработке» ставит только заказчик.
+      if (patch.status === 'approved' || patch.status === 'rework') {
+        throw new ConvexError('Решение по материалу принимает заказчик')
+      }
+      // §15: «Заменен уже принятый файл» — снятие принятия подтверждает
+      // только администратор, чтобы не изменить завершённый результат случайно.
+      if (material.status === 'approved' && me.role !== 'owner') {
+        throw new ConvexError('Принятый материал переоткрывает только администратор')
+      }
       next.status = patch.status
-      if (patch.status === 'approved') next.approvedAt = Date.now()
+      if (patch.status === 'ready') {
+        // §10, §15.1: своевременность упаковщика считается по дате перевода
+        // в «Готов к проверке», а не по дате приёмки заказчиком.
+        const now = Date.now()
+        next.readyAt = now
+        const stage = await ctx.db.get(material.stageId)
+        const due = material.dueDate ?? stage?.endDate ?? null
+        next.readyOnTime = due ? now <= dayEnd(due) : true
+      }
       await logPackEvent(ctx, {
         packId: material.packId,
         stageId: material.stageId,
@@ -722,7 +746,22 @@ export const updateMaterial = mutation({
       })
     }
     await ctx.db.patch(id, next)
-    await maybeMarkStageReady(ctx, material.stageId)
+    await syncStageFromMaterials(ctx, material.stageId)
+    // §12: первое целевое сообщение — материал переведён в «Готов к проверке».
+    if (next.status === 'ready') {
+      const pack = await ctx.db.get(material.packId)
+      if (pack?.clientId && pack.launchedAt) {
+        await notifyPack(ctx, [pack.clientId], {
+          packId: material.packId,
+          kind: 'material_ready',
+          title: 'Документ готов к проверке',
+          text: `${pack.title} · ${material.title}. Откройте ERP и проверьте материал.`,
+          link: '/stages',
+          // §12.1: повторная техническая обработка дубля не создаёт.
+          key: `pack_material_ready:${id}:${material.version}`,
+        })
+      }
+    }
   },
 })
 
@@ -748,25 +787,103 @@ export const removeMaterial = mutation({
       field: material.title,
       to: 'удалён',
     })
-    await maybeMarkStageReady(ctx, material.stageId)
+    await syncStageFromMaterials(ctx, material.stageId)
   },
 })
 
-// §5.3.2: как только обязательные элементы готовы, этап сам переходит в
-// «Готов к передаче» — и обратно, если готовность потеряна.
-export async function maybeMarkStageReady(ctx: MutationCtx, stageId: Id<'packStages'>) {
+// ТЗ v1.1 §5.3: этап передаётся на итоговую приёмку, как только загружены
+// все обязательные материалы, и считается принятым, когда все они приняты.
+// Отдельной кнопки «передать этап» нет — упаковщик управляет статусами
+// материалов (§9.2), а этап следует за ними.
+export async function syncStageFromMaterials(ctx: MutationCtx, stageId: Id<'packStages'>) {
   const stage = await ctx.db.get(stageId)
   if (!stage) return
-  if (!['in_progress', 'ready'].includes(stage.status)) return
-  const check = await readiness(ctx, stageId)
-  const shouldBeReady = check.required > 0 && check.done === check.required
-  if (shouldBeReady && stage.status === 'in_progress') {
-    await ctx.db.patch(stageId, { status: 'ready' })
+  if (stage.status === 'locked' || stage.status === 'paused') return
+  const pack = await ctx.db.get(stage.packId)
+  if (!pack) return
+
+  const materials = await ctx.db
+    .query('packMaterials')
+    .withIndex('by_stage', (q) => q.eq('stageId', stageId))
+    .collect()
+  const required = materials.filter((m) => m.required && m.side === 'team')
+  // §15: этап без обязательных материалов проходит приёмку только если
+  // администратор явно это разрешил.
+  const gate = required.length > 0 || stage.allowNoDocs === true
+
+  // §5.3: этап принят, когда приняты все его обязательные материалы.
+  const allAccepted =
+    gate && required.length > 0 && required.every((m) => m.status === 'approved')
+  if (allAccepted && stage.status !== 'approved') {
+    await acceptStageFromMaterials(ctx, pack, stage)
+    return
   }
-  if (!shouldBeReady && stage.status === 'ready') {
-    await ctx.db.patch(stageId, { status: 'in_progress' })
+  if (stage.status === 'approved') return
+
+  // §5.3: на итоговую приёмку — только после загрузки всех обязательных.
+  const allReady = gate && required.every((m) => isMaterialDone(m.status as MaterialStatus))
+  // Хоть один возврат — этап снова за нами (§15 «Материал возвращен»).
+  const anyReturned = required.some((m) => m.status === 'rework')
+
+  if (anyReturned) {
+    if (stage.status !== 'rework') {
+      await ctx.db.patch(stageId, {
+        status: 'rework',
+        awaiting: 'franchone',
+        dueAt: deadlineFrom(Date.now(), stage.fixDays, pack.workingDays === true),
+        reworkStartedAt: stage.reworkStartedAt ?? Date.now(),
+      })
+    }
+    return
+  }
+
+  if (allReady && required.length > 0) {
+    if (stage.status === 'review' || stage.status === 'rereview') return
+    const now = Date.now()
+    const repeat = (stage.handoverCount ?? 0) > 0
+    const days = repeat ? stage.rereviewDays : stage.reviewDays
+    // §4.1, §12.1: срок приёмки берётся из настроек этапа.
+    const acceptDueAt = deadlineFrom(now, days, pack.workingDays === true)
+    await ctx.db.patch(stageId, {
+      status: repeat ? 'rereview' : 'review',
+      handedAt: now,
+      handoverCount: (stage.handoverCount ?? 0) + 1,
+      awaiting: 'client',
+      dueAt: acceptDueAt,
+      acceptDueAt,
+      reworkMs: stage.reworkStartedAt
+        ? (stage.reworkMs ?? 0) + (now - stage.reworkStartedAt)
+        : stage.reworkMs,
+      reworkStartedAt: undefined,
+    })
+    return
+  }
+
+  // Готовность потеряна — этап снова в работе.
+  if (stage.status === 'review' || stage.status === 'rereview' || stage.status === 'ready') {
+    await ctx.db.patch(stageId, {
+      status: 'in_progress',
+      awaiting: 'franchone',
+      dueAt: stage.endDate ? dayEnd(stage.endDate) : undefined,
+      acceptDueAt: undefined,
+    })
   }
 }
+
+// §13.2: все обязательные материалы приняты → этап отмечается принятым,
+// фиксируется дата решения, сравнивается со сроком приёмки, при соблюдении
+// открывается часть пазла, обновляются прогресс и фактический KPI.
+async function acceptStageFromMaterials(
+  ctx: MutationCtx,
+  pack: Doc<'packs'>,
+  stage: Doc<'packStages'>,
+) {
+  const clientId = pack.clientId
+  await approveStage(ctx, pack, stage, clientId ?? pack.packerId)
+}
+
+// Совместимость: старое имя вызывалось из мутаций материалов.
+export const maybeMarkStageReady = syncStageFromMaterials
 
 // §11.2: новая версия материала. Старые версии не перезаписываются.
 export async function addMaterialVersion(
@@ -794,10 +911,20 @@ export async function addMaterialVersion(
     byId,
     at: Date.now(),
   })
-  // §11.1: «Доработан» — версия загружена после замечаний; иначе материал
-  // становится доступен клиенту для просмотра.
-  const status: MaterialStatus = material.status === 'rework' ? 'reworked' : 'ready'
-  await ctx.db.patch(material._id, { version, status })
+  // §5.2, §5.4: статусов пять. Повторная загрузка после доработки сразу даёт
+  // «Готов к проверке» — отдельного «Доработан» в версии 1.1 нет.
+  // §15: у уже принятого материала статус принятия сам не сбрасывается.
+  const status: MaterialStatus = material.status === 'approved' ? 'approved' : 'ready'
+  const now = Date.now()
+  const stage = await ctx.db.get(material.stageId)
+  const due = material.dueDate ?? stage?.endDate ?? null
+  await ctx.db.patch(material._id, {
+    version,
+    status,
+    ...(status === 'ready'
+      ? { readyAt: now, readyOnTime: due ? now <= dayEnd(due) : true }
+      : {}),
+  })
   await logPackEvent(ctx, {
     packId: material.packId,
     stageId: material.stageId,
@@ -808,7 +935,7 @@ export async function addMaterialVersion(
     to: `версия ${version}`,
     note: row.name,
   })
-  await maybeMarkStageReady(ctx, material.stageId)
+  await syncStageFromMaterials(ctx, material.stageId)
   return version
 }
 
@@ -1102,6 +1229,13 @@ export const board = query({
             dueDate: m.dueDate ?? null,
             version: m.version,
             approvedAt: m.approvedAt ?? null,
+            // §6.3, §9.2: оценка заказчика и его решение видны команде.
+            rating: m.rating ?? null,
+            decidedAt: m.decidedAt ?? null,
+            // §10: своевременность считается по дате «Готов к проверке».
+            readyAt: m.readyAt ?? null,
+            readyOnTime: m.readyOnTime ?? null,
+            returnCount: m.returnCount ?? 0,
             versions: (versionsByMaterial.get(m._id as string) ?? [])
               .sort((a, b) => b.version - a.version)
               .map((x) => ({

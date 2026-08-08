@@ -18,10 +18,11 @@ export const DEFAULT_FIX_DAYS = 3
 // §8.1: сколько дней без событий делают проект «без активности».
 export const DEFAULT_IDLE_DAYS = 7
 
-// ——— §5.1: базовый шаблон проекта ———
+// ——— Базовый шаблон проекта (ТЗ v1.1 §4) ———
 //
-// Нулевой этап и пять основных с равным весом 20%. Названия, комментарии,
-// сроки и веса создатель упаковки меняет до запуска (§4.2).
+// Нулевой этап и пять основных. По v1.1 §4.2 нулевой этап тоже имеет вес и
+// участвует в прогрессе и KPI, поэтому сумма 100% делится между всеми шестью.
+// Названия, описания, порядок, веса и сроки настраиваются под проект.
 export const DEFAULT_STAGES: {
   kind: 'zero' | 'main'
   title: string
@@ -30,42 +31,45 @@ export const DEFAULT_STAGES: {
 }[] = [
   {
     kind: 'zero',
-    title: 'Нулевой этап — онбординг и бриф',
-    clientNote:
-      'Интервью, бриф, исходники, состав упаковки и референсы. На прогресс не влияет.',
-    weight: 0,
+    title: 'Нулевой этап. Интервью и бриф',
+    clientNote: 'Интервью, бриф и сбор исходных данных.',
+    // §4.2: вес нулевого этапа настраивается так же, как у основного.
+    weight: 10,
   },
   {
     kind: 'main',
-    title: 'Этап 1. Концепция франшизы',
-    clientNote: 'Модель франшизы, юнит-экономика и позиционирование.',
-    weight: 20,
+    title: 'Этап 1. Концепция',
+    clientNote: 'Интервью, концепция франшизы и ключевая модель.',
+    weight: 18,
   },
   {
     kind: 'main',
-    title: 'Этап 2. Тексты и смысловая упаковка',
-    clientNote: 'Смыслы, офферы и весь текстовый контур франшизы.',
-    weight: 20,
+    title: 'Этап 2. Смыслы и тексты',
+    clientNote: 'Текстовая и смысловая упаковка.',
+    weight: 18,
   },
   {
     kind: 'main',
-    title: 'Этап 3. Презентация и визуальная упаковка',
-    clientNote: 'Презентация, дизайн и визуальные материалы.',
-    weight: 20,
+    title: 'Этап 3. Презентация и визуал',
+    clientNote: 'Презентационные и визуальные материалы.',
+    weight: 18,
   },
   {
     kind: 'main',
-    title: 'Этап 4. Сборка, документы и публикация',
-    clientNote: 'Договоры, финансовая модель, сайт и публикация.',
-    weight: 20,
+    title: 'Этап 4. Документы и сборка',
+    clientNote: 'Документы, публикация, сайт и сопутствующая сборка.',
+    weight: 18,
   },
   {
     kind: 'main',
-    title: 'Этап 5. Передача, приёмка и завершение',
-    clientNote: 'Передача материалов, приёмка и выполнение обязательств.',
-    weight: 20,
+    title: 'Этап 5. Финальная передача',
+    clientNote: 'Передача итогового комплекта и завершение проекта.',
+    weight: 18,
   },
 ]
+
+// §7: пазл собирается из пяти частей — по одной на основной этап.
+export const PUZZLE_PARTS = 5
 
 // ——— §5.2: статусы этапа ———
 
@@ -161,41 +165,53 @@ export type MaterialStatus =
   | 'reworked'
   | 'approved'
 
+// §5.2: ровно пять состояний. 'reworked' из первой версии остался в схеме
+// ради уже записанных строк — новым материалам он не присваивается, и в
+// списке выбора его нет; повторная загрузка сразу даёт «Готов к проверке».
 export const MATERIAL_STATUS: Record<
   MaterialStatus,
-  { label: string; hint: string; chip: string }
+  { label: string; hint: string; chip: string; by: 'packer' | 'client' }
 > = {
   planned: {
-    label: 'Запланирован',
-    hint: 'Материал предусмотрен составом упаковки.',
+    label: 'Не начат',
+    hint: 'Материал предусмотрен этапом, работа ещё не начата.',
     chip: 'bg-chip text-muted',
+    by: 'packer',
   },
   in_progress: {
     label: 'В работе',
-    hint: 'Команда готовит материал.',
+    hint: 'Материал готовится.',
     chip: 'bg-[#e8effd] text-[#2563eb]',
+    by: 'packer',
   },
   ready: {
     label: 'Готов к проверке',
-    hint: 'Материал доступен клиенту для просмотра.',
+    hint: 'Версия загружена и доступна заказчику.',
     chip: 'bg-[#fff6e6] text-[#b7791f]',
+    by: 'packer',
   },
   rework: {
     label: 'На доработке',
-    hint: 'По материалу есть замечания.',
+    hint: 'Заказчик вернул материал; причина обсуждается вне ERP.',
     chip: 'bg-[#fdefe4] text-[#c05621]',
+    by: 'client',
   },
   reworked: {
-    label: 'Доработан',
-    hint: 'Загружена новая версия.',
-    chip: 'bg-[#eef0ff] text-[#5a4bd6]',
+    label: 'Готов к проверке',
+    hint: 'Загружена новая версия после доработки.',
+    chip: 'bg-[#fff6e6] text-[#b7791f]',
+    by: 'packer',
   },
   approved: {
-    label: 'Утверждён',
-    hint: 'Материал принят.',
+    label: 'Принят',
+    hint: 'Заказчик подтвердил результат.',
     chip: 'bg-[#e2f2ef] text-green-d',
+    by: 'client',
   },
 }
+
+// Статусы, которые ставит упаковщик (§5.2, §9.2).
+export const PACKER_MATERIAL_STATUSES: MaterialStatus[] = ['planned', 'in_progress', 'ready']
 
 export const MATERIAL_KIND_LABEL: Record<string, string> = {
   file: 'Файл',
@@ -275,17 +291,17 @@ export interface StageLike {
   endDate?: string | null
 }
 
-// BR-01: клиентский прогресс равен сумме весов только утверждённых ОСНОВНЫХ
-// этапов. BR-03: нулевой этап прогресс не увеличивает.
+// ТЗ v1.1 §4.2, §10: прогресс и фактический KPI считаются по сумме весов
+// ПРИНЯТЫХ этапов, включая нулевой. В первой версии нулевой этап был
+// исключён — версия 1.1 это правило отменила: он «участвует в общем прогрессе
+// и KPI с настраиваемым весом», но части пазла не открывает.
 export function progressOf(stages: StageLike[]): number {
-  return stages
-    .filter((s) => s.kind === 'main' && s.status === 'approved')
-    .reduce((sum, s) => sum + s.weight, 0)
+  return stages.filter((s) => s.status === 'approved').reduce((sum, s) => sum + s.weight, 0)
 }
 
-// §4.3: сумма весов основных этапов при запуске всегда равна 100 (BR-02).
+// §4.2: сумма весов ВСЕХ активных этапов, включая нулевой, должна быть 100%.
 export function weightSum(stages: StageLike[]): number {
-  return stages.filter((s) => s.kind === 'main').reduce((sum, s) => sum + s.weight, 0)
+  return stages.reduce((sum, s) => sum + s.weight, 0)
 }
 
 // §7.1: финансовая модель проекта.
@@ -428,6 +444,17 @@ export function packHealth(input: HealthInput): HealthResult {
   }
 }
 
+// §7.3, §11.3: внутренний статус персонального подарка. Заказчику видно
+// только право на подарок — ни статус, ни описание ему не показываются.
+export type GiftStatus = 'none' | 'chosen' | 'prepared' | 'sent'
+
+export const GIFT_STATUS: Record<GiftStatus, { label: string; chip: string }> = {
+  none: { label: 'Не выбран', chip: 'bg-chip text-muted' },
+  chosen: { label: 'Выбран', chip: 'bg-[#fff6e6] text-[#b7791f]' },
+  prepared: { label: 'Подготовлен', chip: 'bg-[#e8effd] text-[#2563eb]' },
+  sent: { label: 'Отправлен', chip: 'bg-[#e2f2ef] text-green-d' },
+}
+
 // ——— §12: награды ———
 
 export type RewardStatus = 'locked' | 'available' | 'earned' | 'granted' | 'missed' | 'restored'
@@ -441,7 +468,21 @@ export const REWARD_STATUS: Record<RewardStatus, { label: string; chip: string }
   restored: { label: 'Восстановлена', chip: 'bg-[#eef0ff] text-[#5a4bd6]' },
 }
 
+// §8: видео проигрывается ВНУТРИ ERP. Из ссылки YouTube достаём id ролика —
+// поддерживаем обычную ссылку, короткую youtu.be, /embed/ и /shorts/.
+export function youtubeId(url: string | null | undefined): string | null {
+  if (!url) return null
+  const m = url.match(
+    /(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/)|youtu\.be\/)([\w-]{11})/,
+  )
+  return m ? m[1] : null
+}
+
 // ——— §13.3: контент ———
+
+// §8: три типа полезных материалов первой очереди — видео, статья и тест.
+// Остальные остались от версии 1.0 и продолжают работать как простые карточки.
+export const CONTENT_KINDS_V11 = ['video', 'article', 'test'] as const
 
 export const CONTENT_KIND_LABEL: Record<string, string> = {
   article: 'Статья',
@@ -511,6 +552,8 @@ export const EVENT_LABEL: Record<string, string> = {
   packer_changed: 'изменён ответственный',
   kpi_accrued: 'начислен KPI упаковщика',
   payout: 'выплата вознаграждения',
+  puzzle: 'часть пазла',
+  gift: 'персональный подарок',
   milestone: 'контрольная дата',
   kpi_recalc: 'пересчитан KPI упаковщика',
   reward: 'награда',

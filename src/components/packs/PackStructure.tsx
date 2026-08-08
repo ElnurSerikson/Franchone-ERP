@@ -170,8 +170,9 @@ export default function PackStructure({
         </div>
 
         <p className="text-[11px] text-muted-2 mt-4">
-          BR-02: при запуске сумма весов основных этапов обязана быть ровно 100%. BR-03: нулевой
-          этап прогресс не увеличивает — его вес всегда 0%.
+          §4.2: сумма весов всех активных этапов, включая нулевой, обязана быть ровно 100% —
+          иначе проект не активируется. Принятый нулевой этап входит в прогресс и фактический
+          KPI, но части пазла не открывает.
         </p>
       </section>
     </div>
@@ -487,7 +488,7 @@ function StageEditor({
       await update({
         id: stage._id,
         title: d.title,
-        weight: stage.kind === 'zero' ? 0 : Number(d.weight),
+        weight: Number(d.weight),
         startDate: d.startDate || undefined,
         endDate: d.endDate || undefined,
         clientNote: d.clientNote,
@@ -513,11 +514,8 @@ function StageEditor({
         <span className="text-[13px] font-semibold text-ink flex-1 min-w-0 truncate">
           {stage.order}. {stage.title}
         </span>
-        {stage.kind === 'zero' ? (
-          <span className="chip bg-chip text-muted">нулевой</span>
-        ) : (
-          <span className="chip bg-chip text-ink-2">{stage.weight}%</span>
-        )}
+        {stage.kind === 'zero' && <span className="chip bg-chip text-muted">нулевой</span>}
+        <span className="chip bg-chip text-ink-2">{stage.weight}%</span>
         <span className="text-[11px] text-muted whitespace-nowrap">
           {stage.startDate ?? '—'} → {stage.endDate ?? '—'}
         </span>
@@ -546,8 +544,8 @@ function StageEditor({
             <Field label="Название">
               <input className={inputCls} value={d.title} onChange={(e) => setD({ ...d, title: e.target.value })} />
             </Field>
-            {stage.kind === 'main' && (
-              <Field label="Вес в прогрессе, %">
+            {(
+              <Field label="Вес в прогрессе и KPI, %">
                 <input
                   className={inputCls}
                   type="number"

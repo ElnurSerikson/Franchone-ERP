@@ -30,6 +30,7 @@ import {
   packerReward,
   progressOf,
   weightSum,
+  PUZZLE_PARTS,
   type StageLike,
 } from './packModel'
 
@@ -222,6 +223,66 @@ export async function settleStageRewards(
       }
     }
   }
+}
+
+// ——— §7: пазл и персональный подарок ———
+//
+// Часть пазла открывается при приёмке основного этапа в пределах срока,
+// настроенного для этого этапа (§7.1). Нулевой этап части не открывает
+// (§4.2). Факт начисления хранится на этапе, поэтому повторное открытие
+// страницы не может начислить часть второй раз (§7.1, §15.1).
+export async function awardPuzzle(
+  ctx: MutationCtx,
+  pack: Doc<'packs'>,
+  stage: Doc<'packStages'>,
+  acceptedAt: number,
+) {
+  if (stage.kind !== 'main' || stage.puzzleAwarded) return false
+  // §15: «Заказчик принял после срока» — этап и KPI засчитываются, но часть
+  // пазла автоматически не выдаётся; исключение применяет администратор.
+  const inTime = !stage.acceptDueAt || acceptedAt <= stage.acceptDueAt
+  if (!inTime) return false
+  await ctx.db.patch(stage._id, { puzzleAwarded: true, puzzleAwardedAt: acceptedAt })
+  await checkGift(ctx, pack._id)
+  return true
+}
+
+// §7.2: пять своевременно принятых этапов образуют полный пазл, и заказчик
+// получает право на гарантированный персональный подарок.
+export async function checkGift(ctx: MutationCtx, packId: Id<'packs'>) {
+  const pack = await ctx.db.get(packId)
+  if (!pack || pack.giftEarnedAt) return
+  const stages = await stagesOf(ctx, packId)
+  const parts = stages.filter((s) => s.kind === 'main' && s.puzzleAwarded).length
+  if (parts < PUZZLE_PARTS) return
+  await ctx.db.patch(packId, {
+    giftEarnedAt: Date.now(),
+    giftStatus: pack.giftStatus ?? 'none',
+  })
+  if (pack.clientId) {
+    // §12: третье целевое сообщение — поздравление и подтверждение подарка.
+    await notifyPack(ctx, [pack.clientId], {
+      packId,
+      kind: 'gift',
+      title: 'Пазл собран полностью',
+      text:
+        'Все пять частей на месте. За своевременную приёмку вас ждёт ' +
+        'гарантированный персональный подарок от FRANCHONE.',
+      link: '/',
+      key: `pack_gift:${packId}`,
+    })
+  }
+  await notifyPack(ctx, teamOf(pack), {
+    packId,
+    kind: 'gift',
+    title: 'Клиент собрал пазл',
+    text: `${pack.title}: право на персональный подарок подтверждено.`,
+    link: `/packs/${packId}`,
+  })
+}
+
+export function puzzleCount(stages: Doc<'packStages'>[]): number {
+  return stages.filter((s) => s.kind === 'main' && s.puzzleAwarded).length
 }
 
 export async function stagesOf(ctx: QueryCtx | MutationCtx, packId: Id<'packs'>) {
@@ -655,6 +716,37 @@ export const get = query({
       mainStages: summary.mainStages,
       openClientComments,
       reworkMaterials: materials.filter((m) => m.status === 'rework').length,
+      // §11.2, §11.3: состояние пазла, право на подарок и его внутренний
+      // статус — только команде и администратору.
+      puzzle: {
+        total: 5,
+        collected: stages.filter((s) => s.kind === 'main' && s.puzzleAwarded).length,
+        parts: stages
+          .filter((s) => s.kind === 'main')
+          .map((s, i) => ({
+            index: i + 1,
+            stageId: s._id,
+            title: s.title,
+            awarded: s.puzzleAwarded === true,
+            manual: s.puzzleManual === true,
+            reason: s.puzzleReason ?? null,
+            accepted: s.status === 'approved',
+            acceptDueAt: s.acceptDueAt ?? null,
+          })),
+      },
+      gift: {
+        earned: !!pack.giftEarnedAt,
+        earnedAt: pack.giftEarnedAt ?? null,
+        status: pack.giftStatus ?? 'none',
+        note: pack.giftNote ?? null,
+      },
+      // §11.2: средняя оценка заказчика по материалам проекта.
+      rating: (() => {
+        const rated = materials.filter((m) => typeof m.rating === 'number')
+        return rated.length
+          ? rated.reduce((sum, m) => sum + (m.rating ?? 0), 0) / rated.length
+          : null
+      })(),
       rewardsCount: rewards.length,
       canManage: mayManagePack(me, pack),
       canWork: mayWorkOnPack(me, pack),
@@ -698,7 +790,12 @@ export const create = mutation({
     if (args.dueDate < args.startDate) {
       throw new ConvexError('Общий срок не может быть раньше даты старта')
     }
-    const percent = args.packerPercent ?? 0
+    // §2: финансовые параметры проставляет администратор. Черновик
+    // упаковщика создаётся с нулями, и запуск не пройдёт, пока владелец их
+    // не заполнит (§4.3, §17).
+    const isOwner = me.role === 'owner'
+    const price = isOwner ? (args.price ?? 0) : 0
+    const percent = isOwner ? (args.packerPercent ?? 0) : 0
     if (percent < 0 || percent > 100) throw new ConvexError('Процент упаковщика — от 0 до 100')
 
     // Ответственный упаковщик обязателен (§4.1); по умолчанию — создатель.
@@ -718,7 +815,7 @@ export const create = mutation({
       memberIds: (args.memberIds ?? []).filter((m) => m !== packerId),
       startDate: args.startDate,
       dueDate: args.dueDate,
-      price: args.price ?? 0,
+      price,
       packerPercent: percent,
       description: args.description?.trim() || undefined,
       // §4: проект сначала создаётся как внутренний черновик.
@@ -864,11 +961,20 @@ export const update = mutation({
     }
     if (patch.startDate !== undefined) set('дата старта', 'startDate', pack.startDate, patch.startDate)
     if (patch.dueDate !== undefined) set('общий срок', 'dueDate', pack.dueDate, patch.dueDate)
-    if (patch.price !== undefined) {
+    // ТЗ v1.1 §2, §9.2, §17: упаковщик не может задавать или изменять
+    // стоимость проекта и свой процент. Эти поля заполняет только
+    // администратор; упаковщику они видны в KPI только для чтения.
+    if (patch.price !== undefined && patch.price !== pack.price) {
+      if (me.role !== 'owner') {
+        throw new ConvexError('Стоимость проекта задаёт только администратор')
+      }
       if (patch.price < 0) throw new ConvexError('Стоимость не может быть отрицательной')
       set('стоимость проекта', 'price', pack.price, patch.price, true)
     }
-    if (patch.packerPercent !== undefined) {
+    if (patch.packerPercent !== undefined && patch.packerPercent !== pack.packerPercent) {
+      if (me.role !== 'owner') {
+        throw new ConvexError('Процент упаковщика задаёт только администратор')
+      }
       if (patch.packerPercent < 0 || patch.packerPercent > 100) {
         throw new ConvexError('Процент упаковщика — от 0 до 100')
       }
@@ -985,15 +1091,31 @@ export async function preflight(
   if (main.length === 0) {
     issues.push({ level: 'error', text: 'В проекте нет ни одного основного этапа' })
   }
+  // §4.2: сумма весов ВСЕХ активных этапов, включая нулевой, — ровно 100%.
   if (sum !== 100) {
     issues.push({
       level: 'error',
-      text: `Сумма весов основных этапов — ${sum}%, а должна быть ровно 100%`,
+      text: `Сумма весов всех этапов, включая нулевой, — ${sum}%, а должна быть ровно 100%`,
     })
   }
-  for (const s of main) {
+  for (const s of stages) {
     if (s.weight <= 0) {
       issues.push({ level: 'error', text: `Вес этапа «${s.title}» должен быть больше 0%` })
+    }
+  }
+  // §15: этап нельзя активировать без обязательных материалов, если
+  // администратор явно не разрешил этап без документов.
+  for (const s of stages) {
+    const materials = await ctx.db
+      .query('packMaterials')
+      .withIndex('by_stage', (q) => q.eq('stageId', s._id))
+      .collect()
+    const required = materials.filter((m) => m.required && m.side === 'team')
+    if (required.length === 0 && s.allowNoDocs !== true) {
+      issues.push({
+        level: 'error',
+        text: `У этапа «${s.title}» нет обязательных материалов — добавьте их или разрешите этап без документов`,
+      })
     }
   }
   if (!pack.clientId) issues.push({ level: 'error', text: 'Не назначен клиент' })
@@ -1487,6 +1609,13 @@ export const kpi = query({
     let returns = 0
     let reworkMsTotal = 0
     let reworkCount = 0
+    // §10: своевременность упаковщика определяется моментом передачи
+    // результата в «Готов к проверке», а НЕ датой приёмки заказчиком —
+    // задержка клиента не должна ухудшать его показатель.
+    let handedTotal = 0
+    let handedOnTime = 0
+    let ratingSum = 0
+    let ratingCount = 0
     const progressList: number[] = []
     const rows = []
     // §7.4: динамика KPI по месяцам — по датам утверждения этапов.
@@ -1495,6 +1624,20 @@ export const kpi = query({
     for (const pack of packs) {
       const stages = await stagesOf(ctx, pack._id)
       const summary = summarize(pack, stages, settings.warnHours)
+      for (const m of await ctx.db
+        .query('packMaterials')
+        .withIndex('by_pack', (q) => q.eq('packId', pack._id))
+        .collect()) {
+        if (m.readyAt && inPeriod(m.readyAt)) {
+          handedTotal += 1
+          if (m.readyOnTime !== false) handedOnTime += 1
+        }
+        // §11.2: средняя оценка заказчиков.
+        if (typeof m.rating === 'number') {
+          ratingSum += m.rating
+          ratingCount += 1
+        }
+      }
       const W = packerReward(pack.price, pack.packerPercent)
       const A = accruedReward(pack.price, pack.packerPercent, summary.progress)
       if (pack.status === 'active' || pack.status === 'paused') rewardPlanned += W
@@ -1560,7 +1703,14 @@ export const kpi = query({
       avgProgress: progressList.length
         ? Math.round(progressList.reduce((s, x) => s + x, 0) / progressList.length)
         : 0,
-      onTimeRate: approvedStages ? onTimeStages / approvedStages : 0,
+      // §9.4: успеваемость — передача материалов на проверку относительно
+      // настроенных сроков исполнения.
+      onTimeRate: handedTotal ? handedOnTime / handedTotal : 0,
+      handedTotal,
+      handedOnTime,
+      // §17: приёмка этапов в срок — отдельный показатель, он про заказчика.
+      acceptedOnTimeRate: approvedStages ? onTimeStages / approvedStages : 0,
+      rating: ratingCount ? ratingSum / ratingCount : null,
       avgReworkDays: reworkCount ? reworkMsTotal / reworkCount / DAY_MS : 0,
       returns,
       inWork,
@@ -1581,13 +1731,33 @@ export const packersKpi = query({
     const packs = await ctx.db.query('packs').collect()
     const byPacker = new Map<
       string,
-      { reward: number; accrued: number; paid: number; active: number; done: number }
+      {
+        reward: number
+        accrued: number
+        paid: number
+        active: number
+        done: number
+        ratingSum: number
+        ratingCount: number
+        handedTotal: number
+        handedOnTime: number
+      }
     >()
     for (const pack of packs) {
       const stages = await stagesOf(ctx, pack._id)
       const progress = progressOf(stages.map(stageLike))
       const key = pack.packerId as string
-      const cur = byPacker.get(key) ?? { reward: 0, accrued: 0, paid: 0, active: 0, done: 0 }
+      const cur = byPacker.get(key) ?? {
+        reward: 0,
+        accrued: 0,
+        paid: 0,
+        active: 0,
+        done: 0,
+        ratingSum: 0,
+        ratingCount: 0,
+        handedTotal: 0,
+        handedOnTime: 0,
+      }
       if (pack.status === 'active' || pack.status === 'paused') {
         cur.reward += packerReward(pack.price, pack.packerPercent)
         cur.active += 1
@@ -1595,13 +1765,38 @@ export const packersKpi = query({
       if (pack.status === 'done') cur.done += 1
       cur.accrued += accruedReward(pack.price, pack.packerPercent, progress)
       cur.paid += await paidFor(ctx, pack._id)
+      // §11.2: своевременность передачи материалов и средняя оценка заказчиков.
+      for (const m of await ctx.db
+        .query('packMaterials')
+        .withIndex('by_pack', (q) => q.eq('packId', pack._id))
+        .collect()) {
+        if (m.readyAt) {
+          cur.handedTotal += 1
+          if (m.readyOnTime !== false) cur.handedOnTime += 1
+        }
+        if (typeof m.rating === 'number') {
+          cur.ratingSum += m.rating
+          cur.ratingCount += 1
+        }
+      }
       byPacker.set(key, cur)
     }
     void settings
     const out = []
     for (const [id, agg] of byPacker) {
       const p = await person(ctx, id as Id<'employees'>)
-      if (p) out.push({ ...p, ...agg })
+      if (p) {
+        out.push({
+          ...p,
+          reward: agg.reward,
+          accrued: agg.accrued,
+          paid: agg.paid,
+          active: agg.active,
+          done: agg.done,
+          onTimeRate: agg.handedTotal ? agg.handedOnTime / agg.handedTotal : 0,
+          rating: agg.ratingCount ? agg.ratingSum / agg.ratingCount : null,
+        })
+      }
     }
     return out.sort((a, b) => b.accrued - a.accrued)
   },
@@ -2029,6 +2224,81 @@ export const removeMilestone = mutation({
       field: row.title,
       to: 'удалена',
     })
+  },
+})
+
+// §7.3, §11.3: внутренний статус персонального подарка. Заказчику не
+// показывается ни статус, ни описание — только само право на подарок.
+export const setGift = mutation({
+  args: {
+    packId: v.id('packs'),
+    status: v.union(
+      v.literal('none'),
+      v.literal('chosen'),
+      v.literal('prepared'),
+      v.literal('sent'),
+    ),
+    note: v.optional(v.string()),
+  },
+  handler: async (ctx, { packId, status, note }) => {
+    const { me, pack } = await requirePack(ctx, packId, 'manage')
+    if (me.role !== 'owner') throw new ConvexError('Подарком управляет только администратор')
+    await ctx.db.patch(packId, {
+      giftStatus: status,
+      giftNote: note?.trim() || pack.giftNote,
+    })
+    await logPackEvent(ctx, {
+      packId,
+      type: 'gift',
+      byId: me._id,
+      from: pack.giftStatus ?? 'none',
+      to: status,
+      financial: true,
+    })
+  },
+})
+
+// §7.3, §11.3: ручная корректировка права на часть пазла — с обязательной
+// административной причиной.
+export const setPuzzlePart = mutation({
+  args: {
+    stageId: v.id('packStages'),
+    awarded: v.boolean(),
+    reason: v.string(),
+  },
+  handler: async (ctx, { stageId, awarded, reason }) => {
+    const stage = await ctx.db.get(stageId)
+    if (!stage) throw new ConvexError('Этап не найден')
+    const { me, pack } = await requirePack(ctx, stage.packId, 'manage')
+    if (me.role !== 'owner') throw new ConvexError('Часть пазла корректирует только администратор')
+    if (stage.kind !== 'main') throw new ConvexError('Нулевой этап части пазла не открывает')
+    if (!reason.trim()) throw new ConvexError('Укажите административную причину')
+
+    await ctx.db.patch(stageId, {
+      puzzleAwarded: awarded,
+      puzzleAwardedAt: awarded ? (stage.puzzleAwardedAt ?? Date.now()) : undefined,
+      puzzleManual: true,
+      puzzleReason: reason.trim(),
+    })
+    await logPackEvent(ctx, {
+      packId: pack._id,
+      stageId,
+      type: 'puzzle',
+      byId: me._id,
+      field: stage.title,
+      to: awarded ? 'часть выдана' : 'часть снята',
+      reason: reason.trim(),
+    })
+    if (awarded) await checkGift(ctx, pack._id)
+    if (awarded && pack.clientId) {
+      await notifyPack(ctx, [pack.clientId], {
+        packId: pack._id,
+        kind: 'puzzle',
+        title: 'Открыта часть пазла',
+        text: `${pack.title} · ${stage.title}`,
+        link: '/',
+      })
+    }
   },
 })
 

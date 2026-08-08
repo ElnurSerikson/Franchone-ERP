@@ -76,16 +76,20 @@ export default function PackerPanel() {
           foot={`к выплате: ${kzt(Math.max(0, kpi?.unpaid ?? 0))} · план ${kzt(kpi?.rewardPlanned ?? 0)}`}
           icon={Target}
         />
+        {/* §9.4, §10: успеваемость — передача материалов на проверку
+            относительно сроков исполнения. Задержка заказчика её не портит. */}
         <StatCard
-          label="Утверждённые этапы"
-          value={String(kpi?.approvedStages ?? 0)}
-          foot={`в срок ${pct(kpi?.onTimeRate ?? 0)} · возвратов ${kpi?.returns ?? 0}`}
+          label="Передано в срок"
+          value={pct(kpi?.onTimeRate ?? 0)}
+          foot={`${kpi?.handedOnTime ?? 0} из ${kpi?.handedTotal ?? 0} материалов${
+            kpi?.rating ? ` · оценка ${kpi.rating.toFixed(1)}` : ''
+          }`}
           icon={CheckSquare}
         />
         <StatCard
           label="Этапы в работе"
           value={String(kpi?.inWork ?? 0)}
-          foot={`на проверке у клиента: ${kpi?.onReview ?? 0} · средняя доработка ${(kpi?.avgReworkDays ?? 0).toFixed(1)} дн.`}
+          foot={`принято этапов ${kpi?.approvedStages ?? 0} · возвратов ${kpi?.returns ?? 0}`}
           icon={Clock}
         />
       </div>

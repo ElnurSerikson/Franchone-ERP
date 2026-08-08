@@ -10,7 +10,7 @@ import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-do
 import { useQuery } from 'convex/react'
 import { useAuthActions } from '@convex-dev/auth/react'
 import {
-  Bell, BookOpen, CalendarDays, FolderOpen, Gift, Home, Loader2, LogOut, Sparkles,
+  BookOpen, CalendarDays, FolderOpen, Gift, Home, Loader2, LogOut, Sparkles,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -19,7 +19,7 @@ import Select from '@/components/ui/Select'
 import ClientHome from './ClientHome'
 import ClientStages from './ClientStages'
 import {
-  ClientCalendar, ClientHub, ClientLearn, ClientMaterials, ClientNotifications, ClientRewards,
+  ClientCalendar, ClientHub, ClientLearn, ClientMaterials, ClientRewards,
 } from './ClientExtras'
 
 // Текущий проект клиента: у него почти всегда один, но архитектура допускает
@@ -29,15 +29,16 @@ export function useClientPack() {
   return useContext(PackCtx).packId
 }
 
+// ТЗ v1.1 §16: отдельного центра уведомлений в модуле нет — заказчик
+// получает только целевые Telegram-сообщения (§12). Поэтому вкладки
+// «Уведомления» здесь тоже нет.
 const NAV = [
   { to: '/', label: 'Обзор', icon: Home, end: true },
-  { to: '/stages', label: 'Этапы', icon: Sparkles, end: false },
-  { to: '/materials', label: 'Материалы', icon: FolderOpen, end: false },
-  { to: '/calendar', label: 'Календарь', icon: CalendarDays, end: false },
-  { to: '/rewards', label: 'Награды', icon: Gift, end: false },
-  { to: '/learn', label: 'Обучение', icon: BookOpen, end: false },
-  { to: '/hub', label: 'Итоговый хаб', icon: FolderOpen, end: false },
-  { to: '/notifications', label: 'Уведомления', icon: Bell, end: false },
+  { to: '/stages', label: 'Документы', icon: FolderOpen, end: false },
+  { to: '/calendar', label: 'Сроки', icon: CalendarDays, end: false },
+  { to: '/rewards', label: 'Пазл и подарок', icon: Gift, end: false },
+  { to: '/learn', label: 'Полезное', icon: BookOpen, end: false },
+  { to: '/hub', label: 'Итоговый комплект', icon: Sparkles, end: false },
 ]
 
 export default function ClientApp() {
@@ -120,18 +121,6 @@ export default function ClientApp() {
                   Кабинет клиента FRANCHONE
                 </div>
               </div>
-              <NavLink
-                to="/notifications"
-                className="relative ico-btn w-9 h-9"
-                aria-label="Уведомления"
-              >
-                <Bell size={16} />
-                {data.unread > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-green text-white text-[10px] font-bold grid place-items-center">
-                    {data.unread}
-                  </span>
-                )}
-              </NavLink>
               <div className="flex items-center gap-2">
                 <Avatar initials={data.me.initials} color={data.me.avatarColor} size={32} />
                 <div className="min-w-0 hidden sm:block">
@@ -188,7 +177,6 @@ export default function ClientApp() {
               <Route path="rewards" element={<ClientRewards />} />
               <Route path="learn" element={<ClientLearn />} />
               <Route path="hub" element={<ClientHub />} />
-              <Route path="notifications" element={<ClientNotifications />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </main>

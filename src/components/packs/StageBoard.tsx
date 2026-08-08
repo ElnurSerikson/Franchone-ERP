@@ -7,7 +7,7 @@ import { useRef, useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import {
   Check, ChevronDown, ChevronRight, Clock, FileUp, Link2, Loader2, Lock,
-  MessageSquare, Paperclip, Plus, RotateCcw, Send, Trash2, Undo2, Users,
+  MessageSquare, Paperclip, Plus, RotateCcw, Send, Star, Trash2, Users,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -16,7 +16,9 @@ import Select from '@/components/ui/Select'
 import DatePicker from '@/components/ui/DatePicker'
 import { errMessage } from '@/lib/errors'
 import { uploadToStorage } from '@/lib/packUpload'
-import { MATERIAL_KIND_LABEL, MATERIAL_STATUS } from '../../../convex/packModel'
+import {
+  MATERIAL_KIND_LABEL, MATERIAL_STATUS, PACKER_MATERIAL_STATUSES,
+} from '../../../convex/packModel'
 import {
   AttachmentLink, Deadline, MaterialChip, StageChip, dateTime, inputCls, areaCls,
 } from './ui'
@@ -70,16 +72,12 @@ function StageCard({
   open: boolean
   onToggle: () => void
 }) {
-  const start = useMutation(api.packStages.startStage)
-  const handover = useMutation(api.packStages.handover)
-  const approve = useMutation(api.packStages.approve)
-  const returnForChanges = useMutation(api.packStages.returnForChanges)
   const reopen = useMutation(api.packStages.reopenStage)
 
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
   const [note, setNote] = useState('')
-  const [mode, setMode] = useState<'' | 'handover' | 'return' | 'reopen'>('')
+  const [mode, setMode] = useState<'' | 'reopen'>('')
 
   const act = async (name: string, fn: () => Promise<unknown>) => {
     setBusy(name)
@@ -95,7 +93,6 @@ function StageCard({
     }
   }
 
-  const canHand = ['in_progress', 'ready', 'rework'].includes(stage.status)
   const blocked = stage.status === 'locked'
 
   return (
@@ -112,11 +109,10 @@ function StageCard({
             {blocked && <Lock size={13} className="text-muted-2" />}
             <span className="text-[15px] font-semibold text-ink">{stage.title}</span>
             <StageChip status={stage.status} />
-            {stage.kind === 'zero' ? (
-              <span className="chip bg-chip text-muted">не влияет на прогресс</span>
-            ) : (
-              <span className="chip bg-chip text-ink-2">вес {stage.weight}%</span>
+            {stage.kind === 'zero' && (
+              <span className="chip bg-chip text-muted">подготовительный</span>
             )}
+            <span className="chip bg-chip text-ink-2">вес {stage.weight}%</span>
             {stage.returnCount > 0 && (
               <span className="chip bg-[#fdefe4] text-[#c05621]">
                 возвратов: {stage.returnCount}
@@ -165,56 +161,20 @@ function StageCard({
             </div>
           )}
 
-          {/* Действия по этапу (§5.3) */}
+          {/* ТЗ v1.1 §5.3, §9.2: отдельного действия «передать этап» нет.
+              Этап уходит на приёмку, когда загружены все обязательные
+              материалы, и принимается, когда заказчик принял их все. */}
           {board.canWork && board.launched && stage.status !== 'approved' && (
-            <div className="flex items-center gap-2 flex-wrap">
-              {stage.status === 'planned' && (
-                <button
-                  onClick={() => act('start', () => start({ id: stage._id }))}
-                  disabled={!!busy}
-                  className="btn btn-ghost h-8 px-3 text-sm"
-                >
-                  {busy === 'start' ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                  Взять в работу
-                </button>
-              )}
-              {canHand && (
-                <button
-                  onClick={() => setMode(mode === 'handover' ? '' : 'handover')}
-                  className="btn btn-green h-8 px-3 text-sm"
-                >
-                  <Send size={13} /> Передать этап клиенту
-                </button>
-              )}
-              {board.isOwner && (
-                <>
-                  <button
-                    onClick={() => act('approve', () => approve({ id: stage._id }))}
-                    disabled={!!busy || blocked}
-                    className="btn btn-ghost h-8 px-3 text-sm"
-                    title="Утверждает клиент; вручную — только владелец"
-                  >
-                    {busy === 'approve' ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-                    Утвердить вручную
-                  </button>
-                  <button
-                    onClick={() => setMode(mode === 'return' ? '' : 'return')}
-                    disabled={blocked}
-                    className="btn btn-ghost h-8 px-3 text-sm"
-                  >
-                    <Undo2 size={13} /> Вернуть на доработку
-                  </button>
-                </>
-              )}
-              {stage.status === 'locked' && (
-                <span className="text-[12px] text-muted">
-                  Этап откроется, когда будет утверждён предыдущий.
-                </span>
-              )}
+            <div className="rounded-xl bg-chip p-3 text-[12px] text-ink-2">
+              {stage.readiness.required === 0
+                ? 'У этапа нет обязательных материалов — добавьте их, иначе этап не уйдёт на приёмку.'
+                : stage.readiness.done < stage.readiness.required
+                  ? `Готово ${stage.readiness.done} из ${stage.readiness.required} обязательных материалов. Как только все будут «Готов к проверке», этап уйдёт заказчику автоматически.`
+                  : 'Все обязательные материалы переданы. Этап принимается, когда заказчик примет каждый из них.'}
             </div>
           )}
 
-          {/* §7.3: переоткрытие утверждённого этапа. */}
+          {/* §15: принятый этап переоткрывает только администратор. */}
           {board.isOwner && stage.status === 'approved' && (
             <div>
               <button
@@ -226,41 +186,10 @@ function StageCard({
             </div>
           )}
 
-          {mode === 'handover' && (
-            <ActionBox
-              title="Передать этап клиенту"
-              hint={
-                stage.readiness.required > 0 && stage.readiness.done < stage.readiness.required
-                  ? `Не готовы обязательные материалы: ${stage.readiness.missing.join(', ')}`
-                  : 'Клиент получит уведомление, и запустится его таймер на проверку.'
-              }
-              danger={stage.readiness.required > 0 && stage.readiness.done < stage.readiness.required}
-              value={note}
-              onChange={setNote}
-              placeholder="Комментарий к передаче (необязательно)"
-              busy={busy === 'handover'}
-              label="Передать"
-              onSubmit={() => act('handover', () => handover({ id: stage._id, note }))}
-              onCancel={() => setMode('')}
-            />
-          )}
-          {mode === 'return' && (
-            <ActionBox
-              title="Вернуть на доработку"
-              hint="Ответственность и таймер вернутся к FRANCHONE (BR-07)."
-              value={note}
-              onChange={setNote}
-              placeholder="Что именно нужно исправить"
-              busy={busy === 'return'}
-              label="Вернуть"
-              onSubmit={() => act('return', () => returnForChanges({ id: stage._id, comment: note }))}
-              onCancel={() => setMode('')}
-            />
-          )}
           {mode === 'reopen' && (
             <ActionBox
-              title="Переоткрыть утверждённый этап"
-              hint="Вес этапа выйдет из прогресса и KPI упаковщика до повторного утверждения. Причина попадёт в журнал."
+              title="Переоткрыть принятый этап"
+              hint="Вес этапа выйдет из прогресса и фактического KPI до повторной приёмки. Причина сохранится в системе."
               danger
               value={note}
               onChange={setNote}
@@ -499,6 +428,32 @@ function MaterialRow({
             {material.dueDate ? ` · срок ${material.dueDate}` : ''}
             {material.owner ? ` · ${material.owner.name}` : ''}
           </div>
+          {/* §9.2: упаковщик видит решения и оценки заказчика. §10: своевременность
+              считается по дате передачи на проверку, а не по дате приёмки. */}
+          <div className="flex items-center gap-2 flex-wrap mt-1">
+            {material.rating ? (
+              <span className="chip bg-[#fff6e6] text-[#b7791f]">
+                <Star size={11} /> {material.rating} из 5
+              </span>
+            ) : null}
+            {material.readyAt && (
+              <span
+                className={`chip ${
+                  material.readyOnTime === false
+                    ? 'bg-[#fdeaea] text-[#c53030]'
+                    : 'bg-[#e2f2ef] text-green-d'
+                }`}
+              >
+                передан {dateTime(material.readyAt)}
+                {material.readyOnTime === false ? ' · с опозданием' : ' · в срок'}
+              </span>
+            )}
+            {material.decidedAt && (
+              <span className="chip bg-chip text-muted">
+                решение {dateTime(material.decidedAt)}
+              </span>
+            )}
+          </div>
         </div>
         {board.canWork && (
           <div className="shrink-0">
@@ -507,7 +462,11 @@ function MaterialRow({
               align="right"
               value={material.status}
               onChange={(v) => void update({ id: material._id, status: v as 'ready' })}
-              options={Object.entries(MATERIAL_STATUS).map(([value, x]) => ({ value, label: x.label }))}
+              // §5.2: «Принят» и «На доработке» ставит заказчик — их здесь нет.
+              options={PACKER_MATERIAL_STATUSES.map((value) => ({
+                value,
+                label: MATERIAL_STATUS[value].label,
+              }))}
             />
           </div>
         )}
@@ -625,7 +584,7 @@ function Comments({ packId, stage, board }: { packId: Id<'packs'>; stage: Stage;
   const genUrl = useMutation(api.packs.generateUploadUrl)
   const fileRef = useRef<HTMLInputElement>(null)
   const [text, setText] = useState('')
-  const [scope, setScope] = useState<'internal' | 'client'>('internal')
+  const scope: 'internal' = 'internal'
   const [files, setFiles] = useState<{ kind: 'file'; name: string; storageId: Id<'_storage'> }[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -649,7 +608,7 @@ function Comments({ packId, stage, board }: { packId: Id<'packs'>; stage: Stage;
     <div>
       <div className="flex items-center gap-2 mb-2">
         <MessageSquare size={14} className="text-green" />
-        <span className="text-sm font-semibold text-ink">Обсуждение</span>
+        <span className="text-sm font-semibold text-ink">Заметки команды</span>
         <span className="chip bg-chip text-muted">{stage.comments.length}</span>
       </div>
 
@@ -657,25 +616,19 @@ function Comments({ packId, stage, board }: { packId: Id<'packs'>; stage: Stage;
 
       {board.canWork && (
         <div className="mt-3 rounded-xl border border-line p-3 flex flex-col gap-2">
+          {/* §16: чата между заказчиком и упаковщиком в модуле нет —
+              правки обсуждаются во внешних каналах. Здесь только внутренние
+              заметки команды, клиент их не видит никогда. */}
           <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={() => setScope('internal')}
-              className={`chip ${scope === 'internal' ? 'bg-[#fff6e6] text-[#b7791f]' : 'bg-chip text-muted'}`}
-            >
-              <Users size={11} /> Внутренний — клиент не увидит
-            </button>
-            <button
-              onClick={() => setScope('client')}
-              className={`chip ${scope === 'client' ? 'bg-[#e2f2ef] text-green-d' : 'bg-chip text-muted'}`}
-            >
-              <MessageSquare size={11} /> Клиенту
-            </button>
+            <span className="chip bg-[#fff6e6] text-[#b7791f]">
+              <Users size={11} /> Внутренняя заметка — клиент не увидит
+            </span>
           </div>
           <textarea
             className={areaCls}
             value={text}
             onChange={(e) => setText(e.target.value)}
-            placeholder={scope === 'internal' ? 'Заметка для команды' : 'Сообщение клиенту'}
+            placeholder="Заметка для команды" 
           />
           {files.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
