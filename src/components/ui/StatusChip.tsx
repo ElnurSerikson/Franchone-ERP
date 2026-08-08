@@ -18,7 +18,7 @@ export function StatusChip({ status }: { status: TaskStatus }) {
 
 export const statusMeta = statusStyle
 
-const priorityStyle: Record<Priority, { label: string; cls: string }> = {
+export const priorityStyle: Record<Priority, { label: string; cls: string }> = {
   low: { label: 'Низкий', cls: 'bg-chip text-muted' },
   medium: { label: 'Средний', cls: 'bg-[#eef4ff] text-[#2563eb]' },
   high: { label: 'Высокий', cls: 'bg-[#fff1e6] text-[#c05621]' },

@@ -20,7 +20,7 @@ import type { Id } from '../../convex/_generated/dataModel'
 import PageHeader from '@/components/PageHeader'
 import Avatar from '@/components/ui/Avatar'
 import { ProgressBar } from '@/components/ui/Progress'
-import { PriorityChip, statusMeta } from '@/components/ui/StatusChip'
+import { PriorityChip, statusMeta, priorityStyle } from '@/components/ui/StatusChip'
 import TaskModal from '@/components/TaskModal'
 import TaskCreateModal from '@/components/TaskCreateModal'
 import { usePerms } from '@/lib/usePerms'
@@ -30,6 +30,14 @@ import { shortDate, pct } from '@/lib/format'
 import type { Employee, Task, TaskStatus } from '@/types'
 
 const columns: TaskStatus[] = ['assigned', 'in_progress', 'done']
+
+// Приоритеты в порядке важности, а не алфавита: в списке ищут «срочный».
+const PRIORITIES = (['urgent', 'high', 'medium', 'low'] as const).map((key) => ({
+  key,
+  label: priorityStyle[key].label,
+}))
+
+const filterCls = 'h-9 rounded-lg border border-line-2 px-2 text-sm bg-white'
 
 // Презентационная карточка (без drag-обвязки — её даёт DraggableCard).
 function TaskCard({ task, assignee }: { task: Task; assignee?: Employee }) {
@@ -152,8 +160,47 @@ function Column({
   )
 }
 
+// Варианты фильтра по срокам. Считаются от сегодняшнего дня в поясе
+// организации: доска общая, а браузеры у людей могут стоять в разных поясах.
+const DUE_OPTIONS = [
+  { key: 'overdue', label: 'Просрочено' },
+  { key: 'today', label: 'Срок сегодня' },
+  { key: 'tomorrow', label: 'Срок завтра' },
+  { key: 'week', label: 'На этой неделе' },
+  { key: 'none', label: 'Без срока' },
+] as const
+
+type DueKey = (typeof DUE_OPTIONS)[number]['key']
+
+function orgToday(): string {
+  return new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
+}
+
+function shift(date: string, days: number): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10)
+}
+
+// Конец текущей недели — воскресенье включительно.
+function weekEnd(today: string): string {
+  const dow = new Date(`${today}T12:00:00Z`).getUTCDay()
+  return shift(today, dow === 0 ? 0 : 7 - dow)
+}
+
+function matchesDue(task: Task, due: DueKey | ''): boolean {
+  if (!due) return true
+  const today = orgToday()
+  if (due === 'none') return !task.deadline
+  if (!task.deadline) return false
+  // Просроченной считается только незакрытая задача: у выполненной срок уже
+  // не горит, а её опоздание видно отдельной пометкой на карточке.
+  if (due === 'overdue') return task.deadline < today && task.status !== 'done'
+  if (due === 'today') return task.deadline === today
+  if (due === 'tomorrow') return task.deadline === shift(today, 1)
+  return task.deadline >= today && task.deadline <= weekEnd(today)
+}
+
 export default function Tasks() {
-  const { tasks, employees } = useData()
+  const { tasks: allTasks, employees } = useData()
   const setStatus = useMutation(api.tasks.setStatus)
   const [activeId, setActiveId] = useState<string | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
@@ -163,6 +210,29 @@ export default function Tasks() {
   const { can } = usePerms()
   const canCreateTask = can('tasks', 'create')
 
+  // Фильтры. Колонки остаются на месте при любом выборе — меняется только
+  // то, какие карточки в них попадают: доска должна оставаться доской, а не
+  // перестраиваться под каждый фильтр.
+  const [fAssignee, setFAssignee] = useState('')
+  const [fPriority, setFPriority] = useState('')
+  const [fStatus, setFStatus] = useState<TaskStatus | ''>('')
+  const [fDue, setFDue] = useState<DueKey | ''>('')
+
+  const tasks = allTasks.filter(
+    (t) =>
+      (!fAssignee || t.assigneeId === fAssignee) &&
+      (!fPriority || t.priority === fPriority) &&
+      (!fStatus || t.status === fStatus) &&
+      matchesDue(t, fDue),
+  )
+  const filtered = !!(fAssignee || fPriority || fStatus || fDue)
+  const resetFilters = () => {
+    setFAssignee('')
+    setFPriority('')
+    setFStatus('')
+    setFDue('')
+  }
+
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
@@ -170,8 +240,10 @@ export default function Tasks() {
   )
 
   const assigneeOf = (id: string) => employees.find((e) => e.id === id)
-  const openTask = tasks.find((t) => t.id === openId) ?? null
-  const activeTask = tasks.find((t) => t.id === activeId) ?? null
+  // Открытую карточку и перетаскиваемую ищем среди всех задач, а не среди
+  // отфильтрованных: иначе смена фильтра при открытом окне обнуляла бы его.
+  const openTask = allTasks.find((t) => t.id === openId) ?? null
+  const activeTask = allTasks.find((t) => t.id === activeId) ?? null
 
   const openGuarded = (id: string) => {
     // Гасим «хвостовой» клик, который браузер шлёт после перетаскивания.
@@ -187,7 +259,7 @@ export default function Tasks() {
     setTimeout(() => (suppressClick.current = false), 200)
     const overId = e.over?.id as TaskStatus | undefined
     if (!overId || !columns.includes(overId)) return
-    const t = tasks.find((x) => x.id === e.active.id)
+    const t = allTasks.find((x) => x.id === e.active.id)
     if (t && t.status !== overId) setStatus({ id: t.id as Id<'tasks'>, status: overId })
   }
 
@@ -223,7 +295,70 @@ export default function Tasks() {
         }
       />
 
-      {view === 'stats' && <TaskStatsView tasks={tasks} employees={employees} />}
+      {view === 'board' && (
+        <div className="flex items-center gap-2 flex-wrap mb-4">
+          <select
+            value={fAssignee}
+            onChange={(e) => setFAssignee(e.target.value)}
+            className={filterCls}
+          >
+            <option value="">Все ответственные</option>
+            {employees.map((e) => (
+              <option key={e.id} value={e.id}>
+                {e.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={fPriority}
+            onChange={(e) => setFPriority(e.target.value)}
+            className={filterCls}
+          >
+            <option value="">Любой приоритет</option>
+            {PRIORITIES.map((p) => (
+              <option key={p.key} value={p.key}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={fStatus}
+            onChange={(e) => setFStatus(e.target.value as TaskStatus | '')}
+            className={filterCls}
+          >
+            <option value="">Любой статус</option>
+            {columns.map((c) => (
+              <option key={c} value={c}>
+                {statusMeta[c].label}
+              </option>
+            ))}
+          </select>
+          <select
+            value={fDue}
+            onChange={(e) => setFDue(e.target.value as DueKey | '')}
+            className={filterCls}
+          >
+            <option value="">Любой срок</option>
+            {DUE_OPTIONS.map((d) => (
+              <option key={d.key} value={d.key}>
+                {d.label}
+              </option>
+            ))}
+          </select>
+          {filtered && (
+            <>
+              <button onClick={resetFilters} className="mini-btn">
+                Сбросить
+              </button>
+              <span className="text-[13px] text-muted">
+                {tasks.length} из {allTasks.length}
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
+      {view === 'stats' && <TaskStatsView tasks={allTasks} employees={employees} />}
 
       <div className={view === 'stats' ? 'hidden' : ''}>
         <DndContext
@@ -246,7 +381,9 @@ export default function Tasks() {
                     />
                   ))}
                   {list.length === 0 && (
-                    <div className="text-xs text-muted-2 text-center py-6">Перетащите сюда</div>
+                    <div className="text-xs text-muted-2 text-center py-6">
+                      {filtered ? 'Нет задач по фильтру' : 'Перетащите сюда'}
+                    </div>
                   )}
                 </Column>
               )
