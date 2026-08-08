@@ -21,7 +21,9 @@ import { forgetChat } from './telegramTalk'
 
 // Категории уведомлений (§6.1): администратор включает и выключает их
 // глобально и для конкретного сотрудника, не меняя его права в ERP.
-export const NOTIFY_CATEGORIES = ['task', 'meeting', 'report', 'plan', 'kpi', 'pack'] as const
+export const NOTIFY_CATEGORIES = [
+  'task', 'meeting', 'report', 'plan', 'kpi', 'pack', 'connect',
+] as const
 export type NotifyCategory = (typeof NOTIFY_CATEGORIES)[number]
 
 export const CATEGORY_LABEL: Record<NotifyCategory, string> = {
@@ -33,6 +35,9 @@ export const CATEGORY_LABEL: Record<NotifyCategory, string> = {
   // ТЗ Упаковка §14.1: каналы первой итерации — уведомления внутри ERP и
   // Telegram по общей интеграции.
   pack: 'Упаковка франшизы',
+  // Кто подключился к боту. Своя категория, а не «Задачи»: событие про
+  // доступ, и выключать его нужно отдельно от рабочего потока.
+  connect: 'Подключения',
 }
 
 const DEFAULTS = {
@@ -456,7 +461,7 @@ export const verifyCode = internalMutation({
     )) {
       await notify(ctx, {
         employeeId: a._id,
-        category: 'task',
+        category: 'connect',
         text:
           `<b>Подключение к боту</b>\n\n${employee.name} · ${employee.department}\n` +
           `Telegram: ${username ? '@' + username : tgName || '—'}`,
