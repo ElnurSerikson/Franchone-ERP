@@ -519,25 +519,65 @@ function KpiTextsEditor({
   )
 }
 
-// §10: журнал доступен администратору, с фильтром по сотруднику и событию.
+// Названия событий журнала. Ключи короткие и служебные — администратору
+// нужно человеческое слово, иначе фильтр по событию бесполезен.
+const AUDIT_KINDS: { key: string; label: string }[] = [
+  { key: 'command', label: 'Команды' },
+  { key: 'notify', label: 'Уведомления' },
+  { key: 'login', label: 'Вход в бота' },
+  { key: 'reconnect', label: 'Переподключение' },
+  { key: 'disable', label: 'Отключение' },
+  { key: 'error', label: 'Ошибки' },
+]
+
+// Сдвиг даты на N дней назад в формате YYYY-MM-DD, по поясу организации.
+function dayBack(days: number): string {
+  return new Date(Date.now() + 5 * 3600 * 1000 - days * 86400000).toISOString().slice(0, 10)
+}
+
+// §10: журнал администратора с фильтрами по сотруднику, событию, статусу и
+// периоду. Фильтры считаются на сервере: в журнале тысячи строк, тащить их
+// в браузер ради поиска незачем.
 function TelegramAudit() {
   const { activeEmployees } = useData()
   const [employeeId, setEmployeeId] = useState('')
+  const [kind, setKind] = useState('')
+  const [errorsOnly, setErrorsOnly] = useState(false)
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [search, setSearch] = useState('')
+
   const rows = useQuery(api.telegram.auditLog, {
     ...(employeeId ? { employeeId: employeeId as Id<'employees'> } : {}),
+    ...(kind ? { kind } : {}),
+    ...(errorsOnly ? { errorsOnly: true } : {}),
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+    ...(search.trim() ? { search: search.trim() } : {}),
     limit: 60,
   })
 
+  const period = (days: number) => {
+    setFrom(dayBack(days))
+    setTo(dayBack(0))
+  }
+  const clear = () => {
+    setEmployeeId('')
+    setKind('')
+    setErrorsOnly(false)
+    setFrom('')
+    setTo('')
+    setSearch('')
+  }
+  const dirty = !!(employeeId || kind || errorsOnly || from || to || search)
+  const sel = 'h-9 rounded-lg border border-line-2 px-2 text-sm bg-white'
+
   return (
     <div className="card p-5">
-      <div className="flex items-center gap-2 mb-4 flex-wrap">
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
         <ScrollText size={18} className="text-green" />
         <h3 className="sec-title flex-1">Журнал Telegram</h3>
-        <select
-          value={employeeId}
-          onChange={(e) => setEmployeeId(e.target.value)}
-          className="h-9 rounded-lg border border-line-2 px-2 text-sm bg-white"
-        >
+        <select value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} className={sel}>
           <option value="">Все сотрудники</option>
           {activeEmployees.map((e) => (
             <option key={e.id} value={e.id}>
@@ -545,6 +585,62 @@ function TelegramAudit() {
             </option>
           ))}
         </select>
+        <select value={kind} onChange={(e) => setKind(e.target.value)} className={sel}>
+          <option value="">Все события</option>
+          {AUDIT_KINDS.map((k) => (
+            <option key={k.key} value={k.key}>
+              {k.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="flex items-center gap-2 mb-4 flex-wrap">
+        {/* Произвольный диапазон нужен для разбора старого случая, а
+            повседневно смотрят «сегодня», «неделя», «месяц». */}
+        <button onClick={() => period(0)} className="mini-btn">
+          Сегодня
+        </button>
+        <button onClick={() => period(7)} className="mini-btn">
+          Неделя
+        </button>
+        <button onClick={() => period(30)} className="mini-btn">
+          Месяц
+        </button>
+        <input
+          type="date"
+          value={from}
+          onChange={(e) => setFrom(e.target.value)}
+          className={sel}
+          title="Период с"
+        />
+        <input
+          type="date"
+          value={to}
+          onChange={(e) => setTo(e.target.value)}
+          className={sel}
+          title="Период по"
+        />
+        <input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Поиск по тексту…"
+          className={`${sel} flex-1 min-w-[160px]`}
+        />
+        <label className="flex items-center gap-1.5 text-[13px] text-ink-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={errorsOnly}
+            onChange={(e) => setErrorsOnly(e.target.checked)}
+            className="accent-[#c53030]"
+          />
+          Только сбои
+        </label>
+        {dirty && (
+          <button onClick={clear} className="mini-btn">
+            Сбросить
+          </button>
+        )}
       </div>
 
       {rows === undefined ? (
@@ -552,7 +648,9 @@ function TelegramAudit() {
           <Loader2 className="animate-spin" size={16} />
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted">Пока пусто.</p>
+        <p className="text-sm text-muted">
+          {dirty ? 'По этим условиям записей нет.' : 'Пока пусто.'}
+        </p>
       ) : (
         <div className="rounded-xl border border-line overflow-hidden overflow-x-auto">
           <table className="w-full min-w-[720px]">

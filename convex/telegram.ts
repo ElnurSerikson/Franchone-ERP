@@ -17,6 +17,9 @@ import type { Doc, Id } from './_generated/dataModel'
 import { internal } from './_generated/api'
 import { currentEmployee, requireEmployee, isManager, isStaff } from './lib'
 import { DEFAULT_TZ, nowIn, momentIn } from './orgTime'
+
+// Смещение пояса организации в виде «+05:00» — для разбора границ суток.
+const DEFAULT_TZ_OFFSET = '+05:00'
 import { forgetChat } from './telegramTalk'
 
 // Категории уведомлений (§6.1): администратор включает и выключает их
@@ -746,18 +749,46 @@ export const auditLog = query({
   args: {
     employeeId: v.optional(v.id('employees')),
     kind: v.optional(v.string()),
+    // §10: журнал должен фильтроваться по сотруднику, событию, статусу и
+    // периоду. Статус хранится строкой ('ok' | 'error'), поэтому отдельным
+    // признаком просим «только сбои» — так его ищут чаще всего.
+    status: v.optional(v.string()),
+    errorsOnly: v.optional(v.boolean()),
+    from: v.optional(v.string()), // YYYY-MM-DD, включительно
+    to: v.optional(v.string()), // YYYY-MM-DD, включительно
+    search: v.optional(v.string()),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { employeeId, kind, limit }) => {
+  handler: async (ctx, { employeeId, kind, status, errorsOnly, from, to, search, limit }) => {
     const me = await currentEmployee(ctx)
     // Обычный сотрудник не видит технический журнал и действия других.
     if (!me || me.role !== 'owner') return []
     const names = new Map(
       (await ctx.db.query('employees').collect()).map((e) => [e._id as string, e.name]),
     )
-    return (await ctx.db.query('telegramAudit').withIndex('by_at').order('desc').take(400))
+
+    // Границы периода считаем в поясе организации: сутки для человека
+    // начинаются в полночь по Алматы, а не по UTC.
+    const dayStart = (d: string) => Date.parse(`${d}T00:00:00${DEFAULT_TZ_OFFSET}`)
+    const dayEnd = (d: string) => Date.parse(`${d}T23:59:59.999${DEFAULT_TZ_OFFSET}`)
+    const needle = search?.trim().toLowerCase()
+
+    // Берём с запасом: фильтры сужают выборку, а листать журнал глубже
+    // нескольких сотен записей всё равно незачем.
+    return (await ctx.db.query('telegramAudit').withIndex('by_at').order('desc').take(1500))
       .filter((r) => !employeeId || r.employeeId === employeeId)
       .filter((r) => !kind || r.kind === kind)
+      .filter((r) => !errorsOnly || r.status === 'error' || !!r.error)
+      .filter((r) => !status || r.status === status)
+      .filter((r) => !from || r.at >= dayStart(from))
+      .filter((r) => !to || r.at <= dayEnd(to))
+      .filter(
+        (r) =>
+          !needle ||
+          [r.text, r.result, r.error, r.fields, r.kind]
+            .filter(Boolean)
+            .some((v) => String(v).toLowerCase().includes(needle)),
+      )
       .slice(0, limit ?? 100)
       .map((r) => ({
         _id: r._id,
