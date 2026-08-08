@@ -2982,3 +2982,92 @@ async function devAddendumWipe(ctx: MutationCtx): Promise<void> {
     await ctx.db.delete(o._id)
   }
 }
+
+// ——— Веса этапов под ТЗ v1.1 §4.2 ———
+//
+// В версии 1.0 нулевой этап намеренно весил 0%, а сто процентов делились
+// между пятью основными. Версия 1.1 это отменила: вес есть у каждого
+// активного этапа, включая нулевой, и сумма всех весов равна 100%.
+//
+// Поэтому у проектов, созданных до перехода, нулевой этап остался с нулём —
+// такой проект новая проверка перед запуском не пропустит. Здесь мы даём
+// нулевому этапу долю и пропорционально ужимаем остальные, сохраняя их
+// соотношение: 0 + 20×5 превращается в 10 + 18×5.
+//
+// Прогресс и фактический KPI после этого пересчитываются сами — они всегда
+// производные от весов принятых этапов (§10), поэтому отдельной миграции
+// начислений не требуется. Само изменение уходит в журнал (§15).
+export const normalizePackWeights = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, { dryRun }) => {
+    const owner = (await ctx.db.query('employees').collect()).find((e) => e.role === 'owner')
+    const report: string[] = []
+
+    for (const pack of await ctx.db.query('packs').collect()) {
+      const stages = (
+        await ctx.db
+          .query('packStages')
+          .withIndex('by_pack', (q) => q.eq('packId', pack._id))
+          .collect()
+      ).sort((a, b) => a.order - b.order)
+      if (stages.length === 0) continue
+
+      const sum = stages.reduce((s, x) => s + x.weight, 0)
+      const zeroWeight = stages.filter((s) => s.weight <= 0)
+      if (sum === 100 && zeroWeight.length === 0) continue
+
+      // Нулевым по весу этапам даём базовую долю, остальным — пропорционально
+      // их текущему весу. Если веса нет ни у кого, делим поровну.
+      const base = Math.min(10, Math.floor(100 / stages.length))
+      const reserved = base * zeroWeight.length
+      const rest = stages.filter((s) => s.weight > 0)
+      const restSum = rest.reduce((s, x) => s + x.weight, 0)
+
+      const next = new Map<string, number>()
+      for (const s of zeroWeight) next.set(s._id as string, base)
+      for (const s of rest) {
+        const share =
+          restSum > 0
+            ? Math.round(((100 - reserved) * s.weight) / restSum)
+            : Math.floor((100 - reserved) / Math.max(1, rest.length))
+        next.set(s._id as string, Math.max(1, share))
+      }
+      // Остаток от округления кладём на самый весомый этап — сумма обязана
+      // быть ровно 100 (§4.2).
+      const total = [...next.values()].reduce((s, x) => s + x, 0)
+      if (total !== 100) {
+        const heaviest = stages
+          .slice()
+          .sort((a, b) => (next.get(b._id as string) ?? 0) - (next.get(a._id as string) ?? 0))[0]
+        next.set(
+          heaviest._id as string,
+          Math.max(1, (next.get(heaviest._id as string) ?? 0) + (100 - total)),
+        )
+      }
+
+      const before = stages.map((s) => `${s.weight}`).join('/')
+      const after = stages.map((s) => `${next.get(s._id as string)}`).join('/')
+      report.push(`${pack.title}: ${before} (сумма ${sum}) → ${after} (сумма 100)`)
+
+      if (dryRun) continue
+      for (const s of stages) {
+        const w = next.get(s._id as string) ?? s.weight
+        if (w !== s.weight) await ctx.db.patch(s._id, { weight: w })
+      }
+      if (owner) {
+        await ctx.db.insert('packEvents', {
+          packId: pack._id,
+          type: 'stage_weight',
+          at: Date.now(),
+          byId: owner._id,
+          field: 'веса приведены к ТЗ v1.1',
+          from: before,
+          to: after,
+          reason: '§4.2: вес есть у каждого активного этапа, сумма всех — 100%',
+        })
+      }
+    }
+
+    return report.length ? report : ['Проектов с некорректной суммой весов нет']
+  },
+})
