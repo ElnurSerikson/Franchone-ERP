@@ -447,7 +447,14 @@ export const access = query({
   args: {},
   handler: async (ctx) => {
     const me = await currentEmployee(ctx)
-    const none = { canView: false, canCreate: false, canSeeAll: false, isOwner: false, isClient: false }
+    const none = {
+      canView: false,
+      canCreate: false,
+      canSeeAll: false,
+      isOwner: false,
+      isPacker: false,
+      isClient: false,
+    }
     if (!me || me.status !== 'active') return none
     if (me.role === 'client') return { ...none, canView: false, isClient: true }
 
@@ -461,14 +468,26 @@ export const access = query({
         p.memberIds.some((m) => m === me._id),
     )
     return {
-      canView: isOwner || scope !== 'none' || assigned,
+      // §2: упаковщик видит назначенные ему проекты; его должность сама по
+      // себе открывает раздел, иначе он не смог бы завести первый черновик.
+      canView: isOwner || isPacker(me) || scope !== 'none' || assigned,
       canCreate: await mayDo(ctx, me, 'create'),
       canSeeAll: scope === 'all',
       isOwner,
+      isPacker: isPacker(me),
       isClient: false,
     }
   },
 })
+
+// ТЗ v1.1 §2: роли модуля — заказчик, упаковщик и администратор. Упаковщик
+// определяется должностью, а не галочкой в матрице прав: §3.1 прямо даёт ему
+// право создать черновик проекта, а активирует проект администратор.
+export const PACKER_POSITION = 'packer'
+
+export function isPacker(me: Doc<'employees'> | null | undefined): boolean {
+  return me?.position === PACKER_POSITION && me.role !== 'client'
+}
 
 // Право из матрицы (§9 основного ТЗ) без обращения к permissions.requireCan:
 // оно нужно и в запросах, где мутационного контекста нет.
@@ -479,6 +498,8 @@ async function mayDo(
 ): Promise<boolean> {
   if (!me) return false
   if (me.role === 'owner') return true
+  // §3.1: черновик заводит упаковщик — отдельного права для этого не нужно.
+  if (isPacker(me)) return true
   if (me.role !== 'head' && me.role !== 'employee') return false
   const row = await ctx.db
     .query('rolePermissions')
@@ -1185,6 +1206,10 @@ export const launch = mutation({
   args: { id: v.id('packs') },
   handler: async (ctx, { id }) => {
     const { me, pack } = await requirePack(ctx, id, 'manage')
+    // §3.1, §11.1: упаковщик готовит черновик, активирует его администратор.
+    if (me.role !== 'owner') {
+      throw new ConvexError('Проект активирует администратор — черновик готов, передайте его на проверку')
+    }
     if (pack.launchedAt) throw new ConvexError('Проект уже открыт клиенту')
     const issues = await preflight(ctx, pack)
     const errors = issues.filter((i) => i.level === 'error')

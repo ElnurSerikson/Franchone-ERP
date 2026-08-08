@@ -37,6 +37,7 @@ import {
   DEFAULT_STAGES,
 } from './packModel'
 import {
+  checkGift as packCheckGift,
   addDays as packAddDays,
   dayEnd as packDayEnd,
   deadlineFrom as packDeadlineFrom,
@@ -52,6 +53,7 @@ import {
   approveStage as packApproveStage,
   readiness as packReadiness,
   returnStage as packReturnStage,
+  syncStageFromMaterials as packSyncStage,
 } from './packStages'
 
 async function packProgress(ctx: MutationCtx, packId: Id<'packs'>): Promise<number> {
@@ -3069,5 +3071,74 @@ export const normalizePackWeights = internalMutation({
     }
 
     return report.length ? report : ['Проектов с некорректной суммой весов нет']
+  },
+})
+
+
+// ——— Пересборка проектов под ТЗ v1.1 ———
+//
+// В версии 1.1 состояние этапа выводится из его материалов: этап уходит на
+// приёмку, когда все обязательные материалы получили «Готов к проверке», и
+// принимается, когда заказчик принял их все. Пересчёт запускается при
+// изменении материала — а у проектов, заведённых до перехода, он ни разу не
+// запускался. Из-за этого этап с готовым материалом продолжал числиться
+// «в работе», у клиента не появлялось ни отметки «нужен ваш ответ», ни блока
+// «Требуется ваше внимание», а пазл оставался пустым.
+//
+// Здесь мы прогоняем тот же самый пересчёт по всем этапам и доначисляем части
+// пазла за этапы, которые заказчик уже принял: срока приёмки у них тогда не
+// существовало, поэтому считаем их принятыми вовремя.
+export const resyncPacksV11 = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, { dryRun }) => {
+    const report: string[] = []
+
+    for (const pack of await ctx.db.query('packs').collect()) {
+      const stages = (
+        await ctx.db
+          .query('packStages')
+          .withIndex('by_pack', (q) => q.eq('packId', pack._id))
+          .collect()
+      ).sort((a, b) => a.order - b.order)
+
+      const before = stages.map((s) => `${s.status}`).join('/')
+
+      if (!dryRun) {
+        // Части пазла за уже принятые основные этапы (§7.1): срока приёмки у
+        // них не было, значит заказчик уложился по определению.
+        for (const s of stages) {
+          if (s.kind === 'main' && s.status === 'approved' && !s.puzzleAwarded) {
+            await ctx.db.patch(s._id, {
+              puzzleAwarded: true,
+              puzzleAwardedAt: s.approvedAt ?? Date.now(),
+            })
+          }
+        }
+        // Тот же пересчёт, что и в боевом коде, — не копия правил.
+        for (const s of stages) await packSyncStage(ctx, s._id)
+        await packCheckGift(ctx, pack._id)
+      }
+
+      const after = (
+        await ctx.db
+          .query('packStages')
+          .withIndex('by_pack', (q) => q.eq('packId', pack._id))
+          .collect()
+      )
+        .sort((a, b) => a.order - b.order)
+        .map((s) => `${s.status}`)
+        .join('/')
+
+      const parts = (
+        await ctx.db
+          .query('packStages')
+          .withIndex('by_pack', (q) => q.eq('packId', pack._id))
+          .collect()
+      ).filter((s) => s.kind === 'main' && s.puzzleAwarded).length
+
+      report.push(`${pack.title}: ${before} → ${after} · пазл ${parts}/5`)
+    }
+
+    return report.length ? report : ['Проектов нет']
   },
 })
