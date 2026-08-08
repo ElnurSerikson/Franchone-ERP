@@ -193,7 +193,7 @@ function LoginHistoryModal({
   // Дни идут от свежего к старому — открывая историю, смотрят на последние.
   // А внутри дня время читается как день и прожит: с утра к вечеру. Обратный
   // порядок сбивал, особенно когда рядом стояли «20:16» и «00:18».
-  const byDay = new Map<string, { at: number; minutes: number }[]>()
+  const byDay = new Map<string, { at: number; to: number; minutes: number }[]>()
   for (const v of times ?? []) {
     const day = new Date(v.at + 5 * 3600 * 1000).toISOString().slice(0, 10)
     byDay.set(day, [...(byDay.get(day) ?? []), v])
@@ -234,7 +234,7 @@ function LoginHistoryModal({
                   <div className="flex flex-wrap gap-1.5">
                     {[...list].sort((a, b) => a.at - b.at).map((v) => (
                       <span key={v.at} className="chip bg-chip text-ink-2 tabular-nums">
-                        {onlyTime(v.at)}
+                        {v.minutes >= 1 ? `${onlyTime(v.at)} – ${onlyTime(v.to)}` : onlyTime(v.at)}
                         {v.minutes >= 1 ? (
                           <span className="text-muted"> · {v.minutes} мин</span>
                         ) : null}

@@ -105,11 +105,20 @@ export const loginHistory = query({
       .collect()
     const covered = (t: number) => sessions.some((s) => t >= s.startedAt && t <= s.lastAt)
 
+    // Визит отдаём целиком, началом и концом: в таблице стоит время
+    // последней отметки, и если в истории показать только начало, одно и то же
+    // посещение выглядит двумя разными числами.
     const rows = [
-      ...sessions.map((s) => ({ at: s.startedAt, minutes: Math.round((s.lastAt - s.startedAt) / 60000) })),
+      ...sessions.map((s) => ({
+        at: s.startedAt,
+        to: s.lastAt,
+        minutes: Math.round((s.lastAt - s.startedAt) / 60000),
+      })),
+      // Входы по коду измеренной длительности не имеют: до появления отметок
+      // о человеке было известно только то, что он в этот момент вошёл.
       ...visits(logins.map((l) => l.at))
         .filter((t) => !covered(t))
-        .map((t) => ({ at: t, minutes: 0 })),
+        .map((t) => ({ at: t, to: t, minutes: 0 })),
     ]
     return rows.sort((a, b) => b.at - a.at).slice(0, limit ?? 50)
   },
