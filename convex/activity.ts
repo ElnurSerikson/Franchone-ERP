@@ -178,9 +178,12 @@ export const overview = query({
             e.lastLoginAt ?? 0,
           ) || null
 
-        const minutes30d = sessions
-          .filter((s) => now - s.lastAt <= 30 * DAY)
-          .reduce((sum, s) => sum + (s.lastAt - s.startedAt) / 60000, 0)
+        const spent = (days: number) =>
+          Math.round(
+            sessions
+              .filter((s) => now - s.lastAt <= days * DAY)
+              .reduce((sum, s) => sum + (s.lastAt - s.startedAt) / 60000, 0),
+          )
 
         return {
           employeeId: e._id,
@@ -192,7 +195,10 @@ export const overview = query({
           // и вчерашний вечер в это число попадать не должен.
           countToday: starts.filter((t) => localDate(t) === localDate(now)).length,
           lastLoginAt: lastAt,
-          minutes30d: Math.round(minutes30d),
+          // Время в системе — то, чего не видно по числу заходов: можно
+          // заглянуть пять раз на минуту, а можно один раз на весь день.
+          minutes7d: spent(7),
+          minutes30d: spent(30),
           today: !!lastAt && localDate(lastAt) === localDate(now),
           // «Давно не заходил» — два полных рабочих дня без визита. Выходные
           // не считаем, иначе в понедельник краснела бы вся команда.

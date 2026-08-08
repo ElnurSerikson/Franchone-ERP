@@ -805,6 +805,37 @@ export const auditLog = query({
   },
 })
 
+// У кого бот молчит.
+//
+// Сотрудник, заблокировавший бота или удаливший чат, перестаёт получать
+// задачи и напоминания — и никак этого не показывает. Раньше состояние
+// «Ошибка доставки» было видно, только если открыть его карточку, то есть
+// ровно тогда, когда уже что-то заподозрили. Выносим наверх.
+export const deliveryProblems = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await currentEmployee(ctx)
+    if (!me || me.role !== 'owner') return []
+    const names = new Map(
+      (await ctx.db.query('employees').collect()).map((e) => [e._id as string, e]),
+    )
+    return (await ctx.db.query('telegramLinks').collect())
+      .filter((l) => l.status === 'failed')
+      .map((l) => {
+        const e = names.get(l.employeeId as string)
+        return {
+          employeeId: l.employeeId,
+          name: e?.name ?? '—',
+          position: e?.positionLabel ?? '',
+          error: l.lastError ?? null,
+          lastDeliveryAt: l.lastDeliveryAt ?? null,
+        }
+      })
+      // Уволенных не показываем: их доступ и так отключён.
+      .filter((r) => names.get(r.employeeId as string)?.status === 'active')
+  },
+})
+
 // Кого можно назначить исполнителем или пригласить на встречу (§4.3, §5.1):
 // только сотрудники, доступные автору по правилам ERP.
 export const visiblePeople = internalQuery({

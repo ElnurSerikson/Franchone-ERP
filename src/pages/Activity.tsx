@@ -18,6 +18,15 @@ import { th, td, theadRow } from '@/lib/table'
 // Подпись «когда был». Признаки «сегодня» и «давно не был» приходят с
 // сервера: там считается правило по рабочим дням и часовой пояс организации,
 // а браузер может стоять в другом поясе.
+// Время в системе коротко: часы, а минуты — только пока часа нет.
+function spent(minutes: number): string {
+  if (minutes < 1) return ''
+  if (minutes < 60) return `${minutes} мин`
+  const h = Math.floor(minutes / 60)
+  const m = minutes % 60
+  return m >= 5 ? `${h} ч ${m} мин` : `${h} ч`
+}
+
 function ago(ms: number | null): string {
   if (!ms) return 'никогда'
   const days = Math.floor((Date.now() - ms) / 86400000)
@@ -127,18 +136,32 @@ export default function Activity() {
                           ? 'chip bg-[#e2f2ef] text-green-d hover:bg-[#d3ebe6] transition-colors'
                           : 'chip bg-chip text-muted hover:bg-line transition-colors'
                         const label = `${n} за сегодня`
-                        return act?.loginTotal ? (
-                          <button
-                            type="button"
-                            onClick={() => setHistoryOf({ employee: e, month: act.loginCount30d })}
-                            className={cls}
-                            title="Показать историю посещений"
-                          >
-                            <History size={13} />
-                            {label}
-                          </button>
-                        ) : (
-                          <span className={`${cls} cursor-default`}>{label}</span>
+                        const week = spent(act?.minutes7d ?? 0)
+                        return (
+                          <>
+                            {act?.loginTotal ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setHistoryOf({ employee: e, month: act.loginCount30d })
+                                }
+                                className={cls}
+                                title="Показать историю посещений"
+                              >
+                                <History size={13} />
+                                {label}
+                              </button>
+                            ) : (
+                              <span className={`${cls} cursor-default`}>{label}</span>
+                            )}
+                            {/* Часы за неделю: число заходов не отличает пять
+                                минут от рабочего дня, а это как раз отличает. */}
+                            {week ? (
+                              <div className="text-[11px] text-muted mt-1 whitespace-nowrap">
+                                {week} за неделю
+                              </div>
+                            ) : null}
+                          </>
                         )
                       })()}
                     </td>

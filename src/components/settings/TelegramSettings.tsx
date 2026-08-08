@@ -410,7 +410,32 @@ function WebhookHealth() {
       )}
       {error && <p className="text-[11px] text-[#c53030] mt-2">{error}</p>}
 
+      <DeliveryProblems />
       <ResetLinks />
+    </div>
+  )
+}
+
+// Кому бот перестал доставлять. Стоит рядом с проверкой связи: оба ответа на
+// один вопрос — «почему человек ничего не получает».
+function DeliveryProblems() {
+  const rows = useQuery(api.telegram.deliveryProblems, {}) ?? []
+  if (rows.length === 0) return null
+  return (
+    <div className="mt-2 pt-2 border-t border-line">
+      <div className="text-[11px] text-[#7a1f1f]">
+        <b>Бот не доставляет сообщения — {rows.length}:</b>
+        {rows.map((r) => (
+          <div key={r.employeeId as string} className="mt-1">
+            {r.name} · {r.position}
+            {r.error ? <span className="text-[#8a5a12]"> — {r.error}</span> : null}
+          </div>
+        ))}
+        <div className="mt-1 text-muted">
+          Обычно это значит, что человек заблокировал бота или удалил чат. Связь
+          восстановится, когда он снова нажмёт «Старт».
+        </div>
+      </div>
     </div>
   )
 }
