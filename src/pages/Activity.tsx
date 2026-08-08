@@ -30,7 +30,7 @@ export default function Activity() {
   // Контроль активности — только по действующим сотрудникам.
   const { tasks, activeEmployees } = useData()
   const activity = useQuery(api.activity.overview, {}) ?? []
-  const [historyOf, setHistoryOf] = useState<Employee | null>(null)
+  const [historyOf, setHistoryOf] = useState<{ employee: Employee; month: number } | null>(null)
 
   const statsMap = new Map(
     taskStatsByEmployee(tasks, activeEmployees).map((s) => [s.employee.id, s]),
@@ -75,8 +75,8 @@ export default function Activity() {
             <thead>
               <tr className={theadRow}>
                 <th className={`${th} sticky left-0 z-20 bg-[#e2f2ef] border-r border-line md:static md:z-auto md:border-r-0`}>Сотрудник</th>
-                <th className={th}>Последний вход</th>
-                <th className={th}>Посещений (7 / 30 дн)</th>
+                <th className={th}>Последнее посещение</th>
+                <th className={th}>Посещения</th>
                 <th className={th}>Просрочено</th>
                 <th className={th}>Опоздания</th>
                 <th className={th}>Соблюдение сроков</th>
@@ -112,21 +112,23 @@ export default function Activity() {
                       ) : null}
                     </td>
                     <td className={td}>
-                      <button
-                        type="button"
-                        disabled={!act?.loginTotal}
-                        onClick={() => setHistoryOf(e)}
-                        className="inline-flex items-center gap-1.5 text-left disabled:cursor-default group"
-                        title={act?.loginTotal ? 'Показать историю посещений' : 'Посещений ещё не было'}
-                      >
-                        <span>
-                          <span className="font-medium text-ink">{act?.loginCount7d ?? 0}</span>
-                          <span className="text-muted"> / {act?.loginCount30d ?? 0}</span>
-                        </span>
-                        {act?.loginTotal ? (
-                          <History size={13} className="text-muted-2 group-hover:text-green" />
-                        ) : null}
-                      </button>
+                      {/* Пара чисел «3 / 9» требовала расшифровки, а вся
+                          история всё равно за кнопкой. Оставляем одну цифру —
+                          за неделю, по ней и судят, работает человек сейчас
+                          или пропал. Месяц показан внутри истории. */}
+                      {act?.loginTotal ? (
+                        <button
+                          type="button"
+                          onClick={() => setHistoryOf({ employee: e, month: act.loginCount30d })}
+                          className="chip bg-[#e2f2ef] text-green-d hover:bg-[#d3ebe6] transition-colors"
+                          title="Показать историю посещений"
+                        >
+                          <History size={13} />
+                          {act.loginCount7d} за неделю
+                        </button>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
                     </td>
                     <td className={td}>
                       {stats?.overdue ? <span className="text-[#c53030] font-semibold">{stats.overdue}</span> : '—'}
@@ -161,13 +163,27 @@ export default function Activity() {
         </div>
       </div>
 
-      {historyOf && <LoginHistoryModal employee={historyOf} onClose={() => setHistoryOf(null)} />}
+      {historyOf && (
+        <LoginHistoryModal
+          employee={historyOf.employee}
+          month={historyOf.month}
+          onClose={() => setHistoryOf(null)}
+        />
+      )}
     </>
   )
 }
 
 // История входов сотрудника (§10). Открывается кликом по счётчику входов.
-function LoginHistoryModal({ employee, onClose }: { employee: Employee; onClose: () => void }) {
+function LoginHistoryModal({
+  employee,
+  month,
+  onClose,
+}: {
+  employee: Employee
+  month: number
+  onClose: () => void
+}) {
   const times = useQuery(api.activity.loginHistory, {
     employeeId: employee.id as Id<'employees'>,
   })
@@ -233,8 +249,8 @@ function LoginHistoryModal({ employee, onClose }: { employee: Employee; onClose:
 
         {times && times.length > 0 && (
           <div className="shrink-0 px-5 py-3 border-t border-line text-[11px] text-muted">
-            Показаны последние {times.length}{' '}
-            {plural(times.length, 'визит', 'визита', 'визитов')} · время по Алматы
+            За 30 дней — {month} {plural(month, 'визит', 'визита', 'визитов')} · показаны
+            последние {times.length} · время по Алматы
           </div>
         )}
       </div>
