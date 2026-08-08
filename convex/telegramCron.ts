@@ -47,6 +47,7 @@ export const tick = internalMutation({
     await meetingReminders(ctx, now, s.meetingRemindMin, s.timezone)
     await reportReminders(ctx, now, s.reportRemindMin)
     await taskReminders(ctx, now, s.taskRemindAt, s.taskEscalateAuthor, s.timezone)
+    await meetingResults(ctx, now, s.timezone)
     await kpiThresholds(ctx)
     // §9: расшифровки голосовых хранятся ограниченный срок.
     await pruneTranscripts(ctx, now, s.transcriptKeepDays)
@@ -126,6 +127,47 @@ async function meetingReminders(
         (m.mapUrl ? `\n${m.mapUrl}` : ''),
       link: '/meetings',
       key: `meeting_remind:${m._id}`,
+    })
+  }
+}
+
+// «Встреча прошла?» — вопрос организатору кнопками.
+//
+// Дополнение по встречам ввело состояние «ожидает подтверждения»: время
+// прошло, результат не выбран. Раньше организатор должен был вспомнить и
+// зайти в ERP, поэтому список таких встреч копился и переставал что-либо
+// значить. Спрашиваем сами — через час после начала, один раз.
+async function meetingResults(ctx: MutationCtx, now: number, tz: string) {
+  const { date } = businessNow()
+  const rows = (await ctx.db.query('meetings').collect()).filter(
+    (m) =>
+      (m.status ?? 'planned') === 'planned' &&
+      // Смотрим свежие: спрашивать про встречу недельной давности поздно,
+      // её судьбу давно решили без бота.
+      m.date <= date &&
+      m.date >= addDays(date, -3),
+  )
+  for (const m of rows) {
+    const startsAt = momentIn(tz, m.date, m.time)
+    if (!Number.isFinite(startsAt)) continue
+    if (now < startsAt + 60 * 60 * 1000) continue
+    await notify(ctx, {
+      employeeId: m.createdById,
+      category: 'meeting',
+      text:
+        `<b>Встреча прошла?</b>\n\n${m.title}\n\n` +
+        `Была назначена на ${fmtDate(m.date)}, ${m.time}.\n` +
+        `Отметьте результат — иначе она останется висеть как неподтверждённая.`,
+      key: `meeting_result:${m._id}`,
+      // «Перенести» кнопкой не даём: для переноса нужна новая дата, а её
+      // человек называет фразой — этот путь у бота уже есть.
+      buttons: [
+        [
+          { text: '✅ Провели', data: `mr:${m._id}:held` },
+          { text: '✖️ Отменили', data: `mr:${m._id}:cancelled` },
+        ],
+      ],
+      instant: false,
     })
   }
 }

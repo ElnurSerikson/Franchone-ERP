@@ -1132,6 +1132,33 @@ async function onCallback(
   // Быстрые кнопки — те же ответы, что и команды меню.
   if (data.startsWith('q:')) return await runSlash(ctx, chatId, link, `/${data.slice(2)}`)
 
+  // Результат встречи одним нажатием.
+  if (data.startsWith('mr:')) {
+    const [, id, outcome] = data.split(':')
+    const res: { ok: boolean; reason?: string; title?: string } = await ctx.runMutation(
+      internal.meetings.resolveFromBot,
+      {
+        id: id as Id<'meetings'>,
+        employeeId: link.employeeId,
+        outcome: outcome === 'held' ? 'held' : 'cancelled',
+      },
+    )
+    if (res.ok) {
+      return await say(
+        chatId,
+        outcome === 'held'
+          ? `✅ Отметил как проведённую: «${res.title}»`
+          : `✖️ Встреча отменена: «${res.title}». Участники предупреждены.`,
+      )
+    }
+    const why: Record<string, string> = {
+      gone: 'Встреча не найдена — возможно, её удалили.',
+      denied: 'Отметить результат может организатор или администратор.',
+      resolved: `Результат по «${res.title}» уже отмечен.`,
+    }
+    return await say(chatId, why[res.reason ?? 'gone'] ?? why.gone)
+  }
+
   const [action, rawDraftId, extra] = data.split(':')
   const draftId = rawDraftId as Id<'telegramDrafts'>
 

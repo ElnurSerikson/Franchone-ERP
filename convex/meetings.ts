@@ -13,7 +13,7 @@
 // была проведена, но не доказывает присутствие конкретного приглашённого
 // (§7.2).
 
-import { query, mutation } from './_generated/server'
+import { query, mutation, internalMutation } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import type { QueryCtx, MutationCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
@@ -451,6 +451,36 @@ export const reschedule = mutation({
 
 // §2.1: организатор подтверждает ФАКТ проведения. Оценку успешности система
 // не запрашивает.
+// Результат встречи из Telegram. Отдельный вход, потому что нажатие кнопки
+// приходит в action без сессии ERP: личность подтверждена привязкой чата, а
+// права проверяются здесь тем же mayManage, что и в интерфейсе.
+export const resolveFromBot = internalMutation({
+  args: {
+    id: v.id('meetings'),
+    employeeId: v.id('employees'),
+    outcome: v.union(v.literal('held'), v.literal('cancelled')),
+  },
+  handler: async (ctx, { id, employeeId, outcome }) => {
+    const me = await ctx.db.get(employeeId)
+    const meeting = await ctx.db.get(id)
+    if (!me || !meeting) return { ok: false as const, reason: 'gone' as const }
+    if (!mayManage(meeting, me)) return { ok: false as const, reason: 'denied' as const }
+    if (meetingStatus(meeting) !== 'planned') {
+      return { ok: false as const, reason: 'resolved' as const, title: meeting.title }
+    }
+
+    await ctx.db.patch(id, { status: outcome, resolvedAt: Date.now(), resolvedById: me._id })
+    await logEvent(ctx, id, { type: outcome === 'held' ? 'held' : 'cancelled', byId: me._id })
+
+    // §5.3: об отмене участники узнают, о проведении — нет: для них это уже
+    // случившийся факт, а не новость.
+    if (outcome === 'cancelled') {
+      await notifyMeetingEvent(ctx, meeting, 'Встреча отменена', [], me._id)
+    }
+    return { ok: true as const, title: meeting.title }
+  },
+})
+
 export const markHeld = mutation({
   args: { id: v.id('meetings') },
   handler: async (ctx, { id }) => {

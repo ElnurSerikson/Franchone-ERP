@@ -122,6 +122,8 @@ export async function notify(
     // false — «мягкое» сообщение: подождёт начала разрешённого окна.
     // По умолчанию событие уходит немедленно.
     instant?: boolean
+    // Кнопки под сообщением: ответ одним нажатием вместо похода в ERP.
+    buttons?: { text: string; data: string }[][]
   },
 ): Promise<boolean> {
   if (opts.key) {
@@ -165,6 +167,7 @@ export async function notify(
       text: opts.text,
       link: opts.link,
       employeeId: opts.employeeId,
+      buttons: opts.buttons,
     })
     return true
   }
@@ -173,6 +176,7 @@ export async function notify(
     text: opts.text,
     link: opts.link,
     employeeId: opts.employeeId,
+    buttons: opts.buttons,
   })
   return true
 }
