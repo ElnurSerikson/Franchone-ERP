@@ -46,6 +46,7 @@ type Draft = Parsed & {
 // а не называет её точным заголовком.
 const ACTION_KINDS = new Set([
   'task_done',
+  'task_reopen',
   'task_deadline',
   'meeting_move',
   'meeting_cancel',
@@ -169,6 +170,7 @@ export const upsertDraft = internalMutation({
       v.literal('task'),
       v.literal('meeting'),
       v.literal('task_done'),
+      v.literal('task_reopen'),
       v.literal('task_deadline'),
       v.literal('meeting_move'),
       v.literal('meeting_cancel'),
@@ -264,10 +266,14 @@ async function findTarget(
 ): Promise<{ id: string; title: string }[]> {
   const shifted = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
 
-  if (kind === 'task_done' || kind === 'task_deadline') {
+  if (kind === 'task_done' || kind === 'task_deadline' || kind === 'task_reopen') {
+    // Вернуть в работу можно только закрытую задачу, всё остальное — только
+    // открытую. Иначе «закрой смету» находило бы уже закрытую и спотыкалось.
+    const wantDone = kind === 'task_reopen'
     const rows = (await ctx.db.query('tasks').collect()).filter(
       (t) =>
-        t.status !== 'done' && (t.assigneeId === employeeId || t.reporterId === employeeId),
+        (t.status === 'done') === wantDone &&
+        (t.assigneeId === employeeId || t.reporterId === employeeId),
     )
     const hits = query ? rows.filter((t) => titleHit(query, t.title)) : rows
     // Без названия и с единственной задачей выбор очевиден; иначе спросим.
@@ -389,7 +395,12 @@ export const draftView = internalQuery({
           },
         }
       }
-      const what = row.kind.startsWith('task') ? 'задачу' : 'встречу'
+      const what =
+        row.kind === 'task_reopen'
+          ? 'закрытую задачу'
+          : row.kind.startsWith('task')
+            ? 'задачу'
+            : 'встречу'
       if (draft.targetMissing || !draft.targetId) {
         return {
           kind: row.kind,
@@ -401,6 +412,7 @@ export const draftView = internalQuery({
 
       const head: Record<string, string> = {
         task_done: '✅ <b>Закрыть задачу</b>',
+        task_reopen: '↩️ <b>Вернуть задачу в работу</b>',
         task_deadline: '📌 <b>Сдвинуть срок задачи</b>',
         meeting_move: '📅 <b>Перенести встречу</b>',
         meeting_cancel: '✖️ <b>Отменить встречу</b>',
@@ -500,7 +512,11 @@ export const commitDraft = internalMutation({
     if (ACTION_KINDS.has(row.kind)) {
       if (!draft.targetId) throw new ConvexError('не понял, о какой записи речь')
 
-      if (row.kind === 'task_done' || row.kind === 'task_deadline') {
+      if (
+        row.kind === 'task_done' ||
+        row.kind === 'task_reopen' ||
+        row.kind === 'task_deadline'
+      ) {
         const task = await ctx.db.get(draft.targetId as Id<'tasks'>)
         if (!task) throw new ConvexError('задача не найдена')
         if (task.assigneeId !== author._id && task.reporterId !== author._id) {
@@ -542,6 +558,48 @@ export const commitDraft = internalMutation({
           return {
             ok: true,
             message: `✅ Задача закрыта: «${task.title}»`,
+            ref: task._id as string,
+            link: '/tasks',
+          }
+        }
+
+        if (row.kind === 'task_reopen') {
+          if (task.status !== 'done') throw new ConvexError('задача и так в работе')
+          await ctx.db.patch(task._id, {
+            status: 'assigned',
+            completedAt: undefined,
+            completedOnTime: undefined,
+          })
+          await ctx.db.insert('taskEvents', {
+            taskId: task._id,
+            type: 'status',
+            byId: author._id,
+            fromStatus: 'done',
+            toStatus: 'assigned',
+            note: 'возвращена в работу из Telegram',
+          })
+          if (task.assigneeId !== author._id) {
+            await notify(ctx, {
+              employeeId: task.assigneeId,
+              category: 'task',
+              text:
+                `<b>Задача возвращена в работу</b>\n\n${task.title}\n\n` +
+                `Вернул: ${author.name}`,
+              link: '/tasks',
+            })
+          }
+          await ctx.db.patch(draftId, { state: 'done' })
+          await audit(ctx, {
+            kind: 'command',
+            employeeId: author._id,
+            chatId: row.chatId,
+            result: 'задача возвращена в работу',
+            objectRef: task._id as string,
+            status: 'ok',
+          })
+          return {
+            ok: true,
+            message: `↩️ Задача снова в работе: «${task.title}»`,
             ref: task._id as string,
             link: '/tasks',
           }

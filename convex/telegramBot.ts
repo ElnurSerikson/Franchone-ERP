@@ -174,6 +174,7 @@ type Parsed = {
     | 'task'
     | 'meeting'
     | 'task_done'
+    | 'task_reopen'
     | 'task_deadline'
     | 'meeting_move'
     | 'meeting_cancel'
@@ -201,7 +202,7 @@ async function parseCommand(text: string, people: string[], tz: string): Promise
     'Верни ТОЛЬКО JSON без пояснений и без markdown-ограждений.',
     '',
     'Поля результата:',
-    '{"intent":"task|meeting|task_done|task_deadline|meeting_move|meeting_cancel|unknown",',
+    '{"intent":"task|meeting|task_done|task_reopen|task_deadline|meeting_move|meeting_cancel|unknown",',
     '"title":str,"description":str|null,',
     '"people":[str],"date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,',
     '"priority":"low|medium|high|urgent"|null,"place":str|null,"url":str|null,',
@@ -213,13 +214,15 @@ async function parseCommand(text: string, people: string[], tz: string): Promise
     'Намерения:',
     'task — поставить новую задачу. meeting — назначить новую встречу.',
     'task_done — закрыть, завершить, отметить выполненной существующую задачу.',
+    'task_reopen — вернуть в работу, переоткрыть уже закрытую задачу.',
     'task_deadline — сдвинуть, продлить срок существующей задачи.',
     'meeting_move — перенести существующую встречу на другое время.',
     'meeting_cancel — отменить существующую встречу.',
     'Не понял намерение — "unknown".',
     '',
-    'Для действий над существующей записью (task_done, task_deadline, meeting_move,',
-    'meeting_cancel) в title клади то, как человек назвал запись, своими словами:',
+    'Для действий над существующей записью (task_done, task_reopen, task_deadline,',
+    'meeting_move, meeting_cancel) в title клади то, как человек назвал запись,',
+    'своими словами:',
     '«смета», «встреча с Алиной». Не придумывай точный заголовок и не дополняй его.',
     'В date и time для этих намерений клади НОВЫЕ дату и время, если они названы.',
     '',
@@ -727,7 +730,9 @@ type Brief = {
     priority: string
     deadline: string | null
     overdue: boolean
+    assignee: string | null
   }[]
+  doneRecent: { title: string; onTime: boolean; assignee: string | null }[]
   meetings: { title: string; date: string; time: string; place: string | null; moved: boolean }[]
   report: { date: string; due: string; submitted: boolean } | null
   kpi: number | null
@@ -759,11 +764,23 @@ function factSheet(b: Brief, tz: string): string {
   lines.push('')
   if (b.tasks.length === 0) lines.push('Открытых задач нет.')
   else {
-    lines.push(`Открытые задачи (${b.tasks.length}):`)
+    lines.push(`Открытые задачи собеседника — свои и поставленные им (${b.tasks.length}):`)
     for (const t of b.tasks) {
       lines.push(
         `— «${t.title}»: ${t.status}, приоритет ${t.priority}` +
-          (t.deadline ? `, срок ${t.deadline}${t.overdue ? ' — ПРОСРОЧЕНА' : ''}` : ', без срока'),
+          (t.deadline ? `, срок ${t.deadline}${t.overdue ? ' — ПРОСРОЧЕНА' : ''}` : ', без срока') +
+          (t.assignee ? `, исполнитель ${t.assignee}` : ', исполнитель — собеседник'),
+      )
+    }
+  }
+
+  if (b.doneRecent.length) {
+    lines.push('')
+    lines.push(`Недавно закрытые задачи (${b.doneRecent.length}) — их можно вернуть в работу:`)
+    for (const t of b.doneRecent) {
+      lines.push(
+        `— «${t.title}»: выполнена${t.onTime ? ' в срок' : ' с опозданием'}` +
+          (t.assignee ? `, исполнитель ${t.assignee}` : ''),
       )
     }
   }
@@ -893,7 +910,8 @@ async function converse(
     'фактов ответь, что не видишь этого, и назови раздел ERP, где это есть.',
     '',
     'ДЕЙСТВИЯ. Голосом или текстом ты умеешь: поставить задачу, назначить встречу,',
-    'закрыть задачу, сдвинуть её срок, перенести и отменить встречу. Каждое проходит',
+    'закрыть задачу, вернуть закрытую в работу, сдвинуть срок, перенести и отменить',
+    'встречу. Каждое проходит',
     'отдельным шагом — карточкой с подтверждением, — поэтому в разговоре НИКОГДА не',
     'сообщай, что уже создал, закрыл, перенёс или удалил запись. Хочет действие —',
     'попроси сказать его одной фразой, с примером на именах реальных коллег из фактов.',
@@ -1086,6 +1104,7 @@ const CONFIRM_LABEL: Record<string, string> = {
   task: '✅ Создать',
   meeting: '✅ Назначить',
   task_done: '✅ Закрыть задачу',
+  task_reopen: '✅ Вернуть в работу',
   task_deadline: '✅ Сдвинуть срок',
   meeting_move: '✅ Перенести',
   meeting_cancel: '✅ Отменить встречу',

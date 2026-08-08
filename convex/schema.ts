@@ -681,6 +681,7 @@ export default defineSchema({
       v.literal('task'),
       v.literal('meeting'),
       v.literal('task_done'),
+      v.literal('task_reopen'),
       v.literal('task_deadline'),
       v.literal('meeting_move'),
       v.literal('meeting_cancel'),

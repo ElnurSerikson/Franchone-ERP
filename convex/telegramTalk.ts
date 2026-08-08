@@ -64,12 +64,17 @@ export const brief = internalQuery({
     if (!me) return null
     const { date, month, yesterday } = today()
 
-    const tasks = (
-      await ctx.db
-        .query('tasks')
-        .withIndex('by_assignee', (q) => q.eq('assigneeId', employeeId))
-        .collect()
+    // Свои задачи — это и порученные мне, и поставленные мной. Раньше в
+    // фактах были только первые, и на «верни в работу задачу про смету» бот
+    // честно отвечал, что такой не видит: смету владелец поставил другому.
+    const nameOf = new Map(
+      (await ctx.db.query('employees').collect()).map((e) => [e._id as string, e.name]),
     )
+    const mineAll = (await ctx.db.query('tasks').collect()).filter(
+      (t) => t.assigneeId === employeeId || t.reporterId === employeeId,
+    )
+
+    const tasks = mineAll
       .filter((t) => t.status !== 'done')
       // Сначала просроченные, потом ближайшие по сроку, бессрочные в конце.
       .sort((a, b) => (a.deadline ?? '9999').localeCompare(b.deadline ?? '9999'))
@@ -80,6 +85,22 @@ export const brief = internalQuery({
         priority: PRIORITY[t.priority] ?? t.priority,
         deadline: t.deadline ?? null,
         overdue: !!t.deadline && t.deadline < date,
+        // Чья это задача: своя в работе или порученная другому. Иначе бот
+        // говорит «у вас три задачи», считая чужие.
+        assignee: t.assigneeId === employeeId ? null : (nameOf.get(t.assigneeId as string) ?? null),
+      }))
+
+    // Закрытые задачи тоже нужны в фактах. Без них на «верни в работу задачу
+    // про смету» бот отвечал, что такой задачи не видит, — она уже была
+    // выполнена и в список открытых не попадала.
+    const doneRecent = mineAll
+      .filter((t) => t.status === 'done')
+      .sort((a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0))
+      .slice(0, 10)
+      .map((t) => ({
+        title: t.title,
+        onTime: t.completedOnTime !== false,
+        assignee: t.assigneeId === employeeId ? null : (nameOf.get(t.assigneeId as string) ?? null),
       }))
 
     const meetings = (await ctx.db.query('meetings').collect())
@@ -165,6 +186,7 @@ export const brief = internalQuery({
       department: me.department,
       isOwner,
       tasks,
+      doneRecent,
       meetings,
       report,
       kpi: mine?.kpi ?? null,
