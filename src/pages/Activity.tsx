@@ -172,7 +172,11 @@ function LoginHistoryModal({ employee, onClose }: { employee: Employee; onClose:
     employeeId: employee.id as Id<'employees'>,
   })
 
-  // Группируем по календарной дате: за день часто несколько входов подряд.
+  // Группируем по календарной дате: за день часто несколько визитов.
+  //
+  // Дни идут от свежего к старому — открывая историю, смотрят на последние.
+  // А внутри дня время читается как день и прожит: с утра к вечеру. Обратный
+  // порядок сбивал, особенно когда рядом стояли «20:16» и «00:18».
   const byDay = new Map<string, { at: number; minutes: number }[]>()
   for (const v of times ?? []) {
     const day = new Date(v.at + 5 * 3600 * 1000).toISOString().slice(0, 10)
@@ -212,7 +216,7 @@ function LoginHistoryModal({ employee, onClose }: { employee: Employee; onClose:
                     {longDay(day)}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {list.map((v) => (
+                    {[...list].sort((a, b) => a.at - b.at).map((v) => (
                       <span key={v.at} className="chip bg-chip text-ink-2 tabular-nums">
                         {onlyTime(v.at)}
                         {v.minutes >= 1 ? (
