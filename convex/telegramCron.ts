@@ -12,7 +12,8 @@
 import { internalMutation } from './_generated/server'
 import type { MutationCtx } from './_generated/server'
 import { notify, notifyMany, tgSettings } from './telegram'
-import { momentIn } from './orgTime'
+import { digestFor } from './telegramTalk'
+import { momentIn, nowIn } from './orgTime'
 import { notifyKpi } from './telegramFlow'
 import { submissionsFor, deadlineMs, REPORTING } from './reports'
 import { computeMonth } from './payroll'
@@ -42,6 +43,7 @@ export const tick = internalMutation({
   handler: async (ctx) => {
     const now = Date.now()
     const s = await tgSettings(ctx)
+    await morningDigest(ctx, s.digestOn, s.digestAt, s.timezone)
     await meetingReminders(ctx, now, s.meetingRemindMin, s.timezone)
     await reportReminders(ctx, now, s.reportRemindMin)
     await taskReminders(ctx, now, s.taskRemindAt, s.taskEscalateAuthor, s.timezone)
@@ -50,6 +52,48 @@ export const tick = internalMutation({
     await pruneTranscripts(ctx, now, s.transcriptKeepDays)
   },
 })
+
+// Утренняя сводка: бот сам пишет первым в начале дня.
+//
+// Отправляется всем подключённым сотрудникам, по одному разу в день — ключ
+// в реестре отправленного держит это правило. Текст собирает запрос к ERP, а
+// не модель: сообщение приходит каждый день, и вёрстка должна быть та же.
+//
+// Молчим, когда сводка пустая: сообщение «сегодня ничего» каждое утро быстро
+// превращается в шум, который перестают читать.
+async function morningDigest(
+  ctx: MutationCtx,
+  on: boolean,
+  at: string,
+  tz: string,
+) {
+  if (!on) return
+  const nowLocal = nowIn(tz)
+  if (nowLocal.time < at) return
+  // Окно в час: крон ходит каждые десять минут, и если деплоймент спал, сводка
+  // всё равно уйдёт — но не в обед.
+  if (nowLocal.time >= addHour(at)) return
+
+  const links = await ctx.db
+    .query('telegramLinks')
+    .withIndex('by_status', (q) => q.eq('status', 'connected'))
+    .collect()
+  for (const link of links) {
+    const d = await digestFor(ctx, link.employeeId)
+    if (!d || d.quiet) continue
+    await notify(ctx, {
+      employeeId: link.employeeId,
+      category: 'task',
+      text: `<b>Доброе утро, ${d.first}!</b>\n\n${d.lines.join('\n')}`,
+      key: `digest:${link.employeeId}:${nowLocal.date}`,
+    })
+  }
+}
+
+function addHour(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number)
+  return `${String(Math.min(23, (h ?? 9) + 1)).padStart(2, '0')}:${String(m ?? 0).padStart(2, '0')}`
+}
 
 // §6: напоминание за час до начала встречи — всем участникам.
 async function meetingReminders(
@@ -122,6 +166,7 @@ async function reportReminders(ctx: MutationCtx, now: number, remindMin: number)
           `Отчёт за ${fmtDate(target)} нужно заполнить до ${time}.`,
         link: '/reports',
         key: `report_due:${e._id}:${target}`,
+        instant: false,
       })
       continue
     }
@@ -135,6 +180,7 @@ async function reportReminders(ctx: MutationCtx, now: number, remindMin: number)
           `Отчёт за ${fmtDate(target)} не заполнен. Внести его теперь может только администратор.`,
         link: '/reports',
         key: `report_late:${e._id}:${target}`,
+        instant: false,
       })
       // По настройке о просрочке узнаёт руководитель.
       const recipients = tg.reportRecipients.length
@@ -147,6 +193,7 @@ async function reportReminders(ctx: MutationCtx, now: number, remindMin: number)
         text: `<b>Отчёт не сдан</b>\n\n${e.name} · ${e.department}\nОтчётная дата: ${fmtDate(target)}`,
         link: '/reports',
         key: `report_late_admin:${e._id}:${target}`,
+        instant: false,
       })
     }
   }
@@ -178,6 +225,7 @@ async function taskReminders(
           text: `<b>Срок задачи сегодня</b>\n\n${t.title}`,
           link: '/tasks',
           key: `task_due:${t._id}:${deadline}`,
+          instant: false,
         })
       }
       continue
@@ -189,6 +237,7 @@ async function taskReminders(
         text: `<b>Задача просрочена</b>\n\n${t.title}\n\nСрок был ${fmtDate(deadline)}.`,
         link: '/tasks',
         key: `task_overdue:${t._id}:${deadline}`,
+        instant: false,
       })
       // §6: по настройке о просрочке узнаёт автор задачи.
       if (escalateAuthor && t.reporterId !== t.assigneeId) {
@@ -201,6 +250,7 @@ async function taskReminders(
             `Ответственный: ${assignee?.name ?? '—'}\nСрок был ${fmtDate(deadline)}.`,
           link: '/tasks',
           key: `task_overdue_author:${t._id}:${deadline}`,
+          instant: false,
         })
       }
     }

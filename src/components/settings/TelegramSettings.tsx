@@ -173,6 +173,32 @@ export default function TelegramSettings() {
               ))}
             </select>
           </Field>
+          {/* Утренняя сводка и окно, в котором бот вправе писать первым.
+              Границы не зависят от рабочих часов: ночью телефон не трогаем. */}
+          <Field label="Утренняя сводка, время">
+            <input
+              className={inputCls}
+              placeholder="09:00"
+              value={val('tgDigestAt', '09:00')}
+              onChange={(e) => edit('tgDigestAt', e.target.value.trim())}
+            />
+          </Field>
+          <Field label="Не беспокоить: с">
+            <input
+              className={inputCls}
+              placeholder="20:00"
+              value={val('tgQuietTo', '20:00')}
+              onChange={(e) => edit('tgQuietTo', e.target.value.trim())}
+            />
+          </Field>
+          <Field label="Не беспокоить: до">
+            <input
+              className={inputCls}
+              placeholder="09:00"
+              value={val('tgQuietFrom', '09:00')}
+              onChange={(e) => edit('tgQuietFrom', e.target.value.trim())}
+            />
+          </Field>
           {/* §8.2: правила напоминаний по задачам. У задачи срок — это дата
               без времени, поэтому задаётся час напоминания в день срока. */}
           <Field label="Напоминание о задаче в день срока">

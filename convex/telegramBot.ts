@@ -17,6 +17,7 @@ import type { Id } from './_generated/dataModel'
 import { nowIn } from './orgTime'
 import { Resend as ResendAPI } from 'resend'
 import { otpEmail, BOT_CODE_COPY } from './emails'
+import { humanDate } from './telegramTalk'
 
 const API = 'https://api.telegram.org'
 
@@ -26,6 +27,7 @@ type LinkInfo = {
   status: string
   employeeId: Id<'employees'>
   employeeName: string
+  isOwner: boolean
   active: boolean
 } | null
 
@@ -141,7 +143,9 @@ async function transcribe(fileId: string): Promise<string> {
   const start = await fetch('https://api.assemblyai.com/v2/transcript', {
     method: 'POST',
     headers: { authorization: key, 'content-type': 'application/json' },
-    body: JSON.stringify({ audio_url: upload_url, language_code: 'ru' }),
+    // Язык не навязываем: в компании говорят и по-русски, и по-казахски, а
+    // жёсткий русский ломал казахскую речь в бессмысленную транскрипцию.
+    body: JSON.stringify({ audio_url: upload_url, language_detection: true }),
   })
   if (!start.ok) {
     const body = await start.text().catch(() => '')
@@ -166,7 +170,14 @@ async function transcribe(fileId: string): Promise<string> {
 // ——— Разбор фразы в поля (Anthropic) ———
 
 type Parsed = {
-  intent: 'task' | 'meeting' | 'unknown'
+  intent:
+    | 'task'
+    | 'meeting'
+    | 'task_done'
+    | 'task_deadline'
+    | 'meeting_move'
+    | 'meeting_cancel'
+    | 'unknown'
   title?: string
   description?: string
   people?: string[]
@@ -190,7 +201,8 @@ async function parseCommand(text: string, people: string[], tz: string): Promise
     'Верни ТОЛЬКО JSON без пояснений и без markdown-ограждений.',
     '',
     'Поля результата:',
-    '{"intent":"task|meeting|unknown","title":str,"description":str|null,',
+    '{"intent":"task|meeting|task_done|task_deadline|meeting_move|meeting_cancel|unknown",',
+    '"title":str,"description":str|null,',
     '"people":[str],"date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,',
     '"priority":"low|medium|high|urgent"|null,"place":str|null,"url":str|null,',
     '"object":str|null,"note":str|null}',
@@ -198,8 +210,18 @@ async function parseCommand(text: string, people: string[], tz: string): Promise
     `Сегодня ${now.date} (${now.weekday}), сейчас ${now.time}. Часовой пояс ${tz}.`,
     'Относительные выражения («завтра», «в пятницу», «через два часа») переводи в конкретные дату и время.',
     '',
-    'intent="task" — просят поставить задачу. intent="meeting" — назначить встречу.',
-    'Если не понял намерение — "unknown".',
+    'Намерения:',
+    'task — поставить новую задачу. meeting — назначить новую встречу.',
+    'task_done — закрыть, завершить, отметить выполненной существующую задачу.',
+    'task_deadline — сдвинуть, продлить срок существующей задачи.',
+    'meeting_move — перенести существующую встречу на другое время.',
+    'meeting_cancel — отменить существующую встречу.',
+    'Не понял намерение — "unknown".',
+    '',
+    'Для действий над существующей записью (task_done, task_deadline, meeting_move,',
+    'meeting_cancel) в title клади то, как человек назвал запись, своими словами:',
+    '«смета», «встреча с Алиной». Не придумывай точный заголовок и не дополняй его.',
+    'В date и time для этих намерений клади НОВЫЕ дату и время, если они названы.',
     '',
     'people — имена людей из команды так, как их назвали. Список сотрудников:',
     people.join(', ') || '(список пуст)',
@@ -258,6 +280,11 @@ export const handleUpdate = internalAction({
   },
 })
 
+// Чужой текст внутри HTML-сообщения: речь человека может содержать «<» и «&».
+function esc(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
 async function say(chatId: number, text: string, buttons?: Button[][]) {
   const body = {
     chat_id: chatId,
@@ -303,6 +330,53 @@ async function withTyping<T>(chatId: number, work: () => Promise<T>): Promise<T>
   } finally {
     working = false
     await pulse
+  }
+}
+
+// ——— Сводка дня, команды и быстрые кнопки ———
+//
+// Сводку собирает запрос к ERP, а не модель: она приходит каждый день, и
+// вёрстка в ней должна быть одна и та же.
+
+type Digest = { name: string; isOwner: boolean; lines: string[]; quiet: boolean } | null
+
+function renderDigest(d: Digest, head: string): string {
+  if (!d) return head
+  if (d.quiet) {
+    return `${head}\n\nНа сегодня ничего срочного: задач со сроком нет, встреч тоже.`
+  }
+  return `${head}\n\n${d.lines.join('\n')}`
+}
+
+// Быстрые кнопки под ответом: одно нажатие вместо набора фразы.
+function quickButtons(isOwner: boolean): Button[][] {
+  const row: Button[] = [
+    { text: '📋 Мои задачи', data: 'q:tasks' },
+    { text: '📅 Встречи', data: 'q:meetings' },
+  ]
+  const second: Button[] = [{ text: '📊 KPI', data: 'q:kpi' }]
+  if (isOwner) second.push({ text: '👥 Команда', data: 'q:team' })
+  return [row, second]
+}
+
+// Меню команд у поля ввода. Ставится на конкретный чат, поэтому у владельца
+// и у сотрудника наборы разные и никто не видит того, что ему не положено.
+async function syncCommands(chatId: number, isOwner: boolean): Promise<void> {
+  const commands = [
+    { command: 'today', description: 'Что у меня сегодня' },
+    { command: 'tasks', description: 'Мои задачи' },
+    { command: 'meetings', description: 'Ближайшие встречи' },
+    { command: 'kpi', description: 'Мой KPI за месяц' },
+  ]
+  if (isOwner) {
+    commands.push({ command: 'team', description: 'Команда по отделам' })
+    commands.push({ command: 'reports', description: 'Кто не сдал отчёт' })
+  }
+  commands.push({ command: 'help', description: 'Что я умею' })
+  try {
+    await tg('setMyCommands', { commands, scope: { type: 'chat', chat_id: chatId } })
+  } catch {
+    // Меню — удобство, а не условие работы: молча переживём отказ.
   }
 }
 
@@ -361,13 +435,16 @@ async function onAuth(
   if (EMAIL_RE.test(text)) {
     const res = await ctx.runMutation(internal.telegram.requestCode, { chatId, email: text })
     if (!res.ok) {
-      await say(
-        chatId,
-        res.reason === 'busy'
-          ? 'Этот Telegram уже подключён к другому сотруднику. Обратитесь к администратору.'
-          : 'Не нахожу такой email среди сотрудников.\n\n' +
-              'Укажите ту же почту, с которой вы входите в ERP. Если она верна, обратитесь к администратору.',
-      )
+      const why: Record<string, string> = {
+        busy: 'Этот Telegram уже подключён к другому сотруднику. Обратитесь к администратору.',
+        client:
+          'Бот пока работает только для сотрудников компании.\n\n' +
+          'Ход работ по вашему проекту смотрите в личном кабинете ERP.',
+        unknown:
+          'Не нахожу такой email среди сотрудников.\n\n' +
+          'Укажите ту же почту, с которой вы входите в ERP. Если она верна, обратитесь к администратору.',
+      }
+      await say(chatId, why[res.reason] ?? why.unknown)
       return
     }
     try {
@@ -398,10 +475,17 @@ async function onAuth(
       tgName: [msg.from?.first_name, msg.from?.last_name].filter(Boolean).join(' '),
     })
     if (res.ok) {
+      // Первый экран — не мануал, а его день. Что бот умеет, лежит в /help и
+      // в меню команд, которое ставится тут же.
+      const d: Digest = await ctx.runQuery(internal.telegramTalk.digest, {
+        employeeId: res.employeeId,
+      })
+      await syncCommands(chatId, res.isOwner)
       await say(
         chatId,
-        `<b>${firstName(res.name)}, добро пожаловать в Telegram-бот FRANCHONE!</b>\n\n` +
-          `${res.position} · доступ открыт.\n\n${HELP}`,
+        renderDigest(d, `<b>${firstName(res.name)}, добро пожаловать!</b>\n\n${res.position}`) +
+          '\n\nЧто я умею — /help',
+        quickButtons(!!res.isOwner),
       )
       return
     }
@@ -418,6 +502,130 @@ async function onAuth(
 
   // Голосовое и любой другой ввод до входа — возвращаем к первому шагу.
   await say(chatId, ASK_EMAIL)
+}
+
+// Ответы на команды меню и быстрые кнопки. Всё берётся из ERP напрямую и
+// верстается кодом — одинаково от раза к разу.
+async function runSlash(
+  ctx: ActionCtx,
+  chatId: number,
+  link: { employeeId: Id<'employees'>; employeeName: string; isOwner: boolean },
+  raw: string,
+): Promise<void> {
+  const cmd = raw.split(/[\s@]/)[0].replace('/', '')
+  const b: Brief = await ctx.runQuery(internal.telegramTalk.brief, {
+    employeeId: link.employeeId,
+  })
+
+  if (cmd === 'help') {
+    await syncCommands(chatId, link.isOwner)
+    return await say(chatId, HELP, quickButtons(link.isOwner))
+  }
+
+  if (cmd === 'start' || cmd === 'today') {
+    const d: Digest = await ctx.runQuery(internal.telegramTalk.digest, {
+      employeeId: link.employeeId,
+    })
+    return await say(
+      chatId,
+      renderDigest(d, `<b>${firstName(link.employeeName)}, ваш день</b>`),
+      quickButtons(link.isOwner),
+    )
+  }
+
+  if (cmd === 'tasks') {
+    if (!b || !b.tasks.length) return await say(chatId, 'Открытых задач нет. 📋')
+    const lines = b.tasks.map(
+      (t) =>
+        `${t.overdue ? '⚠️' : '📌'} <b>${t.title}</b>\n` +
+        `${t.status} · ${t.priority}` +
+        (t.deadline ? ` · срок ${humanDate(t.deadline)}${t.overdue ? ', просрочена' : ''}` : ' · без срока'),
+    )
+    return await say(chatId, `<b>Ваши задачи — ${b.tasks.length}</b>\n\n${lines.join('\n\n')}`)
+  }
+
+  if (cmd === 'meetings') {
+    if (!b || !b.meetings.length) return await say(chatId, 'Ближайших встреч нет. 📅')
+    const lines = b.meetings.map(
+      (m) =>
+        `📅 <b>${m.title}</b>\n${humanDate(m.date)}, ${m.time}` +
+        (m.place ? ` · ${m.place}` : '') +
+        (m.moved ? ' · переносилась' : ''),
+    )
+    return await say(chatId, `<b>Ближайшие встречи — ${b.meetings.length}</b>\n\n${lines.join('\n\n')}`)
+  }
+
+  if (cmd === 'kpi') {
+    if (!b) return await say(chatId, 'Не вижу ваших данных по KPI.')
+    const own =
+      b.kpi === null
+        ? 'KPI за этот месяц пока не считается.'
+        : `📊 <b>Ваш KPI за месяц — ${Math.round(b.kpi * 100)}%</b>`
+    if (!b.isOwner) return await say(chatId, own)
+    const rows = b.team
+      .filter((t) => t.kpi !== null)
+      .sort((a, b2) => (a.kpi ?? 0) - (b2.kpi ?? 0))
+      .map((t) => `<b>${t.name}</b> · ${t.position}\n📊 ${Math.round((t.kpi ?? 0) * 100)}%`)
+    return await say(
+      chatId,
+      rows.length ? `${own}\n\n<b>По команде</b>\n\n${rows.join('\n\n')}` : own,
+    )
+  }
+
+  if (cmd === 'team') {
+    if (!b) return await say(chatId, 'Не вижу данных по команде.')
+    if (!b.isOwner) {
+      // Сотруднику — только состав и загрузка, без цифр.
+      const list = b.team.map((t) => `<b>${t.name}</b> · ${t.position}\nзадач в работе: ${t.openTasks}`)
+      return await say(
+        chatId,
+        list.length ? `<b>Коллеги — ${b.team.length}</b>\n\n${list.join('\n\n')}` : 'Коллег в базе нет.',
+      )
+    }
+    return await say(chatId, teamByDepartment(b))
+  }
+
+  if (cmd === 'reports') {
+    if (!b?.isOwner) return await say(chatId, 'Эта команда доступна администратору.')
+    const late = b.team.filter((t) => t.reportMissing === true)
+    return await say(
+      chatId,
+      late.length
+        ? `<b>Не сдали вчерашний отчёт — ${late.length}</b>\n\n` +
+            late.map((t) => `📝 <b>${t.name}</b> · ${t.position}`).join('\n')
+        : 'Вчерашний отчёт сдали все. 📝',
+    )
+  }
+
+  // Незнакомая команда — не повод молчать.
+  return await say(chatId, 'Такой команды у меня нет. Что умею — /help', quickButtons(link.isOwner))
+}
+
+// Владельцу — по отделам: он смотрит на компанию подразделениями.
+function teamByDepartment(b: NonNullable<Brief>): string {
+  if (!b.team.length) return 'В команде пока никого нет.'
+  const byDept = new Map<string, typeof b.team>()
+  for (const t of b.team) {
+    const list = byDept.get(t.department) ?? []
+    list.push(t)
+    byDept.set(t.department, list)
+  }
+  const blocks: string[] = [`<b>Команда — ${b.team.length}</b>`]
+  for (const [dept, people] of byDept) {
+    const rows = people.map((t) => {
+      const marks: string[] = []
+      if (t.overdueTasks) marks.push(`⚠️ просрочено ${t.overdueTasks}`)
+      if (t.reportMissing === true) marks.push('📝 отчёт не сдан')
+      return (
+        `<b>${t.name}</b> · ${t.position}\n` +
+        `📊 ${t.kpi === null ? 'KPI пока не считается' : `KPI ${Math.round(t.kpi * 100)}%`}` +
+        ` · задач ${t.openTasks || 'нет'}` +
+        (marks.length ? `\n${marks.join(' · ')}` : '')
+      )
+    })
+    blocks.push(`<b>${dept}</b>\n\n${rows.join('\n\n')}`)
+  }
+  return blocks.join('\n\n')
 }
 
 async function onMessage(
@@ -460,7 +668,9 @@ async function onMessage(
   // Отправка письма с кодом и проверка тоже занимают секунду-две.
   if (!link?.active) return await withTyping(chatId, () => onAuth(ctx, chatId, msg, text))
 
-  if (text === '/help' || text === '/start') return await say(chatId, HELP)
+  // Команды из меню. Отвечает на них не модель, а прямой запрос к ERP:
+  // человек нажал кнопку и ждёт цифры, а не рассуждения.
+  if (text.startsWith('/')) return await runSlash(ctx, chatId, link, text)
 
   const voice = msg.voice ?? msg.audio ?? msg.video_note
   if (!voice && !text) return
@@ -488,6 +698,10 @@ async function onMessage(
       return await say(chatId, 'Не разобрал голосовое — попробуйте записать ещё раз.')
     }
     if (!transcript) return await say(chatId, 'В сообщении не слышно речи. Попробуйте ещё раз.')
+    // Показываем, что именно услышали. Без этой строки ошибка распознавания
+    // неотличима от глупости бота: человек видит странный ответ и не понимает,
+    // что виновата не логика, а расслышанное слово.
+    await say(chatId, `<i>услышал: ${esc(transcript)}</i>`)
     await runCommand(ctx, chatId, link, transcript, updateId)
   })
 }
@@ -521,10 +735,11 @@ type Brief = {
   team: {
     name: string
     position: string
+    department: string
     openTasks: number
     overdueTasks: number
     kpi: number | null
-    reportMissing: boolean
+    reportMissing: boolean | null
   }[]
 } | null
 
@@ -578,16 +793,32 @@ function factSheet(b: Brief, tz: string): string {
   lines.push('')
   lines.push(`KPI за ${b.month}: ${pct(b.kpi)}.`)
 
-  if (b.isOwner && b.team.length) {
+  if (b.team.length) {
     lines.push('')
-    lines.push('Команда (собеседник — владелец, видит всех):')
+    lines.push(
+      b.isOwner
+        ? 'Команда (собеседник — владелец, видит всё). Перечислять по отделам:'
+        : 'Коллеги (собеседнику видны имена, должности и загрузка — цифры KPI и отчёты чужие ему НЕ видны, о них говорить нечего):',
+    )
+    // Владельцу — по отделам: он смотрит на компанию по подразделениям.
+    const byDept = new Map<string, typeof b.team>()
     for (const t of b.team) {
-      lines.push(
-        `— ${t.name}, ${t.position}: задач открыто ${t.openTasks}` +
-          (t.overdueTasks ? `, просрочено ${t.overdueTasks}` : '') +
-          `, KPI ${pct(t.kpi)}` +
-          (t.reportMissing ? ', вчерашний отчёт не сдан' : ''),
-      )
+      const list = byDept.get(t.department) ?? []
+      list.push(t)
+      byDept.set(t.department, list)
+    }
+    for (const [dept, people] of byDept) {
+      lines.push(`Отдел «${dept}»:`)
+      for (const t of people) {
+        lines.push(
+          `— ${t.name}, ${t.position}: открытых задач ${t.openTasks}` +
+            (b.isOwner
+              ? (t.overdueTasks ? `, просрочено ${t.overdueTasks}` : '') +
+                `, KPI ${pct(t.kpi)}` +
+                (t.reportMissing === true ? ', вчерашний отчёт не сдан' : '')
+              : ''),
+        )
+      }
     }
   }
 
@@ -628,28 +859,47 @@ async function converse(
   )
 
   const system = [
-    'Ты — Telegram-бот ERP компании FRANCHONE. Не автоответчик, а толковый коллега:',
-    'отвечаешь живо, коротко и по делу, как человек, который в курсе дел.',
+    'Ты — Telegram-бот ERP компании FRANCHONE. Не автоответчик, а толковый помощник:',
+    'доброжелательный, коротко и по делу, без канцелярита и без панибратства.',
+    'Можешь по-доброму подтолкнуть: «отчёт горит, успеете до 14:00?»',
     '',
-    'Как говорить:',
-    '— 1–4 предложения. Без канцелярита, без списка своих возможностей в каждом ответе.',
-    '— На том языке, на котором к тебе обратились.',
-    '— Разметка только Telegram HTML: <b>жирный</b>, <i>курсив</i>. Markdown и звёздочки не использовать.',
-    '— По имени обращайся к месту, а не в каждой реплике.',
-    '— Числа бери из фактов дословно, проценты — как дано.',
-    '— Даты произноси по-человечески: «4 августа», «завтра», «в пятницу», а не «2026-08-04».',
+    'ОБРАЩЕНИЕ. Всегда на «вы», ко всем без исключения, даже если написали на «ты».',
+    'По имени — к месту, а не в каждой реплике.',
     '',
-    'Что ты знаешь — только факты ниже. Не додумывай, не обобщай, не придумывай задачи,',
-    'встречи, суммы и имена. Если спрашивают о том, чего в фактах нет, честно скажи,',
-    'что этого не видишь, и подскажи, где это есть в ERP.',
+    'ЯЗЫК. Отвечай на том языке, на котором к тебе обратились: написали по-казахски —',
+    'отвечай по-казахски, по-английски — по-английски. Разметка и правила те же.',
     '',
-    'Ты умеешь заводить задачи и встречи — голосом или текстом. Создание идёт отдельным',
-    'шагом, карточкой с подтверждением, поэтому в разговоре никогда не говори, что уже',
-    'создал, перенёс или удалил запись. Хочет действие — попроси сказать его одной фразой:',
-    '«поставь Арману задачу подготовить смету до пятницы».',
+    'ДЛИНА. По умолчанию не больше пяти строк. Развёрнуто — только если прямо попросили',
+    'подробностей. Не пересказывай факты, которых не спрашивали.',
     '',
-    'Отчёты заполняются только в ERP. Про оклады и выплаты коротко отправь в раздел',
-    '«Зарплата» — без объяснений и без цифр.',
+    'ОФОРМЛЕНИЕ. Разметка только Telegram HTML: <b>жирный</b>, <i>курсив</i>.',
+    'Markdown и звёздочки не использовать — они покажутся как есть.',
+    'Любое перечисление — списком, а не фразой:',
+    '  • жирный заголовок с итогом, дальше пустая строка;',
+    '  • каждый пункт с новой строки, имя или название жирным;',
+    '  • внутри пункта части разделяй « · »;',
+    '  • между смысловыми блоками — пустая строка.',
+    'Эмодзи — по месту, как маркеры: 📌 задача, 📅 встреча, 📊 KPI, 📝 отчёт, ⚠️ просрочка.',
+    'Не лепи их в каждую строку и не используй вместо слов.',
+    '',
+    'ЦИФРЫ И ДАТЫ. Числа бери из фактов дословно, проценты — как дано.',
+    'Даты произноси по-человечески: «4 августа», «завтра», «в пятницу», не «2026-08-04».',
+    'Пустоту говори по-русски: «задач нет», а не «задач 0»; «KPI пока не считается»,',
+    'а не «KPI нет данных». Следи за согласованием: «два человека», не «двое человек».',
+    '',
+    'ЧТО ТЫ ЗНАЕШЬ — только факты ниже. Они уже отобраны по правам собеседника: если',
+    'чего-то в них нет, значит ему это не положено видеть либо этого нет в ERP. Не',
+    'додумывай, не обобщай, не придумывай задачи, встречи, суммы и имена. На вопрос вне',
+    'фактов ответь, что не видишь этого, и назови раздел ERP, где это есть.',
+    '',
+    'ДЕЙСТВИЯ. Голосом или текстом ты умеешь: поставить задачу, назначить встречу,',
+    'закрыть задачу, сдвинуть её срок, перенести и отменить встречу. Каждое проходит',
+    'отдельным шагом — карточкой с подтверждением, — поэтому в разговоре НИКОГДА не',
+    'сообщай, что уже создал, закрыл, перенёс или удалил запись. Хочет действие —',
+    'попроси сказать его одной фразой, с примером на именах реальных коллег из фактов.',
+    '',
+    'ГРАНИЦЫ. Отчёты заполняются только в ERP. Про оклады и выплаты коротко отправь',
+    'в раздел «Зарплата» — без объяснений и без цифр.',
     '',
     '——— ФАКТЫ ———',
     factSheet(brief, tz),
@@ -799,11 +1049,14 @@ async function showDraft(
   // §4.3: при неоднозначности бот показывает только разрешённых кандидатов
   // и просит выбрать, а не угадывает.
   if (view.ambiguous) {
+    const target = view.ambiguous.what === 'target'
     await say(
       chatId,
-      `Кого именно вы имели в виду — «${view.ambiguous.query}»?`,
+      target
+        ? `Подходит несколько — какую именно?`
+        : `Кого именно вы имели в виду — «${view.ambiguous.query}»?`,
       view.ambiguous.options.map((o: { id: string; name: string }) => [
-        { text: o.name, data: `pick:${draftId}:${o.id}` },
+        { text: o.name.slice(0, 60), data: `${target ? 'tgt' : 'pick'}:${draftId}:${o.id}` },
       ]),
     )
     return
@@ -811,7 +1064,8 @@ async function showDraft(
   if (view.missing.length > 0) {
     await say(
       chatId,
-      `${view.card}\n\n<b>Не хватает:</b> ${view.missing.join(', ')}\n\n` +
+      (view.card ? `${view.card}\n\n` : '') +
+        `<b>Не хватает:</b> ${view.missing.join(', ')}\n\n` +
         `Скажите или напишите недостающее — я дополню карточку.`,
     )
     return
@@ -819,11 +1073,22 @@ async function showDraft(
 
   await say(chatId, view.card, [
     [
-      { text: view.kind === 'task' ? '✅ Создать' : '✅ Назначить', data: `ok:${draftId}` },
+      { text: CONFIRM_LABEL[view.kind] ?? '✅ Сделать', data: `ok:${draftId}` },
       { text: '✏️ Изменить', data: `edit:${draftId}` },
       { text: '✖️ Отменить', data: `no:${draftId}` },
     ],
   ])
+}
+
+// Подпись на кнопке подтверждения. Она должна называть само действие: «создать»
+// на отмене встречи читается как согласие создать встречу.
+const CONFIRM_LABEL: Record<string, string> = {
+  task: '✅ Создать',
+  meeting: '✅ Назначить',
+  task_done: '✅ Закрыть задачу',
+  task_deadline: '✅ Сдвинуть срок',
+  meeting_move: '✅ Перенести',
+  meeting_cancel: '✅ Отменить встречу',
 }
 
 async function onCallback(
@@ -844,6 +1109,9 @@ async function onCallback(
 
   const link: LinkInfo = await ctx.runQuery(internal.telegram.linkByChat, { chatId })
   if (!link?.active) return await say(chatId, 'Ваш Telegram не подключён к ERP.')
+
+  // Быстрые кнопки — те же ответы, что и команды меню.
+  if (data.startsWith('q:')) return await runSlash(ctx, chatId, link, `/${data.slice(2)}`)
 
   const [action, rawDraftId, extra] = data.split(':')
   const draftId = rawDraftId as Id<'telegramDrafts'>
@@ -874,6 +1142,12 @@ async function onCallback(
       draftId,
       employeeId: extra as Id<'employees'>,
     })
+    return await showDraft(ctx, chatId, draftId)
+  }
+
+  // Выбрана запись из нескольких похожих — задача или встреча.
+  if (action === 'tgt') {
+    await ctx.runMutation(internal.telegramFlow.pickTarget, { draftId, targetId: extra })
     return await showDraft(ctx, chatId, draftId)
   }
 

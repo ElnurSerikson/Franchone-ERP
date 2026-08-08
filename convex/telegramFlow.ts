@@ -32,6 +32,62 @@ type Parsed = {
 type Draft = Parsed & {
   resolved?: string[] // id сотрудников
   unresolved?: string[] // имена, которых не нашли
+  // Для действий над существующей записью — что именно правим. Название
+  // храним рядом с id: карточка должна читаться и после того, как запись
+  // изменят или удалят из ERP.
+  targetId?: string
+  targetTitle?: string
+  targetMissing?: boolean
+  candidates?: { id: string; title: string }[]
+}
+
+// Действия над уже существующей записью. Отличаются от создания тем, что
+// сначала надо найти, о чём речь: человек говорит «закрой задачу про смету»,
+// а не называет её точным заголовком.
+const ACTION_KINDS = new Set([
+  'task_done',
+  'task_deadline',
+  'meeting_move',
+  'meeting_cancel',
+])
+
+// Совпадение по названию: человек редко произносит заголовок дословно.
+//
+// Сравнивать подстроками нельзя — русский падеж всё ломает: «смета» не входит
+// в «подготовить смету». Поэтому слова сводим к основе, отбрасывая окончание,
+// и сверяем основы. «Смета», «сметы», «смету» дают одно и то же «смет».
+//
+// Слишком общие слова выкидываем: во фразе «перенеси встречу с Алиной» слово
+// «встреча» не про заголовок, оно про тип записи.
+const GENERIC = new Set([
+  'задача', 'задачу', 'задачи', 'задачей',
+  'встреча', 'встречу', 'встречи', 'встречей',
+  'дело', 'срок', 'сроки', 'дедлайн',
+])
+
+function stem(word: string): string {
+  return word.length >= 5 ? word.slice(0, 4) : word
+}
+
+function keywords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-zа-яё0-9]+/i)
+    .filter((w) => w.length >= 4 && !GENERIC.has(w))
+    .map(stem)
+}
+
+function titleHit(query: string, title: string): boolean {
+  const q = query.toLowerCase().trim()
+  if (!q) return false
+  const t = title.toLowerCase()
+  if (t.includes(q) || q.includes(t)) return true
+  const want = keywords(q)
+  if (!want.length) return false
+  const have = new Set(keywords(title))
+  // Хватает одного совпавшего слова: если под описание подойдёт несколько
+  // записей, бот всё равно переспросит кнопками, а не выберет наугад.
+  return want.some((w) => have.has(w))
 }
 
 const PRIORITY_LABEL: Record<string, string> = {
@@ -109,7 +165,14 @@ export const upsertDraft = internalMutation({
   args: {
     chatId: v.number(),
     employeeId: v.id('employees'),
-    kind: v.union(v.literal('task'), v.literal('meeting')),
+    kind: v.union(
+      v.literal('task'),
+      v.literal('meeting'),
+      v.literal('task_done'),
+      v.literal('task_deadline'),
+      v.literal('meeting_move'),
+      v.literal('meeting_cancel'),
+    ),
     transcript: v.string(),
     parsed: v.string(),
     mergeWith: v.optional(v.id('telegramDrafts')),
@@ -145,6 +208,23 @@ export const upsertDraft = internalMutation({
       draft.unresolved = unresolved
     }
 
+    // Для действия над записью ищем, о чём речь. Кандидаты — только те, что
+    // человек вправе менять: свои задачи (или им же поставленные) и встречи,
+    // где он участник. Нашли одну — берём; несколько — спросим кнопками.
+    if (ACTION_KINDS.has(kind) && !draft.targetId) {
+      const found = await findTarget(ctx, employeeId, kind, draft.title ?? '')
+      if (found.length === 1) {
+        draft.targetId = found[0].id
+        draft.targetTitle = found[0].title
+        draft.targetMissing = false
+      } else if (found.length === 0) {
+        draft.targetMissing = true
+      } else {
+        draft.targetMissing = false
+        draft.candidates = found
+      }
+    }
+
     const payload = JSON.stringify(draft)
     if (mergeWith) {
       await ctx.db.patch(mergeWith, { payload, transcript, state: 'preview' })
@@ -169,6 +249,70 @@ export const upsertDraft = internalMutation({
       createdAt: Date.now(),
     })
     return { _id }
+  },
+})
+
+// Кого можно тронуть этим действием.
+//
+// Задачу закрывает и двигает тот, на ком она висит, либо тот, кто её поставил:
+// в ERP правило то же. Встречу двигает и отменяет её участник.
+async function findTarget(
+  ctx: MutationCtx,
+  employeeId: Id<'employees'>,
+  kind: string,
+  query: string,
+): Promise<{ id: string; title: string }[]> {
+  const shifted = new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10)
+
+  if (kind === 'task_done' || kind === 'task_deadline') {
+    const rows = (await ctx.db.query('tasks').collect()).filter(
+      (t) =>
+        t.status !== 'done' && (t.assigneeId === employeeId || t.reporterId === employeeId),
+    )
+    const hits = query ? rows.filter((t) => titleHit(query, t.title)) : rows
+    // Без названия и с единственной задачей выбор очевиден; иначе спросим.
+    return hits.map((t) => ({ id: t._id as string, title: t.title }))
+  }
+
+  const rows = (await ctx.db.query('meetings').collect()).filter(
+    (m) =>
+      m.participantIds.includes(employeeId) &&
+      m.date >= shifted &&
+      (m.status ?? 'planned') === 'planned',
+  )
+  // Встречу чаще называют по человеку, а не по теме: «перенеси встречу с
+  // Алиной». Поэтому ищем и по именам участников.
+  const nameById = new Map(
+    (await ctx.db.query('employees').collect()).map((e) => [e._id as string, e.name]),
+  )
+  const hits = query
+    ? rows.filter(
+        (m) =>
+          titleHit(query, m.title) ||
+          m.participantIds.some((p) => {
+            const n = nameById.get(p as string)
+            return !!n && p !== employeeId && titleHit(query, n)
+          }),
+      )
+    : rows
+  return hits
+    .sort((a, b) => `${a.date}${a.time}`.localeCompare(`${b.date}${b.time}`))
+    .map((m) => ({ id: m._id as string, title: `${m.title} · ${fmtDate(m.date)}, ${m.time}` }))
+}
+
+// Человек выбрал запись кнопкой из списка похожих.
+export const pickTarget = internalMutation({
+  args: { draftId: v.id('telegramDrafts'), targetId: v.string() },
+  handler: async (ctx, { draftId, targetId }) => {
+    const row = await ctx.db.get(draftId)
+    if (!row) return
+    const draft = JSON.parse(row.payload) as Draft
+    const hit = (draft.candidates ?? []).find((c) => c.id === targetId)
+    if (!hit) return
+    draft.targetId = hit.id
+    draft.targetTitle = hit.title
+    draft.candidates = undefined
+    await ctx.db.patch(draftId, { payload: JSON.stringify(draft) })
   },
 })
 
@@ -222,10 +366,66 @@ export const draftView = internalQuery({
           missing: [],
           ambiguous: {
             query: firstUnresolved,
+            what: 'person' as const,
             options: options.slice(0, 6).map((o) => ({ id: o._id, name: o.name })),
           },
         }
       }
+    }
+
+    // Действия над существующей записью. Сначала надо понять, о какой речь.
+    if (ACTION_KINDS.has(row.kind)) {
+      if ((draft.candidates ?? []).length > 1) {
+        return {
+          kind: row.kind,
+          card: '',
+          missing: [],
+          ambiguous: {
+            query: draft.title ?? '',
+            what: 'target' as const,
+            options: (draft.candidates ?? [])
+              .slice(0, 6)
+              .map((c) => ({ id: c.id, name: c.title })),
+          },
+        }
+      }
+      const what = row.kind.startsWith('task') ? 'задачу' : 'встречу'
+      if (draft.targetMissing || !draft.targetId) {
+        return {
+          kind: row.kind,
+          card: '',
+          missing: [`не нашёл ${what} по описанию «${draft.title ?? ''}»`],
+          ambiguous: null,
+        }
+      }
+
+      const head: Record<string, string> = {
+        task_done: '✅ <b>Закрыть задачу</b>',
+        task_deadline: '📌 <b>Сдвинуть срок задачи</b>',
+        meeting_move: '📅 <b>Перенести встречу</b>',
+        meeting_cancel: '✖️ <b>Отменить встречу</b>',
+      }
+      const need: string[] = []
+      if (row.kind === 'task_deadline' && !draft.date) need.push('новый срок')
+      if (row.kind === 'meeting_move' && !draft.date) need.push('новая дата')
+      if (row.kind === 'meeting_move' && !draft.time) need.push('новое время')
+
+      const card = [
+        head[row.kind],
+        '',
+        `<b>${draft.targetTitle}</b>`,
+        row.kind === 'task_deadline' && draft.date ? `\nНовый срок: ${fmtDate(draft.date)}` : '',
+        row.kind === 'meeting_move' && draft.date
+          ? `\nНовое время: ${fmtDate(draft.date)}${draft.time ? `, ${draft.time}` : ''}`
+          : '',
+        row.kind === 'meeting_move' && draft.place ? `Место: ${draft.place}` : '',
+        row.kind === 'meeting_cancel' ? '\nУчастники получат уведомление.' : '',
+        '',
+        `<i>${author?.name ?? '—'}</i>`,
+      ]
+        .filter(Boolean)
+        .join('\n')
+      return { kind: row.kind, card, missing: need, ambiguous: null }
     }
 
     const chosen = (draft.resolved ?? []).map((id) => nameById.get(id)).filter(Boolean) as string[]
@@ -292,6 +492,204 @@ export const commitDraft = internalMutation({
     const people = await visibleTo(ctx, row.employeeId)
     const allowed = new Set(people.map((p) => p._id as string))
     const chosen = (draft.resolved ?? []).filter((id) => allowed.has(id)) as string[]
+
+    // ——— Действия над существующей записью ———
+    //
+    // Права проверяются заново, а не берутся из карточки: между показом и
+    // нажатием запись могли передать другому человеку.
+    if (ACTION_KINDS.has(row.kind)) {
+      if (!draft.targetId) throw new ConvexError('не понял, о какой записи речь')
+
+      if (row.kind === 'task_done' || row.kind === 'task_deadline') {
+        const task = await ctx.db.get(draft.targetId as Id<'tasks'>)
+        if (!task) throw new ConvexError('задача не найдена')
+        if (task.assigneeId !== author._id && task.reporterId !== author._id) {
+          throw new ConvexError('эта задача не ваша')
+        }
+
+        if (row.kind === 'task_done') {
+          if (task.status === 'done') throw new ConvexError('задача уже закрыта')
+          await ctx.db.patch(task._id, {
+            status: 'done',
+            completedAt: Date.now(),
+            completedOnTime: task.deadline ? isOnTime(Date.now(), task.deadline) : true,
+          })
+          await ctx.db.insert('taskEvents', {
+            taskId: task._id,
+            type: 'status',
+            byId: author._id,
+            fromStatus: task.status,
+            toStatus: 'done',
+          })
+          // Автор задачи узнаёт, что её закрыли — он этого ждёт.
+          if (task.reporterId !== author._id) {
+            await notify(ctx, {
+              employeeId: task.reporterId,
+              category: 'task',
+              text: `<b>Задача выполнена</b>\n\n${task.title}\n\nЗакрыл: ${author.name}`,
+              link: '/tasks',
+            })
+          }
+          await ctx.db.patch(draftId, { state: 'done' })
+          await audit(ctx, {
+            kind: 'command',
+            employeeId: author._id,
+            chatId: row.chatId,
+            result: 'задача закрыта',
+            objectRef: task._id as string,
+            status: 'ok',
+          })
+          return {
+            ok: true,
+            message: `✅ Задача закрыта: «${task.title}»`,
+            ref: task._id as string,
+            link: '/tasks',
+          }
+        }
+
+        if (!draft.date) throw new ConvexError('не указан новый срок')
+        const was = task.deadline
+        await ctx.db.patch(task._id, { deadline: draft.date })
+        // Отдельного типа события для срока в журнале задач нет, а заводить
+        // его ради Telegram неправильно: запись должна читаться теми же
+        // экранами ERP. Пишем как изменение с человекочитаемой пометкой.
+        await ctx.db.insert('taskEvents', {
+          taskId: task._id,
+          type: 'status',
+          byId: author._id,
+          fromStatus: task.status,
+          toStatus: task.status,
+          note: `срок: ${was ? fmtDate(was) : 'без срока'} → ${fmtDate(draft.date)}`,
+        })
+        if (task.assigneeId !== author._id) {
+          await notify(ctx, {
+            employeeId: task.assigneeId,
+            category: 'task',
+            text:
+              `<b>Срок задачи изменён</b>\n\n${task.title}\n\n` +
+              `Было: ${was ? fmtDate(was) : 'без срока'}\nСтало: ${fmtDate(draft.date)}\n` +
+              `Изменил: ${author.name}`,
+            link: '/tasks',
+          })
+        }
+        await ctx.db.patch(draftId, { state: 'done' })
+        await audit(ctx, {
+          kind: 'command',
+          employeeId: author._id,
+          chatId: row.chatId,
+          result: `срок задачи → ${draft.date}`,
+          objectRef: task._id as string,
+          status: 'ok',
+        })
+        return {
+          ok: true,
+          message: `📌 Новый срок задачи «${task.title}» — ${fmtDate(draft.date)}`,
+          ref: task._id as string,
+          link: '/tasks',
+        }
+      }
+
+      const meeting = await ctx.db.get(draft.targetId as Id<'meetings'>)
+      if (!meeting) throw new ConvexError('встреча не найдена')
+      if (!meeting.participantIds.includes(author._id)) {
+        throw new ConvexError('вы не участник этой встречи')
+      }
+      if ((meeting.status ?? 'planned') !== 'planned') {
+        throw new ConvexError('встреча уже проведена или отменена')
+      }
+
+      if (row.kind === 'meeting_cancel') {
+        await ctx.db.patch(meeting._id, {
+          status: 'cancelled',
+          resolvedAt: Date.now(),
+          resolvedById: author._id,
+        })
+        await ctx.db.insert('meetingEvents', {
+          meetingId: meeting._id,
+          type: 'cancelled',
+          byId: author._id,
+          at: Date.now(),
+        })
+        await notifyMany(
+          ctx,
+          meeting.participantIds.filter((p) => p !== author._id),
+          {
+            category: 'meeting',
+            text:
+              `<b>Встреча отменена</b>\n\n${meeting.title}\n\n` +
+              `Была назначена на ${fmtDate(meeting.date)}, ${meeting.time}\n` +
+              `Отменил: ${author.name}`,
+            link: '/meetings',
+          },
+        )
+        await ctx.db.patch(draftId, { state: 'done' })
+        await audit(ctx, {
+          kind: 'command',
+          employeeId: author._id,
+          chatId: row.chatId,
+          result: 'встреча отменена',
+          objectRef: meeting._id as string,
+          status: 'ok',
+        })
+        return {
+          ok: true,
+          message: `✖️ Встреча отменена: «${meeting.title}»`,
+          ref: meeting._id as string,
+          link: '/meetings',
+        }
+      }
+
+      if (!draft.date || !draft.time) throw new ConvexError('не указаны новые дата и время')
+      const wasDate = meeting.date
+      const wasTime = meeting.time
+      await ctx.db.patch(meeting._id, {
+        date: draft.date,
+        time: draft.time,
+        place: draft.place ?? meeting.place,
+        // Первоначальная договорённость должна остаться видимой.
+        originalDate: meeting.originalDate ?? wasDate,
+        originalTime: meeting.originalTime ?? wasTime,
+        rescheduleCount: (meeting.rescheduleCount ?? 0) + 1,
+      })
+      await ctx.db.insert('meetingEvents', {
+        meetingId: meeting._id,
+        type: 'rescheduled',
+        byId: author._id,
+        at: Date.now(),
+        fromDate: wasDate,
+        fromTime: wasTime,
+        toDate: draft.date,
+        toTime: draft.time,
+      })
+      await notifyMany(
+        ctx,
+        meeting.participantIds.filter((p) => p !== author._id),
+        {
+          category: 'meeting',
+          text:
+            `<b>Встреча перенесена</b>\n\n${meeting.title}\n\n` +
+            `Было: ${fmtDate(wasDate)}, ${wasTime}\n` +
+            `Стало: ${fmtDate(draft.date)}, ${draft.time}\n` +
+            `Перенёс: ${author.name}`,
+          link: '/meetings',
+        },
+      )
+      await ctx.db.patch(draftId, { state: 'done' })
+      await audit(ctx, {
+        kind: 'command',
+        employeeId: author._id,
+        chatId: row.chatId,
+        result: `встреча → ${draft.date} ${draft.time}`,
+        objectRef: meeting._id as string,
+        status: 'ok',
+      })
+      return {
+        ok: true,
+        message: `📅 Встреча перенесена: «${meeting.title}» — ${fmtDate(draft.date)}, ${draft.time}`,
+        ref: meeting._id as string,
+        link: '/meetings',
+      }
+    }
 
     if (row.kind === 'task') {
       if (!draft.title) throw new ConvexError('не хватает названия')
@@ -519,6 +917,9 @@ export async function notifyPlanChanged(
     category: 'plan',
     text: `<b>Изменён ваш план</b>\n\n${what}\nПериод: ${period}\n${value}`,
     link: '/kpi',
+    // План правят когда угодно, в том числе поздно вечером. Сотруднику это
+    // читать утром, а не среди ночи.
+    instant: false,
   })
 }
 
@@ -568,6 +969,7 @@ export async function notifyKpi(
     text: `${tpl.replace('{name}', employee.name)}\n\nПериод: ${months[m - 1]} ${y}`,
     link: '/kpi',
     key: `kpi:${employeeId}:${period}:${reached}`,
+    instant: false,
   })
   // Пишем в журнал только фактическую отправку: иначе запись утверждала бы,
   // что сотрудника поздравили, хотя он к боту не подключён.

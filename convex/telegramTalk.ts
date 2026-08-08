@@ -14,7 +14,7 @@
 import { v } from 'convex/values'
 import { internalQuery, internalMutation } from './_generated/server'
 import type { QueryCtx, MutationCtx } from './_generated/server'
-import type { Doc } from './_generated/dataModel'
+import type { Doc, Id } from './_generated/dataModel'
 import { computeMonth } from './payroll'
 import { isStaff } from './lib'
 import { submissionsFor, REPORTING } from './reports'
@@ -113,50 +113,57 @@ export const brief = internalQuery({
 
     const mine = (await computeMonth(ctx, month)).find((r) => r.employeeId === employeeId)
 
-    // Владельцу — короткая сводка по команде: у него в ERP полный доступ,
-    // и держать её отдельно от разговора незачем.
-    let team: {
+    // Про коллег бот рассказывает ровно столько, сколько человеку положено
+    // видеть в самой ERP. Разграничение делается здесь, а не инструкцией
+    // модели: чего нет в фактах, то и не выскочит в ответе по ошибке.
+    //
+    // Сотруднику — имена, должности и загрузка: без этого не понять, кому
+    // ставить задачу и кого сейчас лучше не грузить. Чужие KPI, отчёты и
+    // просрочки — только владельцу.
+    const isOwner = me.role === 'owner'
+    const staff = (await ctx.db.query('employees').collect()).filter(
+      (e) => e.status === 'active' && !e.hidden && isStaff(e) && e._id !== employeeId,
+    )
+    const payroll = isOwner ? await computeMonth(ctx, month) : []
+    const due = await deadlineTime(ctx)
+
+    const team: {
       name: string
       position: string
+      department: string
       openTasks: number
       overdueTasks: number
       kpi: number | null
-      reportMissing: boolean
+      reportMissing: boolean | null
     }[] = []
-    if (me.role === 'owner') {
-      const staff = (await ctx.db.query('employees').collect()).filter(
-        (e) => e.status === 'active' && !e.hidden && isStaff(e) && e._id !== employeeId,
-      )
-      const payroll = await computeMonth(ctx, month)
-      const due = await deadlineTime(ctx)
-      for (const e of staff) {
-        const own = (
-          await ctx.db
-            .query('tasks')
-            .withIndex('by_assignee', (q) => q.eq('assigneeId', e._id))
-            .collect()
-        ).filter((t) => t.status !== 'done')
-        let missing = false
-        if (REPORTING.has(e.position) && yesterday >= e.hiredAt) {
-          const rows = await submissionsFor(ctx, e, due)
-          missing = !rows.some((r) => r.date === yesterday && !r.reopened)
-        }
-        team.push({
-          name: e.name,
-          position: e.positionLabel,
-          openTasks: own.length,
-          overdueTasks: own.filter((t) => !!t.deadline && t.deadline < date).length,
-          kpi: payroll.find((r) => r.employeeId === e._id)?.kpi ?? null,
-          reportMissing: missing,
-        })
+    for (const e of staff) {
+      const own = (
+        await ctx.db
+          .query('tasks')
+          .withIndex('by_assignee', (q) => q.eq('assigneeId', e._id))
+          .collect()
+      ).filter((t) => t.status !== 'done')
+      let missing: boolean | null = null
+      if (isOwner && REPORTING.has(e.position) && yesterday >= e.hiredAt) {
+        const rows = await submissionsFor(ctx, e, due)
+        missing = !rows.some((r) => r.date === yesterday && !r.reopened)
       }
+      team.push({
+        name: e.name,
+        position: e.positionLabel,
+        department: e.department,
+        openTasks: own.length,
+        overdueTasks: isOwner ? own.filter((t) => !!t.deadline && t.deadline < date).length : 0,
+        kpi: isOwner ? (payroll.find((r) => r.employeeId === e._id)?.kpi ?? null) : null,
+        reportMissing: missing,
+      })
     }
 
     return {
       name: me.name,
       position: me.positionLabel,
       department: me.department,
-      isOwner: me.role === 'owner',
+      isOwner,
       tasks,
       meetings,
       report,
@@ -166,6 +173,138 @@ export const brief = internalQuery({
     }
   },
 })
+
+// ——— Сводка дня ———
+//
+// Её собирает код, а не модель. Приветствие и утренняя рассылка приходят
+// каждый день, и вёрстка в них должна быть одна и та же — модель же каждый
+// раз пересказывает по-своему. Разговорные ответы остаются за моделью.
+export const digest = internalQuery({
+  args: { employeeId: v.id('employees') },
+  handler: async (ctx, { employeeId }) => await digestFor(ctx, employeeId),
+})
+
+// Тот же расчёт, но вызываемый напрямую: утренняя рассылка идёт из мутации
+// крона, а мутация не может обратиться к запросу.
+export async function digestFor(
+  ctx: QueryCtx | MutationCtx,
+  employeeId: Id<'employees'>,
+): Promise<{ name: string; first: string; isOwner: boolean; lines: string[]; quiet: boolean } | null> {
+  {
+    const me = await ctx.db.get(employeeId)
+    if (!me) return null
+    const { date, month, yesterday } = today()
+    const isOwner = me.role === 'owner'
+    const lines: string[] = []
+
+    const tasks = (
+      await ctx.db
+        .query('tasks')
+        .withIndex('by_assignee', (q) => q.eq('assigneeId', employeeId))
+        .collect()
+    ).filter((t) => t.status !== 'done')
+    const overdue = tasks.filter((t) => !!t.deadline && t.deadline < date)
+    const dueToday = tasks.filter((t) => t.deadline === date)
+
+    if (overdue.length) {
+      lines.push(`⚠️ Просрочено: ${overdue.length} ${plural(overdue.length, 'задача', 'задачи', 'задач')}`)
+    }
+    if (dueToday.length) {
+      lines.push(`📌 Срок сегодня: ${dueToday.length} ${plural(dueToday.length, 'задача', 'задачи', 'задач')}`)
+    }
+    if (!overdue.length && !dueToday.length && tasks.length) {
+      lines.push(`📌 В работе ${tasks.length} ${plural(tasks.length, 'задача', 'задачи', 'задач')}, сроки не горят`)
+    }
+
+    const meetings = (await ctx.db.query('meetings').collect())
+      .filter(
+        (m) =>
+          m.participantIds.includes(employeeId) &&
+          m.date === date &&
+          (m.status ?? 'planned') === 'planned',
+      )
+      .sort((a, b) => a.time.localeCompare(b.time))
+    for (const m of meetings) {
+      lines.push(`📅 ${m.time} · ${m.title}${m.place ? ` · ${m.place}` : ''}`)
+    }
+
+    // Свой отчёт — только у тех, кто его сдаёт.
+    if (REPORTING.has(me.position) && !isOwner && yesterday >= me.hiredAt) {
+      const dueAt = await deadlineTime(ctx)
+      const rows = await submissionsFor(ctx, me, dueAt)
+      if (!rows.some((r) => r.date === yesterday && !r.reopened)) {
+        lines.push(`📝 Отчёт за ${humanDate(yesterday)} не сдан · срок сегодня до ${dueAt}`)
+      }
+    }
+
+    // Владельцу — состояние команды вместо собственных отчётов: он смотрит в
+    // бота, чтобы понять, где горит, а не что сдавать самому.
+    if (isOwner) {
+      const dueAt = await deadlineTime(ctx)
+      const staff = (await ctx.db.query('employees').collect()).filter(
+        (e) => e.status === 'active' && !e.hidden && isStaff(e) && e._id !== employeeId,
+      )
+      const late: string[] = []
+      let teamOverdue = 0
+      for (const e of staff) {
+        if (REPORTING.has(e.position) && yesterday >= e.hiredAt) {
+          const rows = await submissionsFor(ctx, e, dueAt)
+          if (!rows.some((r) => r.date === yesterday && !r.reopened)) late.push(firstWord(e.name))
+        }
+        const own = (
+          await ctx.db
+            .query('tasks')
+            .withIndex('by_assignee', (q) => q.eq('assigneeId', e._id))
+            .collect()
+        ).filter((t) => t.status !== 'done' && !!t.deadline && t.deadline < date)
+        teamOverdue += own.length
+      }
+      if (late.length) lines.push(`📝 Не сдали отчёт: ${late.join(', ')}`)
+      if (teamOverdue) {
+        lines.push(
+          `⚠️ У команды просрочено ${teamOverdue} ${plural(teamOverdue, 'задача', 'задачи', 'задач')}`,
+        )
+      }
+    }
+
+    const kpi = (await computeMonth(ctx, month)).find((r) => r.employeeId === employeeId)
+    if (kpi && Number.isFinite(kpi.kpi)) {
+      lines.push(`📊 KPI за месяц · ${Math.round(kpi.kpi * 100)}%`)
+    }
+
+    return {
+      name: me.name,
+      first: firstWord(me.name),
+      isOwner,
+      lines,
+      quiet: lines.length === 0,
+    }
+  }
+}
+
+function plural(n: number, one: string, few: string, many: string): string {
+  const mod100 = n % 100
+  if (mod100 >= 11 && mod100 <= 14) return many
+  const mod10 = n % 10
+  if (mod10 === 1) return one
+  if (mod10 >= 2 && mod10 <= 4) return few
+  return many
+}
+
+const MONTHS = [
+  'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+]
+
+export function humanDate(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  if (!y || !m || !d) return iso
+  return `${d} ${MONTHS[m - 1] ?? ''}`.trim()
+}
+
+function firstWord(full: string): string {
+  return full.trim().split(/\s+/)[0] || full
+}
 
 export const recent = internalQuery({
   args: { chatId: v.number() },

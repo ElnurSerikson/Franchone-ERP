@@ -16,7 +16,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 import { internal } from './_generated/api'
 import { currentEmployee, requireEmployee, isManager, isStaff } from './lib'
-import { DEFAULT_TZ } from './orgTime'
+import { DEFAULT_TZ, nowIn, momentIn } from './orgTime'
 import { forgetChat } from './telegramTalk'
 
 // Категории уведомлений (§6.1): администратор включает и выключает их
@@ -41,6 +41,12 @@ const DEFAULTS = {
   reportRemindMin: 60,
   taskRemindAt: '10:00',
   transcriptKeepDays: 90,
+  // Утренняя сводка приходит с началом окна, а окно закрывается вечером.
+  // Границы фиксированные и от рабочих часов не зависят: ночью телефон не
+  // трогаем, даже если у отдела сместился график.
+  digestAt: '09:00',
+  quietFrom: '09:00',
+  quietTo: '20:00',
 }
 
 // §7.2: тексты мотивационных сообщений. Хранятся в настройках ERP и
@@ -78,6 +84,11 @@ export async function tgSettings(ctx: QueryCtx | MutationCtx) {
     disabledCategories: new Set(s?.tgDisabledCategories ?? []),
     kpiTexts: s?.tgKpiTexts?.length ? s.tgKpiTexts : KPI_TEXTS,
     kpiOverachieve: s?.tgKpiOverachieve === true,
+    // Утренняя сводка и окно для «мягких» сообщений.
+    digestAt: s?.tgDigestAt || DEFAULTS.digestAt,
+    digestOn: s?.tgDigestOn !== false,
+    quietFrom: s?.tgQuietFrom || DEFAULTS.quietFrom,
+    quietTo: s?.tgQuietTo || DEFAULTS.quietTo,
   }
 }
 
@@ -100,6 +111,9 @@ export async function notify(
     key?: string
     // Кнопка «Открыть в ERP» (§6). Путь внутри приложения, например /tasks.
     link?: string
+    // false — «мягкое» сообщение: подождёт начала разрешённого окна.
+    // По умолчанию событие уходит немедленно.
+    instant?: boolean
   },
 ): Promise<boolean> {
   if (opts.key) {
@@ -132,6 +146,20 @@ export async function notify(
   }
 
   // Мутация не ходит в сеть — отправку выполняет action.
+  //
+  // Ночью телефон трогают только события, которых человек ждёт: ему поставили
+  // задачу, назначили или перенесли встречу. Всё остальное — напоминания,
+  // пороги KPI, изменения планов — ждёт начала окна, а не будит в три часа.
+  const at = opts.instant === false ? await nextWindowStart(ctx) : 0
+  if (at > 0) {
+    await ctx.scheduler.runAt(at, internal.telegramBot.deliver, {
+      chatId: link.chatId,
+      text: opts.text,
+      link: opts.link,
+      employeeId: opts.employeeId,
+    })
+    return true
+  }
   await ctx.scheduler.runAfter(0, internal.telegramBot.deliver, {
     chatId: link.chatId,
     text: opts.text,
@@ -141,12 +169,34 @@ export async function notify(
   return true
 }
 
+// Ближайший момент внутри разрешённого окна. Ноль — значит окно открыто и
+// отправлять можно прямо сейчас.
+async function nextWindowStart(ctx: MutationCtx): Promise<number> {
+  const s = await tgSettings(ctx)
+  const now = nowIn(s.timezone)
+  if (now.time >= s.quietFrom && now.time < s.quietTo) return 0
+  // После конца окна следующее отправление — завтра утром.
+  const day = now.time >= s.quietTo ? addDay(now.date) : now.date
+  const at = momentIn(s.timezone, day, s.quietFrom)
+  return Number.isFinite(at) ? at : 0
+}
+
+function addDay(date: string): string {
+  return new Date(Date.parse(`${date}T00:00:00Z`) + 86400000).toISOString().slice(0, 10)
+}
+
 // Уведомление нескольким сотрудникам сразу. Ключ дополняется получателем,
 // иначе первое же отправленное сообщение закрыло бы событие для остальных.
 export async function notifyMany(
   ctx: MutationCtx,
   ids: Id<'employees'>[],
-  opts: { category: NotifyCategory; text: string; key?: string; link?: string },
+  opts: {
+    category: NotifyCategory
+    text: string
+    key?: string
+    link?: string
+    instant?: boolean
+  },
 ) {
   const unique = [...new Set(ids.map((i) => i as string))] as Id<'employees'>[]
   for (const employeeId of unique) {
@@ -268,6 +318,20 @@ export const requestCode = internalMutation({
     if (!employee || employee.status !== 'active') {
       await audit(ctx, { kind: 'login', chatId, result: `неизвестный email ${low}` })
       return { ok: false as const, reason: 'unknown' as const }
+    }
+
+    // Бот — инструмент команды. Заказчик упаковки входит в ERP тем же кодом с
+    // почты, поэтому без этой проверки он попал бы и сюда — и получил бы
+    // сводку сотрудника с чужими формулировками про KPI и отчёты. Свой кабинет
+    // в боте у него будет отдельным.
+    if (!isStaff(employee)) {
+      await audit(ctx, {
+        kind: 'login',
+        employeeId: employee._id,
+        chatId,
+        result: 'клиенту доступ в бота закрыт',
+      })
+      return { ok: false as const, reason: 'client' as const }
     }
 
     // §3.2 сохраняем: один Telegram-аккаунт — одна карточка сотрудника.
@@ -400,7 +464,13 @@ export const verifyCode = internalMutation({
       })
     }
 
-    return { ok: true as const, name: employee.name, position: employee.positionLabel }
+    return {
+      ok: true as const,
+      name: employee.name,
+      position: employee.positionLabel,
+      employeeId: employee._id,
+      isOwner: employee.role === 'owner',
+    }
   },
 })
 
@@ -493,6 +563,7 @@ export const linkByChat = internalQuery({
       status: link.status,
       employeeId: link.employeeId,
       employeeName: employee?.name ?? '',
+      isOwner: employee?.role === 'owner',
       active: link.status === 'connected' && employee?.status === 'active',
     }
   },

@@ -26,6 +26,11 @@ const DEFAULTS = {
   tgTaskEscalateAuthor: true,
   tgTranscriptKeepDays: 90,
   tgKpiOverachieve: false,
+  // Утренняя сводка и окно, в которое бот вправе писать первым.
+  tgDigestAt: '09:00',
+  tgDigestOn: true,
+  tgQuietFrom: '09:00',
+  tgQuietTo: '20:00',
 }
 
 export const get = query({
@@ -74,6 +79,10 @@ export const update = mutation({
     tgDisabledCategories: v.optional(v.array(v.string())),
     tgKpiTexts: v.optional(v.array(v.object({ threshold: v.number(), text: v.string() }))),
     tgKpiOverachieve: v.optional(v.boolean()),
+    tgDigestAt: v.optional(v.string()),
+    tgDigestOn: v.optional(v.boolean()),
+    tgQuietFrom: v.optional(v.string()),
+    tgQuietTo: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const me = await requireEmployee(ctx)
