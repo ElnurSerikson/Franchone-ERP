@@ -251,6 +251,35 @@ export const submit = mutation({
   },
   handler: async (ctx, args) => {
     const me = await requireEmployee(ctx)
+    return await submitFor(ctx, me, args)
+  },
+})
+
+// Тот же приём отчёта, вызываемый напрямую из Telegram-потока.
+export async function submitFromChat(
+  ctx: MutationCtx,
+  me: Doc<'employees'>,
+  args: {
+    date?: string
+    note?: string
+    smm?: { page: string; type: string; count: number }[]
+  },
+) {
+  return await submitFor(ctx, me, args)
+}
+
+async function submitFor(
+  ctx: MutationCtx,
+  me: Doc<'employees'>,
+  args: {
+    date?: string
+    note?: string
+    smm?: { page: string; type: string; count: number }[]
+    targetolog?: { code: string; budget: number; leads: number }[]
+    sales?: { leads: number; meetings: number; sales: number; revenue: number; note?: string }
+  },
+) {
+  {
     if (me.role === 'owner' || !REPORTING.has(me.position)) {
       throw new Error('Для вашей роли ежедневный отчёт не предусмотрен')
     }
@@ -339,8 +368,8 @@ export const submit = mutation({
     // §6 ТЗ Telegram: администратор получает уведомление с краткой сводкой.
     await notifyReportFilled(ctx, me._id, date, reportSummary(payload))
     return id
-  },
-})
+  }
+}
 
 // Строка дисциплины одного сотрудника за окно дат. Общая для сводки
 // руководителя и личного дашборда — правило пропуска должно быть одно.

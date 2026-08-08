@@ -13,6 +13,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 import { isOnTime, isStaff } from './lib'
 import { notify, notifyMany, audit } from './telegram'
+import { submitFromChat } from './reports'
 
 type Parsed = {
   intent?: string
@@ -39,6 +40,11 @@ type Draft = Parsed & {
   targetTitle?: string
   targetMissing?: boolean
   candidates?: { id: string; title: string }[]
+  // Ежедневный отчёт, присланный текстом: дата, строки «страница × формат ×
+  // количество» и комментарий.
+  reportDate?: string
+  reportRows?: { page: string; type: string; count: number }[]
+  reportNote?: string
 }
 
 // Действия над уже существующей записью. Отличаются от создания тем, что
@@ -174,6 +180,7 @@ export const upsertDraft = internalMutation({
       v.literal('task_deadline'),
       v.literal('meeting_move'),
       v.literal('meeting_cancel'),
+      v.literal('report'),
     ),
     transcript: v.string(),
     parsed: v.string(),
@@ -379,6 +386,26 @@ export const draftView = internalQuery({
       }
     }
 
+    // Отчёт: показываем разобранные цифры и ждём галочки.
+    if (row.kind === 'report') {
+      const rows = draft.reportRows ?? []
+      const need: string[] = []
+      if (!rows.length) need.push('цифры отчёта')
+      const total = rows.reduce((s2, r) => s2 + r.count, 0)
+      const card = [
+        '📝 <b>Отчёт за ' + fmtDate(draft.reportDate ?? '') + '</b>',
+        '',
+        ...rows.map((r) => `${r.page} · ${r.type} — <b>${r.count}</b>`),
+        rows.length > 1 ? `\nВсего: <b>${total}</b>` : '',
+        draft.reportNote ? `\nКомментарий: ${draft.reportNote}` : '',
+        '',
+        '<i>Проверьте цифры — после отправки правит только администратор.</i>',
+      ]
+        .filter(Boolean)
+        .join('\n')
+      return { kind: row.kind, card, missing: need, ambiguous: null }
+    }
+
     // Действия над существующей записью. Сначала надо понять, о какой речь.
     if (ACTION_KINDS.has(row.kind)) {
       if ((draft.candidates ?? []).length > 1) {
@@ -504,6 +531,31 @@ export const commitDraft = internalMutation({
     const people = await visibleTo(ctx, row.employeeId)
     const allowed = new Set(people.map((p) => p._id as string))
     const chosen = (draft.resolved ?? []).filter((id) => allowed.has(id)) as string[]
+
+    if (row.kind === 'report') {
+      const rows = draft.reportRows ?? []
+      if (!rows.length) throw new ConvexError('в отчёте нет цифр')
+      const id = await submitFromChat(ctx, author, {
+        date: draft.reportDate,
+        smm: rows,
+        note: draft.reportNote,
+      })
+      await ctx.db.patch(draftId, { state: 'done' })
+      await audit(ctx, {
+        kind: 'command',
+        employeeId: author._id,
+        chatId: row.chatId,
+        result: `отчёт за ${draft.reportDate} сдан`,
+        objectRef: id as string,
+        status: 'ok',
+      })
+      return {
+        ok: true,
+        message: `✅ Отчёт за ${fmtDate(draft.reportDate ?? '')} отправлен`,
+        ref: id as string,
+        link: '/reports',
+      }
+    }
 
     // ——— Действия над существующей записью ———
     //

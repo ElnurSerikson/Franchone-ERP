@@ -561,6 +561,12 @@ export const callerIsOwner = internalQuery({
 })
 
 // Часовой пояс организации для разбора относительных дат (§4.3).
+// Должность сотрудника — боту нужно знать, чей отчёт он принимает.
+export const positionOf = internalQuery({
+  args: { employeeId: v.id('employees') },
+  handler: async (ctx, { employeeId }) => (await ctx.db.get(employeeId))?.position ?? '',
+})
+
 export const timezone = internalQuery({
   args: {},
   handler: async (ctx) => (await tgSettings(ctx)).timezone,

@@ -178,6 +178,7 @@ type Parsed = {
     | 'task_deadline'
     | 'meeting_move'
     | 'meeting_cancel'
+    | 'report'
     | 'unknown'
   title?: string
   description?: string
@@ -202,7 +203,7 @@ async function parseCommand(text: string, people: string[], tz: string): Promise
     'Верни ТОЛЬКО JSON без пояснений и без markdown-ограждений.',
     '',
     'Поля результата:',
-    '{"intent":"task|meeting|task_done|task_reopen|task_deadline|meeting_move|meeting_cancel|unknown",',
+    '{"intent":"task|meeting|task_done|task_reopen|task_deadline|meeting_move|meeting_cancel|report|unknown",',
     '"title":str,"description":str|null,',
     '"people":[str],"date":"YYYY-MM-DD"|null,"time":"HH:MM"|null,',
     '"priority":"low|medium|high|urgent"|null,"place":str|null,"url":str|null,',
@@ -218,6 +219,9 @@ async function parseCommand(text: string, people: string[], tz: string): Promise
     'task_deadline — сдвинуть, продлить срок существующей задачи.',
     'meeting_move — перенести существующую встречу на другое время.',
     'meeting_cancel — отменить существующую встречу.',
+    'report — сдать ежедневный отчёт: человек присылает цифры за день',
+    '(«выложил 3 рилса и 2 сторис по FRANCHONE»). Поля отчёта не разбирай,',
+    'достаточно намерения.',
     'Не понял намерение — "unknown".',
     '',
     'Для действий над существующей записью (task_done, task_reopen, task_deadline,',
@@ -705,8 +709,82 @@ async function onMessage(
     // неотличима от глупости бота: человек видит странный ответ и не понимает,
     // что виновата не логика, а расслышанное слово.
     await say(chatId, `<i>услышал: ${esc(transcript)}</i>`)
-    await runCommand(ctx, chatId, link, transcript, updateId)
+    await runCommand(ctx, chatId, link, transcript, updateId, true)
   })
+}
+
+// ——— Ежедневный отчёт текстом ———
+//
+// Голосом отчёт не принимаем сознательно: в нём цифры, и ошибка распознавания
+// стоит дороже удобства — «тринадцать» вместо «три» уедет в KPI и в зарплату.
+// Текст человек видит перед отправкой, а бот ещё раз показывает разбор.
+const REPORT_PAGES = ['FRANCHONE', 'ANUAR']
+const REPORT_TYPES = ['Рилсы', 'Сторис', 'Карусели']
+
+type ReportParsed = {
+  date?: string | null
+  rows?: { page: string; type: string; count: number }[]
+  note?: string | null
+}
+
+async function parseReport(text: string, tz: string): Promise<ReportParsed> {
+  const key = process.env.ANTHROPIC_API_KEY
+  if (!key) throw new Error('ANTHROPIC_API_KEY не задан в окружении Convex')
+  const model = process.env.ANTHROPIC_MODEL || 'claude-sonnet-5'
+  const now = nowIn(tz)
+
+  const system = [
+    'Ты разбираешь ежедневный отчёт SMM-специалиста, присланный обычным текстом.',
+    'Верни ТОЛЬКО JSON без пояснений и markdown-ограждений.',
+    '',
+    '{"date":"YYYY-MM-DD"|null,"rows":[{"page":str,"type":str,"count":int}],"note":str|null}',
+    '',
+    `Сегодня ${now.date} (${now.weekday}). Если дата не названа — отчёт за сегодня.`,
+    '«за вчера» и подобное переводи в конкретную дату.',
+    '',
+    `page — только из списка: ${REPORT_PAGES.join(', ')}.`,
+    `type — только из списка: ${REPORT_TYPES.join(', ')}.`,
+    'Синонимы приводи к этим значениям: reels/рилс/рилсы → Рилсы, stories/сторис →',
+    'Сторис, carousel/карусель → Карусели. Аккаунт по умолчанию — FRANCHONE,',
+    'если человек назвал только формат.',
+    '',
+    'count — целое число, ноль допустим. Строку с нулём включай только если',
+    'человек явно сказал «ноль» или «не выкладывал».',
+    'НЕ ДОГАДЫВАЙСЯ о числах, которых нет: пропущенный формат просто не включай.',
+    'note — свободный комментарий, если он есть помимо цифр.',
+  ].join('\n')
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'x-api-key': key,
+      'anthropic-version': '2023-06-01',
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ model, max_tokens: 1024, system, messages: [{ role: 'user', content: text }] }),
+  })
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    throw new Error(`Разбор отчёта не удался: ${res.status} ${body.slice(0, 300)}`)
+  }
+  const data = (await res.json()) as { content?: { type: string; text?: string }[] }
+  const raw = (data.content ?? []).find((c) => c.type === 'text')?.text ?? ''
+  const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)
+  try {
+    const parsed = JSON.parse(json) as ReportParsed
+    // Чужие значения в справочники не пускаем: строка, которую не сматчить с
+    // планом «аккаунт × формат», до KPI всё равно не дойдёт.
+    parsed.rows = (parsed.rows ?? []).filter(
+      (r) =>
+        REPORT_PAGES.includes(r.page) &&
+        REPORT_TYPES.includes(r.type) &&
+        Number.isFinite(r.count) &&
+        r.count >= 0,
+    )
+    return parsed
+  } catch {
+    return { rows: [] }
+  }
 }
 
 // ——— Разговор ———
@@ -966,6 +1044,7 @@ async function runCommand(
   link: { employeeId: Id<'employees'>; employeeName: string },
   transcript: string,
   updateId: number,
+  fromVoice = false,
 ): Promise<void> {
   // Уточняем незаполненное поле по открытому черновику (§4.3).
   const pending = await ctx.runQuery(internal.telegramFlow.openDraft, { chatId })
@@ -995,6 +1074,77 @@ async function runCommand(
   // Если открыт черновик и человек уточняет поле — дополняем его, а не
   // заводим второй.
   const kind = pending && parsed.intent === 'unknown' ? pending.kind : parsed.intent
+  // Отчёт: цифры разбираем отдельным проходом и показываем на проверку.
+  if (kind === 'report') {
+    if (fromVoice) {
+      return await say(
+        chatId,
+        '📝 <b>Отчёты принимаются строго текстом.</b>\n\n' +
+          'В отчёте цифры, а распознавание речи иногда слышит «тринадцать» вместо ' +
+          '«три» — такая ошибка уедет в KPI и в зарплату. Напишите отчёт сообщением, ' +
+          'например: «3 рилса и 2 сторис по FRANCHONE».',
+      )
+    }
+    const position: string = await ctx.runQuery(internal.telegram.positionOf, {
+      employeeId: link.employeeId,
+    })
+    if (position !== 'smm') {
+      return await say(
+        chatId,
+        'Ваш отчёт заполняется в ERP: там цифры разносятся по объектам и кампаниям, ' +
+          'и одной фразой их не собрать.\n\nРаздел «Отчёты» — ' +
+          (siteUrl() ? `${siteUrl()}/reports` : 'в панели ERP') +
+          '.',
+      )
+    }
+
+    let report: ReportParsed
+    try {
+      report = await parseReport(transcript, tz)
+    } catch (e) {
+      await ctx.runMutation(internal.telegram.logAudit, {
+        kind: 'command',
+        employeeId: link.employeeId,
+        chatId,
+        updateId,
+        text: transcript,
+        status: 'error',
+        error: e instanceof Error ? e.message : String(e),
+      })
+      return await say(chatId, 'Не разобрал цифры. Напишите проще: «3 рилса, 2 сторис».')
+    }
+    if (!report.rows?.length) {
+      return await say(
+        chatId,
+        'Не нашёл в сообщении цифр отчёта.\n\n' +
+          'Напишите, что выложили: «3 рилса и 2 сторис по FRANCHONE».',
+      )
+    }
+
+    const draft = await ctx.runMutation(internal.telegramFlow.upsertDraft, {
+      chatId,
+      employeeId: link.employeeId,
+      kind: 'report',
+      transcript,
+      parsed: JSON.stringify({
+        intent: 'report',
+        reportDate: report.date ?? nowIn(tz).date,
+        reportRows: report.rows,
+        reportNote: report.note ?? undefined,
+      }),
+    })
+    await ctx.runMutation(internal.telegram.logAudit, {
+      kind: 'command',
+      employeeId: link.employeeId,
+      chatId,
+      updateId,
+      text: transcript,
+      fields: JSON.stringify(report).slice(0, 900),
+      result: 'черновик отчёта',
+    })
+    return await showDraft(ctx, chatId, draft._id)
+  }
+
   // Не команда — значит обычный разговор, а не ошибка пользователя.
   if (kind === 'unknown') {
     let reply: string
@@ -1108,6 +1258,7 @@ const CONFIRM_LABEL: Record<string, string> = {
   task_deadline: '✅ Сдвинуть срок',
   meeting_move: '✅ Перенести',
   meeting_cancel: '✅ Отменить встречу',
+  report: '✅ Отправить отчёт',
 }
 
 async function onCallback(
