@@ -1,5 +1,5 @@
-import { Suspense, lazy } from 'react'
-import { Authenticated, Unauthenticated, AuthLoading, useQuery } from 'convex/react'
+import { Suspense, lazy, useEffect } from 'react'
+import { Authenticated, Unauthenticated, AuthLoading, useQuery, useMutation } from 'convex/react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { api } from '../convex/_generated/api'
@@ -50,11 +50,35 @@ function PackGuard({ children }: { children: JSX.Element }) {
   return access.canView ? children : <Navigate to="/" replace />
 }
 
+// Отметка присутствия.
+//
+// Сессия живёт неделю и продлевается сама, поэтому по авторизациям не видно,
+// работает человек в ERP или не заходил месяц. Пока вкладка открыта и видима,
+// раз в пять минут отмечаемся; свёрнутая или фоновая вкладка молчит, иначе
+// забытое окно считалось бы рабочим днём.
+function usePresence(enabled: boolean) {
+  const ping = useMutation(api.activity.ping)
+  useEffect(() => {
+    if (!enabled) return
+    const beat = () => {
+      if (document.visibilityState === 'visible') void ping({}).catch(() => {})
+    }
+    beat()
+    const timer = setInterval(beat, 5 * 60 * 1000)
+    document.addEventListener('visibilitychange', beat)
+    return () => {
+      clearInterval(timer)
+      document.removeEventListener('visibilitychange', beat)
+    }
+  }, [enabled, ping])
+}
+
 function AuthedApp() {
   // Деактивированного пользователя выкидываем из кабинета сразу, не дожидаясь
   // истечения сессии. Мутации дополнительно закрыты на сервере (requireEmployee).
   const access = useAccessState()
   const me = useCurrentUser()
+  usePresence(access === 'ok')
   if (access === 'loading') return <FullScreenLoader />
   if (access === 'blocked') return <AccessRevoked />
 

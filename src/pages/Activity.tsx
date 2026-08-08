@@ -15,13 +15,15 @@ import type { Id } from '../../convex/_generated/dataModel'
 import { th, td, theadRow } from '@/lib/table'
 
 
-function ago(ms: number | null): { text: string; stale: boolean; today: boolean } {
-  if (!ms) return { text: 'никогда', stale: true, today: false }
+// Подпись «когда был». Признаки «сегодня» и «давно не был» приходят с
+// сервера: там считается правило по рабочим дням и часовой пояс организации,
+// а браузер может стоять в другом поясе.
+function ago(ms: number | null): string {
+  if (!ms) return 'никогда'
   const days = Math.floor((Date.now() - ms) / 86400000)
-  const stale = days >= 5
-  if (days <= 0) return { text: 'сегодня', stale, today: true }
-  if (days === 1) return { text: 'вчера', stale, today: false }
-  return { text: `${days} дн. назад`, stale, today: false }
+  if (days <= 0) return 'сегодня'
+  if (days === 1) return 'вчера'
+  return `${days} дн. назад`
 }
 
 export default function Activity() {
@@ -38,12 +40,18 @@ export default function Activity() {
   const rows = activeEmployees.map((e) => {
     const act = actMap.get(e.id)
     const stats = statsMap.get(e.id)
-    const a = ago(act?.lastLoginAt ?? null)
-    return { employee: e, act, stats, a }
+    return {
+      employee: e,
+      act,
+      stats,
+      text: ago(act?.lastLoginAt ?? null),
+      today: act?.today ?? false,
+      stale: act?.stale ?? true,
+    }
   })
 
-  const today = rows.filter((r) => r.a.today).length
-  const stale = rows.filter((r) => r.a.stale).length
+  const today = rows.filter((r) => r.today).length
+  const stale = rows.filter((r) => r.stale).length
   const overdue = rows.reduce((s, r) => s + (r.stats?.overdue ?? 0), 0)
   const late = rows.reduce((s, r) => s + (r.stats?.late ?? 0), 0)
 
@@ -51,12 +59,12 @@ export default function Activity() {
     <>
       <PageHeader
         title="Активность и дисциплина"
-        subtitle="Входы сотрудников, соблюдение сроков и нарушения — за последние 30 дней"
+        subtitle="Посещения ERP, соблюдение сроков и нарушения — за последние 30 дней"
       />
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4 mb-5">
         <StatCard highlight label="Заходили сегодня" value={String(today)} foot={`из ${rows.length} сотрудников`} icon={CalendarCheck} />
-        <StatCard label="Давно не заходили" value={String(stale)} foot="5+ дней без входа" icon={LogIn} />
+        <StatCard label="Давно не заходили" value={String(stale)} foot="2+ рабочих дня без визита" icon={LogIn} />
         <StatCard label="Просроченных задач" value={String(overdue)} foot="активные, срок прошёл" icon={AlertTriangle} />
         <StatCard label="Выполнено с опозданием" value={String(late)} foot="за период" icon={Clock} />
       </div>
@@ -68,7 +76,7 @@ export default function Activity() {
               <tr className={theadRow}>
                 <th className={`${th} sticky left-0 z-20 bg-[#e2f2ef] border-r border-line md:static md:z-auto md:border-r-0`}>Сотрудник</th>
                 <th className={th}>Последний вход</th>
-                <th className={th}>Входов (7 / 30 дн)</th>
+                <th className={th}>Посещений (7 / 30 дн)</th>
                 <th className={th}>Просрочено</th>
                 <th className={th}>Опоздания</th>
                 <th className={th}>Соблюдение сроков</th>
@@ -76,8 +84,9 @@ export default function Activity() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ employee: e, act, stats, a }) => {
-                const bad = a.stale || (stats?.overdue ?? 0) > 0
+              {rows.map((r) => {
+                const { employee: e, act, stats } = r
+                const bad = r.stale || (stats?.overdue ?? 0) > 0
                 const warn = !bad && ((stats?.late ?? 0) > 0 || (stats ? stats.onTimePct < 0.7 && stats.done > 0 : false))
                 return (
                   <tr key={e.id} className="hover:bg-chip/40 transition-colors">
@@ -93,8 +102,8 @@ export default function Activity() {
                     <td className={td}>
                       {/* §10 требует и дату, и время последнего входа —
                           относительной подписи «N дн. назад» для этого мало. */}
-                      <span className={a.stale ? 'text-[#c53030] font-semibold' : a.today ? 'text-green-d' : ''}>
-                        {a.text}
+                      <span className={r.stale ? 'text-[#c53030] font-semibold' : r.today ? 'text-green-d' : ''}>
+                        {r.text}
                       </span>
                       {act?.lastLoginAt ? (
                         <div className="text-[11px] text-muted whitespace-nowrap">
@@ -108,7 +117,7 @@ export default function Activity() {
                         disabled={!act?.loginTotal}
                         onClick={() => setHistoryOf(e)}
                         className="inline-flex items-center gap-1.5 text-left disabled:cursor-default group"
-                        title={act?.loginTotal ? 'Показать историю входов' : 'Входов ещё не было'}
+                        title={act?.loginTotal ? 'Показать историю посещений' : 'Посещений ещё не было'}
                       >
                         <span>
                           <span className="font-medium text-ink">{act?.loginCount7d ?? 0}</span>
@@ -164,10 +173,10 @@ function LoginHistoryModal({ employee, onClose }: { employee: Employee; onClose:
   })
 
   // Группируем по календарной дате: за день часто несколько входов подряд.
-  const byDay = new Map<string, number[]>()
-  for (const t of times ?? []) {
-    const day = new Date(t + 5 * 3600 * 1000).toISOString().slice(0, 10)
-    byDay.set(day, [...(byDay.get(day) ?? []), t])
+  const byDay = new Map<string, { at: number; minutes: number }[]>()
+  for (const v of times ?? []) {
+    const day = new Date(v.at + 5 * 3600 * 1000).toISOString().slice(0, 10)
+    byDay.set(day, [...(byDay.get(day) ?? []), v])
   }
 
   return (
@@ -180,7 +189,7 @@ function LoginHistoryModal({ employee, onClose }: { employee: Employee; onClose:
         <div className="shrink-0 px-5 py-4 border-b border-line flex items-center gap-3">
           <Avatar initials={employee.initials} color={employee.avatarColor} size={38} />
           <div className="min-w-0 flex-1">
-            <h2 className="font-bold text-ink leading-tight">История входов</h2>
+            <h2 className="font-bold text-ink leading-tight">История посещений</h2>
             <p className="text-[13px] text-muted truncate">{employee.name}</p>
           </div>
           <button onClick={onClose} className="ico-btn w-9 h-9 shrink-0" title="Закрыть">
@@ -194,7 +203,7 @@ function LoginHistoryModal({ employee, onClose }: { employee: Employee; onClose:
               <Loader2 className="animate-spin" size={20} />
             </div>
           ) : times.length === 0 ? (
-            <p className="text-sm text-muted py-4 text-center">Входов пока не было.</p>
+            <p className="text-sm text-muted py-4 text-center">Посещений пока не было.</p>
           ) : (
             <div className="flex flex-col gap-3">
               {[...byDay.entries()].map(([day, list]) => (
@@ -203,9 +212,12 @@ function LoginHistoryModal({ employee, onClose }: { employee: Employee; onClose:
                     {longDay(day)}
                   </div>
                   <div className="flex flex-wrap gap-1.5">
-                    {list.map((t) => (
-                      <span key={t} className="chip bg-chip text-ink-2 tabular-nums">
-                        {onlyTime(t)}
+                    {list.map((v) => (
+                      <span key={v.at} className="chip bg-chip text-ink-2 tabular-nums">
+                        {onlyTime(v.at)}
+                        {v.minutes >= 1 ? (
+                          <span className="text-muted"> · {v.minutes} мин</span>
+                        ) : null}
                       </span>
                     ))}
                   </div>
@@ -218,7 +230,7 @@ function LoginHistoryModal({ employee, onClose }: { employee: Employee; onClose:
         {times && times.length > 0 && (
           <div className="shrink-0 px-5 py-3 border-t border-line text-[11px] text-muted">
             Показаны последние {times.length}{' '}
-            {plural(times.length, 'вход', 'входа', 'входов')} · время по Алматы
+            {plural(times.length, 'визит', 'визита', 'визитов')} · время по Алматы
           </div>
         )}
       </div>
