@@ -276,6 +276,36 @@ async function say(chatId: number, text: string, buttons?: Button[][]) {
   }
 }
 
+// «Печатает…» наверху чата.
+//
+// Бот думает секунды: распознаёт голос, разбирает фразу, собирает ответ. Всё
+// это время экран был пустым, и человек не понимал, дошло сообщение или нет.
+// Telegram держит статус пять секунд, поэтому его приходится повторять, пока
+// работа идёт.
+async function withTyping<T>(chatId: number, work: () => Promise<T>): Promise<T> {
+  let working = true
+  const pulse = (async () => {
+    while (working) {
+      // Статус — дело второстепенное: если он не отправился, работа всё равно
+      // должна дойти до конца.
+      try {
+        await tg('sendChatAction', { chat_id: chatId, action: 'typing' })
+      } catch {
+        return
+      }
+      // Спим короткими шагами, чтобы закончить почти сразу, как ответ готов, а
+      // не висеть лишние секунды после него.
+      for (let i = 0; i < 16 && working; i++) await new Promise((r) => setTimeout(r, 250))
+    }
+  })()
+  try {
+    return await work()
+  } finally {
+    working = false
+    await pulse
+  }
+}
+
 const HELP =
   'Голосом или текстом — как удобнее.\n\n' +
   '• «Поставь Арману задачу подготовить отчёт по KazNaves до завтра, 18:00, высокий приоритет»\n' +
@@ -427,7 +457,8 @@ async function onMessage(
   const link: LinkInfo = await ctx.runQuery(internal.telegram.linkByChat, { chatId })
   // Пока привязки нет, бот ведёт только диалог входа и ничего из ERP не
   // показывает.
-  if (!link?.active) return await onAuth(ctx, chatId, msg, text)
+  // Отправка письма с кодом и проверка тоже занимают секунду-две.
+  if (!link?.active) return await withTyping(chatId, () => onAuth(ctx, chatId, msg, text))
 
   if (text === '/help' || text === '/start') return await say(chatId, HELP)
 
@@ -436,26 +467,29 @@ async function onMessage(
   if (!voice) {
     // Текст обрабатываем так же, как расшифровку голоса: это удобно и не
     // противоречит ТЗ, где голос — основной, но не единственный вход.
-    return await runCommand(ctx, chatId, link, text, updateId)
+    return await withTyping(chatId, () => runCommand(ctx, chatId, link, text, updateId))
   }
 
-  await say(chatId, '🎧 Слушаю…')
-  let transcript = ''
-  try {
-    transcript = await transcribe(voice.file_id)
-  } catch (e) {
-    await ctx.runMutation(internal.telegram.logAudit, {
-      kind: 'command',
-      employeeId: link.employeeId,
-      chatId,
-      updateId,
-      status: 'error',
-      error: e instanceof Error ? e.message : String(e),
-    })
-    return await say(chatId, '⚠️ Не удалось распознать голосовое сообщение. Попробуйте ещё раз.')
-  }
-  if (!transcript) return await say(chatId, '⚠️ В сообщении не распозналась речь.')
-  await runCommand(ctx, chatId, link, transcript, updateId)
+  // Голосовое идёт дольше всего: скачать, распознать, разобрать. Статус висит
+  // все эти секунды, поэтому отдельная реплика «слушаю» больше не нужна.
+  await withTyping(chatId, async () => {
+    let transcript = ''
+    try {
+      transcript = await transcribe(voice.file_id)
+    } catch (e) {
+      await ctx.runMutation(internal.telegram.logAudit, {
+        kind: 'command',
+        employeeId: link.employeeId,
+        chatId,
+        updateId,
+        status: 'error',
+        error: e instanceof Error ? e.message : String(e),
+      })
+      return await say(chatId, 'Не разобрал голосовое — попробуйте записать ещё раз.')
+    }
+    if (!transcript) return await say(chatId, 'В сообщении не слышно речи. Попробуйте ещё раз.')
+    await runCommand(ctx, chatId, link, transcript, updateId)
+  })
 }
 
 // ——— Разговор ———
