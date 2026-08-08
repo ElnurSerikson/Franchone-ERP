@@ -21,6 +21,7 @@ import PageHeader from '@/components/PageHeader'
 import Avatar from '@/components/ui/Avatar'
 import { ProgressBar } from '@/components/ui/Progress'
 import { PriorityChip, statusMeta, priorityStyle } from '@/components/ui/StatusChip'
+import Select from '@/components/ui/Select'
 import TaskModal from '@/components/TaskModal'
 import TaskCreateModal from '@/components/TaskCreateModal'
 import { usePerms } from '@/lib/usePerms'
@@ -32,12 +33,20 @@ import type { Employee, Task, TaskStatus } from '@/types'
 const columns: TaskStatus[] = ['assigned', 'in_progress', 'done']
 
 // Приоритеты в порядке важности, а не алфавита: в списке ищут «срочный».
+const PRIORITY_DOT: Record<string, string> = {
+  urgent: '#c53030',
+  high: '#c05621',
+  medium: '#2563eb',
+  low: '#9aa0a6',
+}
+
 const PRIORITIES = (['urgent', 'high', 'medium', 'low'] as const).map((key) => ({
   key,
   label: priorityStyle[key].label,
+  dot: PRIORITY_DOT[key],
 }))
 
-const filterCls = 'h-9 rounded-lg border border-line-2 px-2 text-sm bg-white'
+const filterCls = 'w-full sm:w-auto sm:min-w-[168px]'
 
 // Презентационная карточка (без drag-обвязки — её даёт DraggableCard).
 function TaskCard({ task, assignee }: { task: Task; assignee?: Employee }) {
@@ -297,54 +306,52 @@ export default function Tasks() {
 
       {view === 'board' && (
         <div className="flex items-center gap-2 flex-wrap mb-4">
-          <select
+          {/* Свой компонент, а не <select>: нативный список macOS рисует
+              система, и к оформлению панели он отношения не имеет. */}
+          <Select
+            className={filterCls}
             value={fAssignee}
-            onChange={(e) => setFAssignee(e.target.value)}
+            onChange={setFAssignee}
+            placeholder="Все ответственные"
+            options={[
+              { value: '', label: 'Все ответственные' },
+              ...employees.map((e) => ({ value: e.id, label: e.name, dot: e.avatarColor })),
+            ]}
+          />
+          <Select
             className={filterCls}
-          >
-            <option value="">Все ответственные</option>
-            {employees.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.name}
-              </option>
-            ))}
-          </select>
-          <select
             value={fPriority}
-            onChange={(e) => setFPriority(e.target.value)}
+            onChange={setFPriority}
+            placeholder="Любой приоритет"
+            options={[
+              { value: '', label: 'Любой приоритет' },
+              ...PRIORITIES.map((p) => ({ value: p.key, label: p.label, dot: p.dot })),
+            ]}
+          />
+          <Select
             className={filterCls}
-          >
-            <option value="">Любой приоритет</option>
-            {PRIORITIES.map((p) => (
-              <option key={p.key} value={p.key}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-          <select
             value={fStatus}
-            onChange={(e) => setFStatus(e.target.value as TaskStatus | '')}
+            onChange={(v) => setFStatus(v as TaskStatus | '')}
+            placeholder="Любой статус"
+            options={[
+              { value: '', label: 'Любой статус' },
+              ...columns.map((c) => ({
+                value: c,
+                label: statusMeta[c].label,
+                dot: statusMeta[c].dot,
+              })),
+            ]}
+          />
+          <Select
             className={filterCls}
-          >
-            <option value="">Любой статус</option>
-            {columns.map((c) => (
-              <option key={c} value={c}>
-                {statusMeta[c].label}
-              </option>
-            ))}
-          </select>
-          <select
             value={fDue}
-            onChange={(e) => setFDue(e.target.value as DueKey | '')}
-            className={filterCls}
-          >
-            <option value="">Любой срок</option>
-            {DUE_OPTIONS.map((d) => (
-              <option key={d.key} value={d.key}>
-                {d.label}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setFDue(v as DueKey | '')}
+            placeholder="Любой срок"
+            options={[
+              { value: '', label: 'Любой срок' },
+              ...DUE_OPTIONS.map((d) => ({ value: d.key, label: d.label })),
+            ]}
+          />
           {filtered && (
             <>
               <button onClick={resetFilters} className="mini-btn">
