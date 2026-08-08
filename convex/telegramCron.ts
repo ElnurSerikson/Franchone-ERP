@@ -16,6 +16,7 @@ import { digestFor } from './telegramTalk'
 import { momentIn, nowIn } from './orgTime'
 import { notifyKpi } from './telegramFlow'
 import { submissionsFor, deadlineMs, REPORTING } from './reports'
+import { isStaff } from './lib'
 import { computeMonth } from './payroll'
 
 const TZ = '+05:00'
@@ -49,6 +50,8 @@ export const tick = internalMutation({
     await taskReminders(ctx, now, s.taskRemindAt, s.taskEscalateAuthor, s.timezone)
     await meetingResults(ctx, now, s.timezone)
     await kpiThresholds(ctx)
+    await eveningDigest(ctx, s.eveningOn, s.eveningAt, s.timezone)
+    await kpiRisk(ctx, s.kpiRiskOn, s.timezone)
     // §9: расшифровки голосовых хранятся ограниченный срок.
     await pruneTranscripts(ctx, now, s.transcriptKeepDays)
   },
@@ -296,6 +299,126 @@ async function taskReminders(
         })
       }
     }
+  }
+}
+
+// Итог дня владельцу.
+//
+// Утром бот говорит, что предстоит; вечером — что случилось. Без этого
+// владелец узнаёт о дне только из отдельных уведомлений, каждое из которых
+// по-своему мелкое: одно закрытие задачи, один сданный отчёт.
+async function eveningDigest(ctx: MutationCtx, on: boolean, at: string, tz: string) {
+  if (!on) return
+  const local = nowIn(tz)
+  if (local.time < at || local.time >= addHour(at)) return
+  const { date, month } = businessNow()
+  const yesterday = addDays(date, -1)
+
+  const staff = (await ctx.db.query('employees').collect()).filter(
+    (e) => e.status === 'active' && !e.hidden && isStaff(e),
+  )
+  const owners = staff.filter((e) => e.role === 'owner')
+  if (!owners.length) return
+
+  const settings = await ctx.db
+    .query('settings')
+    .withIndex('by_key', (q) => q.eq('key', 'global'))
+    .first()
+  const due = settings?.reportDeadlineTime ?? '14:00'
+
+  // Отчёты за вчера: их сдают сегодня до срока, поэтому вечером картина
+  // окончательная.
+  let filed = 0
+  let expected = 0
+  const missing: string[] = []
+  for (const e of staff.filter((x) => x.role !== 'owner' && REPORTING.has(x.position))) {
+    if (yesterday < e.hiredAt) continue
+    expected++
+    const rows = await submissionsFor(ctx, e, due)
+    if (rows.some((r) => r.date === yesterday && !r.reopened)) filed++
+    else missing.push(e.name.split(/\s+/)[0])
+  }
+
+  const dayStart = momentIn(tz, date, '00:00')
+  const closed = (await ctx.db.query('tasks').collect()).filter(
+    (t) => t.status === 'done' && (t.completedAt ?? 0) >= dayStart,
+  ).length
+  const held = (await ctx.db.query('meetings').collect()).filter(
+    (m) => m.date === date && m.status === 'held',
+  ).length
+
+  // Кто сегодня не появлялся в ERP. Считаем по посещениям, а не по входам.
+  const absent: string[] = []
+  for (const e of staff.filter((x) => x.role !== 'owner')) {
+    const seen = (
+      await ctx.db
+        .query('visits')
+        .withIndex('by_employee', (q) => q.eq('employeeId', e._id))
+        .collect()
+    ).some((v) => v.lastAt >= dayStart)
+    if (!seen) absent.push(e.name.split(/\s+/)[0])
+  }
+
+  const lines = [
+    `📝 Отчёты за ${fmtDate(yesterday)}: ${filed} из ${expected}` +
+      (missing.length ? ` · не сдали: ${missing.join(', ')}` : ''),
+    `📌 Закрыто задач: ${closed || 'нет'}`,
+    `📅 Проведено встреч: ${held || 'нет'}`,
+    absent.length ? `🚪 Не заходили в ERP: ${absent.join(', ')}` : '🚪 В ERP заходили все',
+  ]
+
+  for (const o of owners) {
+    await notify(ctx, {
+      employeeId: o._id,
+      category: 'report',
+      text: `<b>Итог дня</b>\n\n${lines.join('\n')}`,
+      key: `evening:${o._id}:${date}`,
+      link: '/activity',
+    })
+  }
+  void month
+}
+
+// Предупреждение о проседании KPI.
+//
+// Сотруднику бот шлёт поздравления на каждые 10%, а владелец узнаёт о провале
+// в конце месяца, когда исправлять поздно. За неделю до конца месяца
+// сравниваем факт с темпом: к 24-му числу месяца из 31 дня ожидается около
+// 77%, и всё, что заметно ниже, стоит увидеть заранее.
+async function kpiRisk(ctx: MutationCtx, on: boolean, tz: string) {
+  if (!on) return
+  const local = nowIn(tz)
+  const [y, m, d] = local.date.split('-').map(Number)
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
+  // Ровно за семь дней до конца месяца, одним сообщением.
+  if (daysInMonth - d !== 7) return
+  if (local.time < '10:00' || local.time >= '11:00') return
+
+  const pace = d / daysInMonth
+  const rows = await computeMonth(ctx, local.date.slice(0, 7))
+  const behind = rows
+    .filter((r) => Number.isFinite(r.kpi) && r.kpi < pace - 0.15)
+    .sort((a, b) => a.kpi - b.kpi)
+  if (!behind.length) return
+
+  const owners = (await ctx.db.query('employees').collect()).filter(
+    (e) => e.role === 'owner' && e.status === 'active',
+  )
+  const text =
+    `<b>KPI под угрозой</b>\n\n` +
+    `До конца месяца неделя, ожидаемый темп — ${Math.round(pace * 100)}%.\n\n` +
+    behind
+      .map((r) => `📊 <b>${r.name}</b> · ${r.positionLabel}\n${Math.round(r.kpi * 100)}%`)
+      .join('\n\n')
+  for (const o of owners) {
+    await notify(ctx, {
+      employeeId: o._id,
+      category: 'kpi',
+      text,
+      key: `kpi_risk:${o._id}:${local.date.slice(0, 7)}`,
+      link: '/kpi',
+      instant: false,
+    })
   }
 }
 

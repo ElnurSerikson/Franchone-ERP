@@ -55,6 +55,7 @@ const DEFAULTS = {
   digestAt: '09:00',
   quietFrom: '09:00',
   quietTo: '20:00',
+  eveningAt: '19:00',
 }
 
 // §7.2: тексты мотивационных сообщений. Хранятся в настройках ERP и
@@ -97,6 +98,9 @@ export async function tgSettings(ctx: QueryCtx | MutationCtx) {
     digestOn: s?.tgDigestOn !== false,
     quietFrom: s?.tgQuietFrom || DEFAULTS.quietFrom,
     quietTo: s?.tgQuietTo || DEFAULTS.quietTo,
+    eveningAt: s?.tgEveningAt || DEFAULTS.eveningAt,
+    eveningOn: s?.tgEveningOn !== false,
+    kpiRiskOn: s?.tgKpiRiskOn !== false,
   }
 }
 

@@ -789,6 +789,10 @@ export default defineSchema({
     // задачу, назначили встречу), уходит немедленно и в это окно не смотрит.
     tgQuietFrom: v.optional(v.string()), // «HH:MM», начало окна, по умолчанию 09:00
     tgQuietTo: v.optional(v.string()), // «HH:MM», конец окна, по умолчанию 20:00
+    // Вечерний итог дня владельцу и предупреждение о проседании KPI.
+    tgEveningAt: v.optional(v.string()), // «HH:MM», по умолчанию 19:00
+    tgEveningOn: v.optional(v.boolean()),
+    tgKpiRiskOn: v.optional(v.boolean()),
 
     // ——— Модуль «Производство и запуск франшизы» ———
     // §6.3: «до дедлайна остаётся настраиваемый короткий период» — сколько

@@ -183,6 +183,14 @@ export default function TelegramSettings() {
               onChange={(e) => edit('tgDigestAt', e.target.value.trim())}
             />
           </Field>
+          <Field label="Итог дня владельцу, время">
+            <input
+              className={inputCls}
+              placeholder="19:00"
+              value={val('tgEveningAt', '19:00')}
+              onChange={(e) => edit('tgEveningAt', e.target.value.trim())}
+            />
+          </Field>
           <Field label="Не беспокоить: с">
             <input
               className={inputCls}

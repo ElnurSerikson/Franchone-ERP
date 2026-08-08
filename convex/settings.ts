@@ -31,6 +31,9 @@ const DEFAULTS = {
   tgDigestOn: true,
   tgQuietFrom: '09:00',
   tgQuietTo: '20:00',
+  tgEveningAt: '19:00',
+  tgEveningOn: true,
+  tgKpiRiskOn: true,
 }
 
 export const get = query({
@@ -83,6 +86,9 @@ export const update = mutation({
     tgDigestOn: v.optional(v.boolean()),
     tgQuietFrom: v.optional(v.string()),
     tgQuietTo: v.optional(v.string()),
+    tgEveningAt: v.optional(v.string()),
+    tgEveningOn: v.optional(v.boolean()),
+    tgKpiRiskOn: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const me = await requireEmployee(ctx)
