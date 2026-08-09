@@ -32,13 +32,16 @@ export function useClientPack() {
 // ТЗ v1.1 §16: отдельного центра уведомлений в модуле нет — заказчик
 // получает только целевые Telegram-сообщения (§12). Поэтому вкладки
 // «Уведомления» здесь тоже нет.
+// `short` — подпись под иконкой на телефоне, там на слово ровно одна строка.
+// `mobile: false` — раздел не помещается в пятёрку нижних иконок и остаётся
+// только на широком экране; его содержимое всё равно дублируется на «Обзоре».
 const NAV = [
-  { to: '/', label: 'Обзор', icon: Home, end: true },
-  { to: '/stages', label: 'Документы', icon: FolderOpen, end: false },
-  { to: '/calendar', label: 'Сроки', icon: CalendarDays, end: false },
-  { to: '/rewards', label: 'Пазл и подарок', icon: Gift, end: false },
-  { to: '/learn', label: 'Полезное', icon: BookOpen, end: false },
-  { to: '/hub', label: 'Итоговый комплект', icon: Sparkles, end: false },
+  { to: '/', label: 'Обзор', short: 'Обзор', icon: Home, end: true, mobile: true },
+  { to: '/stages', label: 'Документы', short: 'Документы', icon: FolderOpen, end: false, mobile: true },
+  { to: '/calendar', label: 'Сроки', short: 'Сроки', icon: CalendarDays, end: false, mobile: true },
+  { to: '/rewards', label: 'Пазл и подарок', short: 'Пазл', icon: Gift, end: false, mobile: false },
+  { to: '/learn', label: 'Полезное', short: 'Полезное', icon: BookOpen, end: false, mobile: true },
+  { to: '/hub', label: 'Итоговый комплект', short: 'Комплект', icon: Sparkles, end: false, mobile: true },
 ]
 
 export default function ClientApp() {
@@ -146,7 +149,34 @@ export default function ClientApp() {
                 горизонтальной прокруткой от края до края, как канбан в
                 «Задачах»: гамбургер прятал бы половину кабинета. */}
             <nav className="max-w-6xl mx-auto px-4 sm:px-6 pb-3">
-              <div className="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
+              {/* Телефон: пять крупных иконок в ряд, подпись под иконкой.
+                  Горизонтальной прокрутки нет — вся навигация видна сразу,
+                  как в мобильном приложении. */}
+              <div className="grid grid-cols-5 gap-1 md:hidden">
+                {NAV.filter((n) => n.mobile).map((n) => {
+                  const Icon = n.icon
+                  return (
+                    <NavLink
+                      key={n.to}
+                      to={n.to}
+                      end={n.end}
+                      className={({ isActive }) =>
+                        `flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-colors ${
+                          isActive ? 'bg-green text-white' : 'text-muted active:bg-chip'
+                        }`
+                      }
+                    >
+                      <Icon size={24} strokeWidth={1.75} />
+                      <span className="text-[11px] font-semibold leading-none truncate max-w-full">
+                        {n.short}
+                      </span>
+                    </NavLink>
+                  )
+                })}
+              </div>
+
+              {/* Планшет и десктоп: строка вкладок с полными названиями. */}
+              <div className="hidden md:flex items-center gap-2 flex-wrap">
                 {NAV.map((n) => {
                   const Icon = n.icon
                   return (
