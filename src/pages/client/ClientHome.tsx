@@ -23,6 +23,19 @@ import { useClientPack } from './ClientApp'
 const FIGURE = 'my-5 flex-1 grid place-items-center'
 const CAPTION = 'text-center text-[12px] leading-snug text-muted'
 
+// §7: пазл — это одна картинка, разрезанная на пять частей, поэтому плитки
+// стоят вплотную, без зазоров. Каждая открытая часть показывает ровно свой
+// кусок общего изображения: col/row — место в сетке 3×3, cs/rs — сколько
+// ячеек занимает. Отсюда же считаются размер и сдвиг картинки внутри плитки.
+const PUZZLE_IMAGE = '/puzzle-globe.svg'
+const CELLS = [
+  { span: 'col-span-2 row-span-2', col: 0, row: 0, cs: 2, rs: 2 },
+  { span: '', col: 2, row: 0, cs: 1, rs: 1 },
+  { span: '', col: 2, row: 1, cs: 1, rs: 1 },
+  { span: 'col-span-2', col: 0, row: 2, cs: 2, rs: 1 },
+  { span: '', col: 2, row: 2, cs: 1, rs: 1 },
+]
+
 export default function ClientHome() {
   const packId = useClientPack()
   const data = useQuery(api.packClient.dashboard, {})
@@ -282,7 +295,6 @@ function Puzzle({
   // частей (PUZZLE_PARTS); если их вдруг станет иначе, спокойно вырождается
   // в равный ряд.
   const bento = puzzle.parts.length === 5
-  const SPAN = ['col-span-2 row-span-2', '', '', 'col-span-2', '']
 
   return (
     <section className="card p-5 sm:p-6 flex flex-col">
@@ -306,29 +318,53 @@ function Puzzle({
 
       <div className={FIGURE}>
         <div
-          className={`gap-2.5 w-full max-w-[264px] ${
-            bento ? 'grid grid-cols-3 grid-rows-3 aspect-square' : 'grid grid-cols-5'
+          className={`w-full max-w-[264px] overflow-hidden rounded-2xl ${
+            bento ? 'grid grid-cols-3 grid-rows-3 aspect-square' : 'grid grid-cols-5 gap-2'
           }`}
         >
           {puzzle.parts.map((p, i) => {
+            const c = CELLS[i]
             const big = bento && i === 0
             return (
               <div
                 key={p.index}
                 title={p.title}
-                className={`${bento ? SPAN[i] : 'aspect-square'} rounded-2xl grid place-items-center font-bold transition-all duration-500 ${
+                className={`${bento ? c.span : 'aspect-square rounded-xl'} relative overflow-hidden grid place-items-center font-bold transition-all duration-500 ${
                   big ? 'text-4xl' : 'text-xl'
                 } ${
                   p.open
-                    ? 'bg-green text-white shadow-soft'
+                    ? ''
                     : p.missed
-                      ? 'bg-[#fdeaea] text-[#c53030]'
+                      ? 'bg-[#fdeaea] text-[#c53030] ring-1 ring-inset ring-white/70'
                       : p.active
-                        ? 'bg-[#e2f2ef] text-green-d ring-2 ring-green-light animate-pulse'
-                        : 'hatch text-muted-2'
+                        ? 'bg-[#e2f2ef] text-green-d ring-2 ring-inset ring-green-light animate-pulse'
+                        : 'hatch text-muted-2 ring-1 ring-inset ring-white/70'
                 }`}
               >
-                {p.open ? <Check size={big ? 40 : 22} /> : p.index}
+                {p.open && bento ? (
+                  // Кусок общей картинки: растягиваем её до размера всего
+                  // квадрата и сдвигаем так, чтобы в окне плитки оказалась
+                  // именно её доля.
+                  <img
+                    src={PUZZLE_IMAGE}
+                    alt=""
+                    aria-hidden
+                    draggable={false}
+                    className="absolute max-w-none select-none pointer-events-none"
+                    style={{
+                      width: `${(3 / c.cs) * 100}%`,
+                      height: `${(3 / c.rs) * 100}%`,
+                      left: `${-(c.col / c.cs) * 100}%`,
+                      top: `${-(c.row / c.rs) * 100}%`,
+                    }}
+                  />
+                ) : p.open ? (
+                  <span className="grid place-items-center w-full h-full bg-green text-white">
+                    <Check size={22} />
+                  </span>
+                ) : (
+                  p.index
+                )}
               </div>
             )
           })}

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
+  <defs>
+    <radialGradient id="ocean" cx="34%" cy="28%" r="82%">
+      <stop offset="0%" stop-color="#0a857a"/>
+      <stop offset="55%" stop-color="#057269"/>
+      <stop offset="100%" stop-color="#03443f"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="30%" cy="24%" r="46%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.34"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="land" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#7fd4c4"/>
+      <stop offset="100%" stop-color="#4db3a6"/>
+    </linearGradient>
+    <clipPath id="sphere">
+      <circle cx="300" cy="300" r="286"/>
+    </clipPath>
+  </defs>
+
+  <rect width="600" height="600" fill="#03403b"/>
+  <circle cx="300" cy="300" r="286" fill="url(#ocean)"/>
+
+  <g clip-path="url(#sphere)">
+    <!-- Меридианы и параллели: сетка глобуса, а не карта. -->
+    <g fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="2">
+      <ellipse cx="300" cy="300" rx="286" ry="286"/>
+      <ellipse cx="300" cy="300" rx="196" ry="286"/>
+      <ellipse cx="300" cy="300" rx="96" ry="286"/>
+      <line x1="14" y1="300" x2="586" y2="300"/>
+      <path d="M40 196 H560"/>
+      <path d="M40 404 H560"/>
+      <path d="M96 110 H504"/>
+      <path d="M96 490 H504"/>
+    </g>
+
+    <!-- Материки условными массивами: узнаваемый шар, без картографии. -->
+    <g fill="url(#land)">
+      <path d="M150 128c34-16 74-10 104 8 26 15 30 44 14 66-13 18-38 22-52 40-12 15-8 38-24 48-19 12-44 2-56-16-14-21-10-50 2-72 13-24 34-58 12-74z"/>
+      <path d="M236 300c22-10 47-4 62 14 16 19 12 47 24 68 13 22 40 33 46 58 6 26-14 54-40 58-27 4-52-16-62-41-11-27-8-58-22-83-13-24-38-40-8-74z"/>
+      <path d="M392 148c30-12 66-6 88 16 21 21 22 57 6 82-15 24-45 33-72 30-26-3-49-21-56-46-8-27 4-60 34-82z"/>
+      <path d="M400 330c26-14 60-8 78 14 17 21 15 54-4 73-19 20-52 22-74 6-23-17-28-53-16-77 4-8 10-13 16-16z"/>
+      <path d="M108 372c24-8 52 2 64 24 11 21 4 49-16 62-21 14-51 9-65-11-15-21-9-52 8-66 3-3 6-6 9-9z"/>
+      <path d="M300 462c18-6 38 4 44 22 5 17-4 37-20 44-17 8-38 0-45-17-7-18 3-42 21-49z"/>
+    </g>
+
+    <!-- Блик слева сверху: шар, а не круг. -->
+    <circle cx="300" cy="300" r="286" fill="url(#glow)"/>
+    <!-- Затемнение по краю. -->
+    <circle cx="300" cy="300" r="286" fill="none" stroke="#02322e" stroke-opacity="0.45" stroke-width="34"/>
+  </g>
+</svg>
