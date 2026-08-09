@@ -84,7 +84,7 @@ export default function PackDetail() {
     { key: 'stages', label: 'Этапы и материалы', icon: ListChecks, show: true },
     { key: 'structure', label: 'Структура и экономика', icon: Settings2, show: pack.canManage },
     { key: 'calendar', label: 'Календарь', icon: CalendarDays, show: true },
-    { key: 'rewards', label: 'Пазл и подарок', icon: Gift, show: true },
+    { key: 'rewards', label: 'Пазл', icon: PuzzleIcon, show: true },
     { key: 'work', label: 'Задачи и встречи', icon: Users, show: true },
   ]
 

@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery } from 'convex/react'
 import {
-  CalendarDays, CheckSquare, Check, Gift, ListTree, Loader2, Plus,
+  CalendarDays, CheckSquare, Check, ListTree, Loader2, Plus,
   PuzzleIcon, Rows3, Trash2, Users, Wallet,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
@@ -15,8 +15,8 @@ import Select from '@/components/ui/Select'
 import DatePicker from '@/components/ui/DatePicker'
 import { errMessage } from '@/lib/errors'
 import { kzt, longDate } from '@/lib/format'
-import { GIFT_STATUS, MILESTONE_KIND_LABEL, type GiftStatus } from '../../../convex/packModel'
-import { Field, areaCls, inputCls, tabStrip } from './ui'
+import { MILESTONE_KIND_LABEL } from '../../../convex/packModel'
+import { Field, inputCls, tabStrip } from './ui'
 
 // ——— §6.2: календарь проекта ———
 
@@ -301,10 +301,8 @@ export function PackRewardsTab({
 }) {
   const pack = useQuery(api.packs.get, { id: packId })
   const setPart = useMutation(api.packs.setPuzzlePart)
-  const setGift = useMutation(api.packs.setGift)
   const [reason, setReason] = useState('')
   const [editing, setEditing] = useState<string | null>(null)
-  const [note, setNote] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
@@ -401,53 +399,6 @@ export function PackRewardsTab({
           ))}
         </div>
         {error && <p className="text-sm text-[#c53030] mt-3">{error}</p>}
-      </section>
-
-      <section className="card p-5">
-        <div className="flex items-center gap-2 flex-wrap mb-3">
-          <Gift size={16} className="text-green" />
-          <h3 className="sec-title">Персональный подарок</h3>
-          {pack.gift.earned ? (
-            <span className="chip bg-[#e2f2ef] text-green-d">право подтверждено</span>
-          ) : (
-            <span className="chip bg-chip text-muted">пазл не собран</span>
-          )}
-          <span className={`chip ${GIFT_STATUS[pack.gift.status as GiftStatus].chip}`}>
-            {GIFT_STATUS[pack.gift.status as GiftStatus].label}
-          </span>
-        </div>
-        <p className="text-[12px] text-muted mb-4">
-          Содержание подарка заказчику не раскрывается — он видит только право на него. Выбор,
-          подготовка и отправка идут вне ERP, здесь ведётся только внутренний статус.
-        </p>
-
-        {isOwner ? (
-          <div className="flex flex-col gap-3">
-            <Field label="Внутреннее описание" hint="Клиенту не показывается.">
-              <textarea
-                className={areaCls}
-                value={note || (pack.gift.note ?? '')}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Что дарим и почему"
-              />
-            </Field>
-            <div className="flex items-center gap-2 flex-wrap">
-              {(Object.keys(GIFT_STATUS) as GiftStatus[]).map((st) => (
-                <button
-                  key={st}
-                  onClick={() => void setGift({ packId, status: st, note: note || undefined })}
-                  className={`chip ${
-                    pack.gift.status === st ? 'bg-green text-white' : 'bg-chip text-muted'
-                  }`}
-                >
-                  {GIFT_STATUS[st].label}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <p className="text-sm text-muted">Подарком управляет администратор.</p>
-        )}
       </section>
     </>
   )
