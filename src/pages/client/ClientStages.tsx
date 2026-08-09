@@ -48,12 +48,13 @@ export default function ClientStages() {
 
       {/* Сводка одним взглядом: где проект и что из этого — ваше. */}
       <div className="grid grid-cols-3 gap-3 mb-5 rise d1">
-        <Stat tint="teal" value={data.stages.filter((x) => x.status === 'approved').length} label="принято" />
-        <Stat tint="blue" value={data.stages.filter((x) => x.canAct).length} label="ждут вас" />
+        <Stat tint="teal" value={data.stages.filter((x) => x.status === 'approved').length} label="принято" delay={80} />
+        <Stat tint="blue" value={data.stages.filter((x) => x.canAct).length} label="ждут вас" delay={160} />
         <Stat
           tint="violet"
           value={data.stages.filter((x) => x.status !== 'approved' && !x.canAct).length}
           label="впереди"
+          delay={240}
         />
       </div>
 
@@ -74,10 +75,23 @@ export default function ClientStages() {
 }
 
 // Мини-плитка сводки: крупная цифра в цвете своей роли.
-function Stat({ tint, value, label }: { tint: Tint; value: number; label: string }) {
+function Stat({
+  tint,
+  value,
+  label,
+  delay = 0,
+}: {
+  tint: Tint
+  value: number
+  label: string
+  delay?: number
+}) {
   return (
     <div className="g-card card p-4 text-center" style={gcard(tint)}>
-      <div className="text-3xl font-extrabold font-display" style={{ color: TINT[tint].a }}>
+      <div
+        className="text-3xl font-extrabold font-display pop"
+        style={{ color: TINT[tint].a, animationDelay: `${delay}ms` }}
+      >
         {value}
       </div>
       <div className="text-[13px] text-muted mt-0.5">{label}</div>
@@ -127,7 +141,7 @@ function StageCard({
             {/* Одно состояние на этап, а не три чипа рядом: принятому хватает
                 галочки, заблокированному — приглушённого названия. */}
             {stage.canAct ? (
-              <span className="chip bg-[#e8effd] text-[#2563eb]">
+              <span className="chip pop bg-[#e8effd] text-[#2563eb]">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2563eb] dot-pulse" />
                 нужен ваш ответ
               </span>
@@ -192,7 +206,13 @@ function MaterialRow({ material }: { material: Stage['materials'][number] }) {
     >
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[15px] font-semibold text-ink min-w-0 flex-1">{material.title}</span>
-        <MaterialChip status={material.status} />
+        {material.status === 'approved' ? (
+          <span className="pop inline-flex">
+            <MaterialChip status={material.status} />
+          </span>
+        ) : (
+          <MaterialChip status={material.status} />
+        )}
         {mine && <span className="chip bg-[#e8effd] text-[#2563eb]">загружаете вы</span>}
       </div>
 
@@ -318,9 +338,11 @@ function Stars({ material }: { material: Stage['materials'][number] }) {
   const [busy, setBusy] = useState(0)
   const value = material.rating ?? 0
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-2.5 flex-wrap">
       <span className="text-[13px] text-muted">Оценка</span>
-      <div className="flex items-center gap-0.5">
+      {/* key={value}: при смене оценки звёзды пересобираются и выстреливают
+          залпом слева направо — starPop с каскадной задержкой. */}
+      <div key={value} className="flex items-center gap-1">
         {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
@@ -334,18 +356,24 @@ function Stars({ material }: { material: Stage['materials'][number] }) {
             }}
             disabled={busy > 0}
             aria-label={`Оценка ${n}`}
-            className="p-0.5 disabled:opacity-60"
+            className="star-btn relative p-0.5 disabled:opacity-60"
           >
             <Star
-              size={22}
-              className={`transition-transform hover:scale-110 ${
-                n <= value ? 'text-[#f59e0b]' : 'text-muted-2'
-              }`}
+              size={26}
+              strokeWidth={1.75}
+              className={n <= value ? 'star-on' : 'text-muted-2 transition-colors hover:text-[#f6c66b]'}
               fill={n <= value ? '#f59e0b' : 'none'}
+              style={n <= value ? { animationDelay: `${n * 60}ms` } : undefined}
             />
+            {n <= value && (
+              <span className="star-spark" style={{ animationDelay: `${n * 0.22}s` }}>
+                ✦
+              </span>
+            )}
           </button>
         ))}
       </div>
+      {value > 0 && <span className="chip pop bg-[#fff6e6] text-[#b7791f]">{value} из 5</span>}
     </div>
   )
 }
@@ -376,7 +404,7 @@ function Decision({ material }: { material: Stage['materials'][number] }) {
         <button
           onClick={() => act('accept', () => accept({ materialId: material._id }))}
           disabled={!!busy}
-          className="btn btn-shine h-10 px-4 text-[15px] text-white bg-gradient-to-r from-green-2 to-green-d shadow-[0_8px_18px_-8px_rgba(4,79,72,0.9)] hover:opacity-95 disabled:opacity-60"
+          className="btn btn-shine gradient-live h-10 px-4 text-[15px] text-white bg-gradient-to-r from-green-2 to-green-d shadow-[0_8px_18px_-8px_rgba(4,79,72,0.9)] hover:opacity-95 disabled:opacity-60"
         >
           {busy === 'accept' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
           Принять

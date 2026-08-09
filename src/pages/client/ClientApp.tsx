@@ -111,7 +111,7 @@ export default function ClientApp() {
               продукт, а не как раздел админки. */}
           <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-line/70 shadow-[0_10px_30px_-24px_rgba(4,79,72,0.5)]">
             <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-2 to-green-d flex items-center justify-center text-white text-[18px] font-extrabold shrink-0 select-none shadow-[0_8px_18px_-8px_rgba(4,79,72,0.8)]">
+              <div className="tile-float w-10 h-10 rounded-xl bg-gradient-to-br from-green-2 to-green-d flex items-center justify-center text-white text-[18px] font-extrabold shrink-0 select-none shadow-[0_8px_18px_-8px_rgba(4,79,72,0.8)]">
                 F
               </div>
               <div className="min-w-0 flex-1">
@@ -168,9 +168,9 @@ export default function ClientApp() {
                       to={n.to}
                       end={n.end}
                       className={({ isActive }) =>
-                        `flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${
+                        `flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all active:scale-95 ${
                           isActive
-                            ? 'bg-gradient-to-br from-green-2 to-green-d text-white shadow-[0_10px_20px_-10px_rgba(4,79,72,0.8)]'
+                            ? 'gradient-live bg-gradient-to-br from-green-2 to-green-d text-white shadow-[0_10px_20px_-10px_rgba(4,79,72,0.8)]'
                             : 'text-muted active:bg-chip'
                         }`
                       }
@@ -196,9 +196,9 @@ export default function ClientApp() {
                       to={n.to}
                       end={n.end}
                       className={({ isActive }) =>
-                        `inline-flex items-center gap-2 h-12 px-5 rounded-xl text-base font-semibold whitespace-nowrap transition-all ${
+                        `inline-flex items-center gap-2 h-12 px-5 rounded-xl text-base font-semibold whitespace-nowrap transition-all active:scale-95 ${
                           isActive
-                            ? 'bg-gradient-to-r from-green-2 to-green-d text-white shadow-[0_12px_24px_-12px_rgba(4,79,72,0.9)]'
+                            ? 'gradient-live bg-gradient-to-r from-green-2 to-green-d text-white shadow-[0_12px_24px_-12px_rgba(4,79,72,0.9)]'
                             : 'bg-white ring-1 ring-line text-ink-2 hover:ring-green-light hover:text-green-d hover:shadow-soft'
                         }`
                       }
@@ -225,7 +225,7 @@ export default function ClientApp() {
 
           <footer className="relative z-[1] border-t border-line/60 bg-white/70 backdrop-blur">
             <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-2.5 text-[13px] text-muted">
-              <span className="w-2 h-2 rounded-full bg-gradient-to-br from-green-2 to-[#7c5cd6]" />
+              <span className="w-2 h-2 rounded-full bg-gradient-to-br from-green-2 to-[#7c5cd6] dot-pulse" style={{ animationDuration: '2.8s' }} />
               FRANCHONE · упаковка франшизы. Все материалы и история согласований останутся
               доступны и после завершения проекта.
             </div>

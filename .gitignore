@@ -2,6 +2,8 @@ node_modules
 dist
 dist-ssr
 *.local
+.env
+.env.*
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
@@ -9,9 +11,6 @@ npm-debug.log*
 
 # Внутренние материалы компании — остаются только локально, не пушатся
 docs/
-
-# Локальные настройки Claude
-.claude/settings.local.json
 
 # TypeScript build cache
 *.tsbuildinfo

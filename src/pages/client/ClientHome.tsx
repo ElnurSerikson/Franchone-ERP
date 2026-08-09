@@ -79,7 +79,9 @@ export default function ClientHome() {
 
           <div className={FIGURE}>
             <div
-              className={p.health === 'red' || p.health === 'yellow' ? 'rounded-full halo' : ''}
+              className={`rounded-full transition-transform duration-300 hover:scale-[1.02] ${
+                p.health === 'red' || p.health === 'yellow' ? 'halo' : ''
+              }`}
               style={{ '--halo': 'rgba(217,119,6,0.35)' } as CSSProperties}
             >
               <ProgressRing
@@ -117,7 +119,7 @@ export default function ClientHome() {
               </span>
               <Link
                 to="/stages"
-                className="btn btn-shine h-9 px-3.5 text-[15px] text-white bg-gradient-to-r from-green-2 to-green-d shadow-[0_10px_20px_-10px_rgba(4,79,72,0.9)]"
+                className="btn btn-shine gradient-live h-9 px-3.5 text-[15px] text-white bg-gradient-to-r from-green-2 to-green-d shadow-[0_10px_20px_-10px_rgba(4,79,72,0.9)]"
               >
                 Открыть документы <ArrowRight size={14} />
               </Link>
@@ -149,8 +151,8 @@ export default function ClientHome() {
                     следующего кружка. Отступ снизу и есть длина линии. */}
                 <div className={`relative w-14 shrink-0 ${last ? '' : 'pb-6'}`}>
                   <div
-                    style={{ '--halo': 'rgba(77,179,166,0.45)' } as CSSProperties}
-                    className={`relative w-14 h-14 rounded-full grid place-items-center text-2xl font-bold font-display ${
+                    style={{ '--halo': 'rgba(77,179,166,0.45)', animationDelay: `${i * 80}ms` } as CSSProperties}
+                    className={`relative w-14 h-14 rounded-full grid place-items-center text-2xl font-bold font-display pop ${
                       done
                         ? 'bg-gradient-to-br from-green-2 to-green-d text-white shadow-[0_6px_16px_-8px_rgba(4,79,72,0.9)]'
                         : active
@@ -206,8 +208,8 @@ export default function ClientHome() {
                     />
                   )}
                   <div
-                    style={{ '--halo': 'rgba(77,179,166,0.45)' } as CSSProperties}
-                    className={`relative w-16 h-16 rounded-full grid place-items-center text-2xl font-bold font-display ${
+                    style={{ '--halo': 'rgba(77,179,166,0.45)', animationDelay: `${i * 80}ms` } as CSSProperties}
+                    className={`relative w-16 h-16 rounded-full grid place-items-center text-2xl font-bold font-display pop ${
                       done
                         ? 'bg-gradient-to-br from-green-2 to-green-d text-white shadow-[0_6px_16px_-8px_rgba(4,79,72,0.9)]'
                         : active
@@ -235,7 +237,7 @@ export default function ClientHome() {
           title="Требуется ваше внимание"
           chip={
             todo && todo.awaitingStages.length > 0 ? (
-              <span className="chip bg-[#e8effd] text-[#2563eb]">
+              <span className="chip pop bg-[#e8effd] text-[#2563eb]">
                 <span className="w-1.5 h-1.5 rounded-full bg-[#2563eb] dot-pulse" />
                 {todo.awaitingStages.length}
               </span>
@@ -285,7 +287,8 @@ export default function ClientHome() {
               {todo.deadlines.map((d, i) => (
                 <span
                   key={i}
-                  className={`chip ${d.mine ? 'bg-[#e8effd] text-[#2563eb]' : 'bg-chip text-muted'}`}
+                  style={{ animationDelay: `${i * 70}ms` }}
+                  className={`chip rise ${d.mine ? 'bg-[#e8effd] text-[#2563eb]' : 'bg-chip text-muted'}`}
                 >
                   <Clock size={11} /> {d.title} · <Deadline at={d.dueAt} now={todo.now} />
                 </span>
@@ -324,7 +327,7 @@ function NextCard({
   return (
     <Link
       to={to}
-      className="g-card card lift group relative overflow-hidden p-5 flex items-center gap-4"
+      className="g-card card lift group relative overflow-hidden p-5 flex items-center gap-4 active:scale-[0.98]"
       style={gcard(tint)}
     >
       <span className={`icon-tile w-12 h-12 rounded-2xl bg-gradient-to-br ${TINT[tint].grad}`}>
@@ -334,11 +337,9 @@ function NextCard({
         <span className="block text-[17px] font-bold text-ink font-display">{title}</span>
         <span className="block text-[13px] text-muted mt-0.5">{text}</span>
       </span>
-      <ArrowRight
-        size={18}
-        className="shrink-0 transition-transform group-hover:translate-x-1.5"
-        style={{ color: TINT[tint].a }}
-      />
+      <span className="nudge shrink-0" style={{ color: TINT[tint].a }}>
+        <ArrowRight size={18} className="transition-transform group-hover:translate-x-1" />
+      </span>
     </Link>
   )
 }
@@ -410,7 +411,7 @@ function Puzzle({
               <div
                 key={p.index}
                 title={p.title}
-                className={`${bento ? `${c.span} ${c.corner}` : 'aspect-square rounded-xl'} relative overflow-hidden grid place-items-center font-bold transition-all duration-500 ${
+                className={`${bento ? `${c.span} ${c.corner}` : 'aspect-square rounded-xl'} group relative overflow-hidden grid place-items-center font-bold transition-all duration-500 ${
                   big ? 'text-4xl' : 'text-2xl'
                 } ${
                   p.open
@@ -419,7 +420,7 @@ function Puzzle({
                       ? 'bg-[#fdecf2] text-[#d6336c] ring-1 ring-inset ring-white'
                       : p.active
                         ? 'bg-white text-[#7c5cd6] ring-2 ring-inset ring-[#a78bfa] animate-pulse'
-                        : 'bg-[#efeafb] text-[#b7a8e8] ring-1 ring-inset ring-white'
+                        : 'bg-[#efeafb] text-[#b7a8e8] ring-1 ring-inset ring-white transition-colors hover:bg-[#e6dcf8]'
                 }`}
               >
                 {/* Кусок общей картинки: растягиваем её до размера всего
@@ -432,7 +433,7 @@ function Puzzle({
                     alt=""
                     aria-hidden
                     draggable={false}
-                    className="absolute max-w-none select-none pointer-events-none"
+                    className="absolute max-w-none select-none pointer-events-none transition-transform duration-500 group-hover:scale-110"
                     style={{
                       width: `${(3 / c.cs) * 100}%`,
                       height: `${(3 / c.rs) * 100}%`,

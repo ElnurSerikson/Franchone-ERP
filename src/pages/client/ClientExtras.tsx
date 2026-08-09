@@ -117,10 +117,13 @@ const DOT: Record<string, string> = {
   finished: 'bg-green-light',
 }
 
-function Legend({ color, label }: { color: string; label: string }) {
+function Legend({ color, label, pulse }: { color: string; label: string; pulse?: boolean }) {
   return (
     <span className="inline-flex items-center gap-1.5">
-      <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+      <span
+        className={`w-2 h-2 rounded-full ${pulse ? 'dot-pulse' : ''}`}
+        style={{ background: color }}
+      />
       {label}
     </span>
   )
@@ -146,7 +149,7 @@ export function ClientCalendar() {
 
       {/* Легенда: цвет точки — это роль события. */}
       <div className="flex items-center gap-4 flex-wrap mb-4 rise d1 text-[13px] text-muted">
-        <Legend color="#2563eb" label="ждут вас" />
+        <Legend color="#2563eb" label="ждут вас" pulse />
         <Legend color="#d69e2e" label="платежи и точки" />
         <Legend color="#4db3a6" label="сделано и встречи" />
         <Legend color="#c53030" label="срок проекта" />
@@ -207,7 +210,7 @@ function Timeline({ items, today }: { items: CalendarItem[]; today: string }) {
               {shortDate(date)}
             </div>
             {date === today && (
-              <div className="mt-0.5 inline-flex text-[11px] font-bold text-white bg-gradient-to-r from-green-2 to-green-d px-2 py-0.5 rounded-full">
+              <div className="mt-0.5 inline-flex text-[11px] font-bold text-white gradient-live bg-gradient-to-r from-green-2 to-green-d px-2 py-0.5 rounded-full">
                 сегодня
               </div>
             )}
@@ -282,7 +285,7 @@ export function ClientLearn() {
             <button
               key={c._id}
               onClick={() => setParams({ m: c._id as string })}
-              className={`card lift group overflow-hidden text-left rise ${
+              className={`card lift group overflow-hidden text-left rise active:scale-[0.98] ${
                 ['d1', 'd2', 'd3', 'd4', 'd5'][Math.min(i, 4)]
               }`}
             >
@@ -479,7 +482,7 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
         </div>
         <div className="w-full rounded-full bg-line overflow-hidden h-2">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-[#7c5cd6] to-[#d6336c] transition-all duration-500"
+            className="h-full rounded-full gradient-live bg-gradient-to-r from-[#7c5cd6] to-[#d6336c] transition-all duration-500"
             style={{ width: `${(answered / Math.max(1, content.questions.length)) * 100}%` }}
           />
         </div>
@@ -499,7 +502,7 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
                 <button
                   key={oi}
                   onClick={() => toggle(qi, oi, q.multiple)}
-                  className={`text-left rounded-lg border p-2.5 transition-colors flex items-start gap-2.5 ${
+                  className={`text-left rounded-lg border p-2.5 transition-all active:scale-[0.99] flex items-start gap-2.5 ${
                     on
                       ? 'border-[#7c5cd6] bg-[#f1ecfd] shadow-[0_6px_16px_-10px_rgba(124,92,214,0.8)]'
                       : 'border-line hover:bg-chip'
@@ -508,7 +511,7 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
                   <span
                     className={`w-4 h-4 shrink-0 mt-0.5 grid place-items-center border ${
                       q.multiple ? 'rounded' : 'rounded-full'
-                    } ${on ? 'bg-[#7c5cd6] border-[#7c5cd6] text-white' : 'border-muted-2'}`}
+                    } ${on ? 'bg-[#7c5cd6] border-[#7c5cd6] text-white pop' : 'border-muted-2'}`}
                   >
                     {on && <CheckCircle2 size={10} />}
                   </span>
@@ -581,7 +584,7 @@ export function ClientHub() {
 
   return (
     <>
-      <section className="card border-transparent rise p-7 mb-5 text-center relative overflow-hidden bg-gradient-to-br from-[#7c5cd6] via-[#d6336c] to-[#f59e0b] text-white shadow-[0_24px_50px_-20px_rgba(124,92,214,0.7)]">
+      <section className="card border-transparent rise p-7 mb-5 text-center relative overflow-hidden gradient-live bg-gradient-to-br from-[#7c5cd6] via-[#d6336c] to-[#f59e0b] text-white shadow-[0_24px_50px_-20px_rgba(124,92,214,0.7)]">
         <Confetti show={cheer} />
         <div className="text-[13px] uppercase tracking-[0.3em] text-white/70">FRANCHONE</div>
         <h1 className="text-3xl sm:text-4xl font-extrabold text-white mt-1">Франшиза упакована</h1>
