@@ -126,15 +126,11 @@ export default function ClientHome() {
             const active = !done && p.currentStage?._id === s._id
             const last = i === p.path.length - 1
             return (
-              <div key={s._id} className={`flex gap-4 ${last ? '' : 'pb-5'}`}>
-                <div className="relative w-14 shrink-0">
-                  {!last && (
-                    <span
-                      className={`absolute left-1/2 -translate-x-1/2 top-14 -bottom-0 w-1.5 ${
-                        done ? 'bg-green' : 'bg-line'
-                      }`}
-                    />
-                  )}
+              <div key={s._id} className="flex gap-4">
+                {/* Колонка тянется на всю высоту строки, поэтому линия идёт от
+                    нижнего края кружка до самого низа — то есть ровно до
+                    следующего кружка. Отступ снизу и есть длина линии. */}
+                <div className={`relative w-14 shrink-0 ${last ? '' : 'pb-6'}`}>
                   <div
                     className={`relative w-14 h-14 rounded-full grid place-items-center text-2xl font-bold ${
                       done
@@ -146,8 +142,19 @@ export default function ClientHome() {
                   >
                     {done ? <CheckCircle2 size={30} /> : i + 1}
                   </div>
+                  {!last && (
+                    <span
+                      className={`absolute left-1/2 -translate-x-1/2 top-14 bottom-0 w-1.5 ${
+                        done ? 'bg-green' : 'bg-line'
+                      }`}
+                    />
+                  )}
                 </div>
-                <div className="min-h-14 flex items-center text-[15px] leading-snug text-ink-2">
+                <div
+                  className={`min-h-14 flex items-center text-[15px] leading-snug text-ink-2 ${
+                    last ? '' : 'pb-6'
+                  }`}
+                >
                   {s.title}
                 </div>
               </div>
