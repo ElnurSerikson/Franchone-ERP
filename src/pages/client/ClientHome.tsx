@@ -6,7 +6,7 @@
 import { Link } from 'react-router-dom'
 import { useQuery } from 'convex/react'
 import {
-  ArrowRight, Check, CheckCircle2, Clock, FileUp, Gift, Loader2, MessageSquare,
+  ArrowRight, Check, CheckCircle2, Clock, FileUp, Gauge, Gift, Loader2, MessageSquare,
   PuzzleIcon as Puzzle_, Sparkles, type LucideIcon,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
@@ -15,6 +15,13 @@ import { longDate } from '@/lib/format'
 import { STAGE_STATUS } from '../../../convex/packModel'
 import { Deadline, HealthChip } from '@/components/packs/ui'
 import { useClientPack } from './ClientApp'
+
+// Общий каркас двух верхних карточек. Графика в обеих живёт в одном и том же
+// квадрате и по центру, подпись — одинаковым мелким текстом снизу. Классы
+// вынесены, чтобы «привести к одному стандарту» означало одну правку, а не
+// две симметричные.
+const FIGURE = 'my-5 flex-1 grid place-items-center'
+const CAPTION = 'text-center text-[12px] leading-snug text-muted'
 
 export default function ClientHome() {
   const packId = useClientPack()
@@ -32,38 +39,46 @@ export default function ClientHome() {
 
   return (
     <>
-      {/* §10.1: верхняя зона. Две самостоятельные карточки в один ряд —
-          «насколько готово» и «где именно мы находимся». На телефоне встают
-          друг под друга. */}
+      {/* §10.1: верхняя зона. Две карточки одного устройства: заголовок с
+          чипом — пояснение — квадрат с графикой — подпись внизу. Порядок и
+          размеры совпадают, поэтому строки читаются парами. */}
       <div className="grid gap-5 lg:grid-cols-2 mb-5">
-        {/* Готовность проекта: крупное кольцо, всё остальное под ним. */}
-        <section className="card p-5 sm:p-6 flex flex-col items-center text-center">
-          <ProgressRing
-            value={p.progress / 100}
-            size={208}
-            stroke={18}
-            caption="готовность"
-            labelClass="text-[44px]"
-            captionClass="text-[13px]"
-          />
-          <h1 className="text-xl font-bold text-ink mt-5">{p.title}</h1>
-          <div className="flex items-center justify-center gap-2 flex-wrap mt-2.5">
+        {/* Готовность проекта */}
+        <section className="card p-5 sm:p-6 flex flex-col">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <Gauge size={16} className="text-green" />
+            <h2 className="sec-title">{p.title}</h2>
             <HealthChip health={p.health} reason={p.healthReason} />
-            {p.currentStage && (
-              <span className="chip bg-chip text-ink-2">сейчас: {p.currentStage.title}</span>
-            )}
-            <span className="chip bg-chip text-muted">
-              плановое завершение {longDate(p.dueDate)}
-            </span>
           </div>
-          <p className="text-sm text-ink-2 mt-3">{p.nextAction}</p>
-          {p.pausedReason && (
-            <p className="text-sm text-[#b7791f] mt-1">Проект на паузе: {p.pausedReason}</p>
-          )}
+          <p className="text-xs text-muted">
+            Готовность считается по утверждённым этапам. Плановое завершение —{' '}
+            {longDate(p.dueDate)}.
+          </p>
+
+          <div className={FIGURE}>
+            <ProgressRing
+              value={p.progress / 100}
+              size={264}
+              stroke={20}
+              caption="готовность"
+              labelClass="text-[52px]"
+              captionClass="text-[13px]"
+            />
+          </div>
+
+          <div className={CAPTION}>
+            {p.currentStage && (
+              <div className="font-semibold text-ink-2">Сейчас: {p.currentStage.title}</div>
+            )}
+            <div className="mt-0.5">{p.nextAction}</div>
+            {p.pausedReason && (
+              <div className="mt-0.5 text-[#b7791f]">Проект на паузе: {p.pausedReason}</div>
+            )}
+          </div>
 
           {/* §10.1: таймер текущего согласования */}
           {p.timerDueAt && (
-            <div className="mt-4 w-full rounded-xl bg-[#e8effd] p-3 flex items-center gap-2 flex-wrap justify-center">
+            <div className="mt-3 rounded-xl bg-[#e8effd] p-3 flex items-center gap-2 flex-wrap justify-center">
               <Clock size={15} className="text-[#2563eb]" />
               <span className="text-sm text-[#1d4ed8]">
                 Ответ по этапу «{p.awaitingStage?.title}» —{' '}
@@ -284,52 +299,59 @@ function Puzzle({
           собрано {puzzle.collected} из {puzzle.total}
         </span>
       </div>
-      <p className="text-xs text-muted mb-4">
+      <p className="text-xs text-muted">
         Каждая часть открывается, когда вы принимаете этап в срок. Полный пазл — гарантированный
         персональный подарок от FRANCHONE.
       </p>
 
-      <div
-        className={`gap-2.5 w-full max-w-[340px] mx-auto ${
-          bento ? 'grid grid-cols-3 grid-rows-3 aspect-square' : 'grid grid-cols-5'
-        }`}
-      >
-        {puzzle.parts.map((p, i) => {
-          const big = bento && i === 0
-          return (
-            <div
-              key={p.index}
-              title={p.title}
-              className={`${bento ? SPAN[i] : 'aspect-square'} rounded-2xl grid place-items-center font-bold transition-all duration-500 ${
-                big ? 'text-4xl' : 'text-xl'
-              } ${
-                p.open
-                  ? 'bg-green text-white shadow-soft'
-                  : p.missed
-                    ? 'bg-[#fdeaea] text-[#c53030]'
-                    : p.active
-                      ? 'bg-[#e2f2ef] text-green-d ring-2 ring-green-light animate-pulse'
-                      : 'hatch text-muted-2'
-              }`}
-            >
-              {p.open ? <Check size={big ? 40 : 22} /> : p.index}
-            </div>
-          )
-        })}
+      <div className={FIGURE}>
+        <div
+          className={`gap-2.5 w-full max-w-[264px] ${
+            bento ? 'grid grid-cols-3 grid-rows-3 aspect-square' : 'grid grid-cols-5'
+          }`}
+        >
+          {puzzle.parts.map((p, i) => {
+            const big = bento && i === 0
+            return (
+              <div
+                key={p.index}
+                title={p.title}
+                className={`${bento ? SPAN[i] : 'aspect-square'} rounded-2xl grid place-items-center font-bold transition-all duration-500 ${
+                  big ? 'text-4xl' : 'text-xl'
+                } ${
+                  p.open
+                    ? 'bg-green text-white shadow-soft'
+                    : p.missed
+                      ? 'bg-[#fdeaea] text-[#c53030]'
+                      : p.active
+                        ? 'bg-[#e2f2ef] text-green-d ring-2 ring-green-light animate-pulse'
+                        : 'hatch text-muted-2'
+                }`}
+              >
+                {p.open ? <Check size={big ? 40 : 22} /> : p.index}
+              </div>
+            )
+          })}
+        </div>
       </div>
 
       {gift.earned ? (
-        <div className="mt-5 rounded-xl bg-[#e2f2ef] p-3 flex items-start gap-2.5">
-          <Gift size={16} className="text-green-d shrink-0 mt-0.5" />
-          <div className="text-sm text-green-d">
-            Пазл собран полностью. За вами закреплён гарантированный персональный подарок от
-            FRANCHONE — мы подберём его под ваш бизнес и свяжемся отдельно.
+        <div className={CAPTION}>
+          <div className="font-semibold text-green-d">
+            <Gift size={13} className="inline -mt-0.5 mr-1" />
+            Пазл собран полностью
+          </div>
+          <div className="mt-0.5">
+            За вами закреплён гарантированный персональный подарок от FRANCHONE — мы подберём его
+            под ваш бизнес и свяжемся отдельно.
           </div>
         </div>
       ) : (
-        <div className="mt-5 text-[11px] text-muted-2 text-center">
-          Осталось собрать частей: {puzzle.total - puzzle.collected}. Подготовительный этап в
-          пазле не участвует.
+        <div className={CAPTION}>
+          <div className="font-semibold text-ink-2">
+            Осталось собрать частей: {puzzle.total - puzzle.collected}
+          </div>
+          <div className="mt-0.5">Подготовительный этап в пазле не участвует.</div>
         </div>
       )}
     </section>
