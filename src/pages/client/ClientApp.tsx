@@ -145,8 +145,8 @@ export default function ClientApp() {
             {/* Навигация. Разделов восемь — на телефоне это лента с
                 горизонтальной прокруткой от края до края, как канбан в
                 «Задачах»: гамбургер прятал бы половину кабинета. */}
-            <nav className="max-w-6xl mx-auto px-4 sm:px-6 pb-2">
-              <div className="flex items-center gap-1.5 flex-nowrap overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
+            <nav className="max-w-6xl mx-auto px-4 sm:px-6 pb-3">
+              <div className="flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar -mx-4 px-4 sm:mx-0 sm:px-0">
                 {NAV.map((n) => {
                   const Icon = n.icon
                   return (
@@ -155,12 +155,14 @@ export default function ClientApp() {
                       to={n.to}
                       end={n.end}
                       className={({ isActive }) =>
-                        `chip whitespace-nowrap transition-colors ${
-                          isActive ? 'bg-green text-white' : 'bg-chip text-muted hover:text-ink-2'
+                        `inline-flex items-center gap-2 h-11 px-4 rounded-xl text-[15px] font-semibold whitespace-nowrap transition-colors ${
+                          isActive
+                            ? 'bg-green text-white'
+                            : 'bg-chip text-ink-2 hover:bg-line-2 hover:text-ink'
                         }`
                       }
                     >
-                      <Icon size={12} /> {n.label}
+                      <Icon size={17} /> {n.label}
                     </NavLink>
                   )
                 })}
