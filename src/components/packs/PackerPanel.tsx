@@ -6,7 +6,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from 'convex/react'
 import {
-  AlertTriangle, ArrowUpRight, Bell, Boxes, CalendarDays, CheckSquare, Clock, Loader2,
+  AlertTriangle, ArrowUpRight, Boxes, CalendarDays, CheckSquare, Clock, Loader2,
   MessageSquare, RotateCcw, Send, Target, Wallet, type LucideIcon,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
@@ -14,7 +14,7 @@ import StatCard from '@/components/ui/StatCard'
 import DatePicker from '@/components/ui/DatePicker'
 import { ProgressBar } from '@/components/ui/Progress'
 import { kzt, pct } from '@/lib/format'
-import { Deadline, Empty, HealthChip, SideChip, dateTime } from './ui'
+import { Deadline, Empty, HealthChip, SideChip } from './ui'
 
 export default function PackerPanel() {
   // §7.4: «общий KPI за выбранный период». Пусто — за всё время.
@@ -161,32 +161,6 @@ export default function PackerPanel() {
           </div>
         )}
       </section>
-
-      {/* §9.1: срочные уведомления */}
-      {panel.notifications.length > 0 && (
-        <section className="card p-5 mb-4">
-          <div className="flex items-center gap-2 mb-3">
-            <Bell size={16} className="text-[#b7791f]" />
-            <h3 className="sec-title">Уведомления</h3>
-            <span className="chip bg-[#fff6e6] text-[#b7791f]">{panel.notifications.length}</span>
-          </div>
-          <div className="flex flex-col gap-2">
-            {panel.notifications.map((n) => (
-              <Link
-                key={n._id}
-                to={n.link ?? `/packs/${n.packId}`}
-                className="rounded-xl border border-line p-3 hover:bg-chip/60 transition-colors"
-              >
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-sm font-semibold text-ink">{n.title}</span>
-                  <span className="text-[11px] text-muted-2">{dateTime(n.at)}</span>
-                </div>
-                {n.text && <div className="text-[13px] text-ink-2 mt-1 whitespace-pre-line">{n.text}</div>}
-              </Link>
-            ))}
-          </div>
-        </section>
-      )}
 
       {/* §9.2: блок «Мои упаковки» */}
       <div className="flex items-center gap-2 mb-3">

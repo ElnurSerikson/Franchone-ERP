@@ -1556,14 +1556,6 @@ export const packerPanel = query({
         m.date >= t &&
         (m.createdById === me._id || m.participantIds.some((p) => p === me._id)),
     )
-    const notifications = (await ctx.db
-      .query('packNotifications')
-      .withIndex('by_employee', (q) => q.eq('employeeId', me._id))
-      .collect())
-      .filter((n) => !n.readAt)
-      .sort((a, b) => b.at - a.at)
-      .slice(0, 20)
-
     return {
       today: t,
       cards: cards.sort((a, b) => {
@@ -1585,15 +1577,6 @@ export const packerPanel = query({
         toHandover,
         newClientComments,
       },
-      notifications: notifications.map((n) => ({
-        _id: n._id,
-        packId: n.packId,
-        kind: n.kind,
-        title: n.title,
-        text: n.text ?? null,
-        link: n.link ?? null,
-        at: n.at,
-      })),
     }
   },
 })
