@@ -9,7 +9,7 @@ import {
   ArrowLeft, BookOpen, CalendarDays, CheckCircle2, FolderOpen, Gift, Loader2, Play, Sparkles,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { longDate } from '@/lib/format'
+import { longDate, shortDate } from '@/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { errMessage } from '@/lib/errors'
 import {
@@ -92,47 +92,129 @@ export function ClientMaterials() {
 }
 
 // §6.2, §10.4: календарь проекта глазами клиента.
+//
+// Раньше здесь была карточка на каждую дату и подпись «план/факт» у каждой
+// строки — вместе с плановыми началами всех этапов это давало стену, в
+// которой не найти собственный срок. Теперь впереди только то, что ещё
+// предстоит, прошедшее убрано под один клик, а смысл события несёт точка
+// слева, а не слово справа.
+
+// Плановое начало этапа — внутреннее планирование производства. Заказчику
+// важен срок, к которому этап закончат и передадут, а не когда за него сели.
+const CALENDAR_SKIP = ['stage_start']
+
+// Цвет точки: синяя — ждут вас, красная — общий срок проекта, жёлтая —
+// деньги и контрольные точки, зелёная — уже сделано, серая — плановые вехи.
+const DOT: Record<string, string> = {
+  client_deadline: 'bg-[#2563eb]',
+  due: 'bg-[#c53030]',
+  payment: 'bg-[#d69e2e]',
+  control: 'bg-[#d69e2e]',
+  meeting: 'bg-green',
+  start: 'bg-green-light',
+  handover: 'bg-green-light',
+  approved: 'bg-green-light',
+  finished: 'bg-green-light',
+}
+
+type CalendarItem = { date: string; kind: string; title: string; fact: boolean }
+
 export function ClientCalendar() {
   const packId = useClientPack()
   const data = useQuery(api.packStages.calendar, packId ? { packId } : 'skip')
+  const [showPast, setShowPast] = useState(false)
   if (!packId || data === undefined) return <Loading />
   if (!data) return null
 
-  const byDate = new Map<string, typeof data.items>()
-  for (const i of data.items) {
+  const items = data.items.filter((i) => !CALENDAR_SKIP.includes(i.kind))
+  const upcoming = items.filter((i) => i.date >= data.today)
+  // Прошедшее — от свежего к старому: последнее событие интереснее первого.
+  const past = items.filter((i) => i.date < data.today).reverse()
+
+  return (
+    <>
+      <h1 className="text-2xl font-bold text-ink mb-1">Сроки</h1>
+      <p className="text-[15px] text-muted mb-5">Что и когда предстоит по проекту.</p>
+
+      <section className="card p-5 mb-3">
+        {upcoming.length === 0 ? (
+          <p className="text-[15px] text-muted">Впереди сроков нет.</p>
+        ) : (
+          <Timeline items={upcoming} today={data.today} />
+        )}
+      </section>
+
+      {past.length > 0 && (
+        <section className="card p-5">
+          <button
+            onClick={() => setShowPast((v) => !v)}
+            className="flex items-center gap-2 text-[15px] font-semibold text-ink-2 hover:text-ink"
+          >
+            <CalendarDays size={15} className="text-muted-2" />
+            Уже прошло
+            <span className="chip bg-chip text-muted">{past.length}</span>
+          </button>
+          {showPast && (
+            <div className="mt-4">
+              <Timeline items={past} today={data.today} />
+            </div>
+          )}
+        </section>
+      )}
+    </>
+  )
+}
+
+// Дата слева одной колонкой, события справа — глаз идёт по одной линии и
+// не спотыкается о рамку вокруг каждого дня.
+function Timeline({ items, today }: { items: CalendarItem[]; today: string }) {
+  const byDate = new Map<string, CalendarItem[]>()
+  for (const i of items) {
     const arr = byDate.get(i.date) ?? []
     arr.push(i)
     byDate.set(i.date, arr)
   }
 
   return (
-    <>
-      <h1 className="text-2xl font-bold text-ink mb-1">Календарь проекта</h1>
-      <p className="text-[15px] text-muted mb-5">
-        Плановые и фактические даты этапов, проверок и контрольных точек.
-      </p>
-      <div className="flex flex-col gap-3">
-        {[...byDate.entries()].map(([date, items]) => (
-          <div key={date} className="card p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <CalendarDays size={14} className="text-green" />
-              <span className="text-[15px] font-semibold text-ink">{longDate(date)}</span>
-              {date === data.today && <span className="chip bg-[#e2f2ef] text-green-d">сегодня</span>}
-              {date < data.today && <span className="chip bg-chip text-muted">прошло</span>}
+    <div className="flex flex-col">
+      {[...byDate.entries()].map(([date, rows], gi) => (
+        <div
+          key={date}
+          className={`flex gap-4 ${gi > 0 ? 'border-t border-line pt-3 mt-3' : ''}`}
+        >
+          <div className="w-[76px] shrink-0">
+            <div
+              className={`text-[13px] font-semibold ${
+                date === today ? 'text-green-d' : 'text-ink-2'
+              }`}
+            >
+              {shortDate(date)}
             </div>
-            <div className="flex flex-col gap-1.5">
-              {items.map((i, k) => (
-                <div key={k} className="text-[15px] text-ink-2 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-light shrink-0" />
-                  {i.title}
-                  <span className="text-[13px] text-muted-2">{i.fact ? 'факт' : 'план'}</span>
-                </div>
-              ))}
-            </div>
+            {date === today && <div className="text-[11px] text-green-d">сегодня</div>}
           </div>
-        ))}
-      </div>
-    </>
+          <div className="min-w-0 flex-1 flex flex-col gap-1.5">
+            {rows.map((i, k) => {
+              // «Этап 2 — передан на проверку»: слева суть, справа приглушённое
+              // уточнение. Читается быстрее одной длинной строки.
+              const [head, ...rest] = i.title.split(' — ')
+              return (
+                <div key={k} className="flex items-baseline gap-2">
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 translate-y-[-2px] ${
+                      DOT[i.kind] ?? 'bg-muted-2'
+                    }`}
+                  />
+                  <span className="text-[15px] text-ink-2">{head}</span>
+                  {rest.length > 0 && (
+                    <span className="text-[13px] text-muted">{rest.join(' — ')}</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
   )
 }
 

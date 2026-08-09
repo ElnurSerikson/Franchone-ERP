@@ -1,19 +1,19 @@
 // §10.2: карта этапов в кабинете клиента и действия по §10.3.
 //
-// Клиент видит нулевой этап и основные с названиями, описаниями, весами,
-// статусами, сроками и доступными материалами. Закрытые этапы доступны для
-// просмотра, но не для изменения. Внутренние комментарии команды сюда не
-// приходят (BR-12) — их просто нет в ответе сервера.
+// Экран отвечает на один вопрос: что от меня требуется прямо сейчас. Поэтому
+// на виду только название этапа, его состояние одним словом и документы с
+// кнопками решения. Веса, плановые даты, номера версий и типы файлов — это
+// внутренняя кухня производства; клиенту она не помогает решать и только
+// мешает найти то, что ждёт ответа.
 
 import { useRef, useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import {
-  Check, ChevronDown, ChevronRight, Clock, FileUp, Link2, Loader2, Paperclip, Star, Undo2,
+  Check, ChevronDown, ChevronRight, FileUp, Link2, Loader2, Star, Undo2,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { errMessage } from '@/lib/errors'
 import { uploadToStorage } from '@/lib/packUpload'
-import { MATERIAL_KIND_LABEL } from '../../../convex/packModel'
 import {
   AttachmentLink, Deadline, MaterialChip, StageChip, dateTime, inputCls,
 } from '@/components/packs/ui'
@@ -22,7 +22,9 @@ import { useClientPack } from './ClientApp'
 export default function ClientStages() {
   const packId = useClientPack()
   const data = useQuery(api.packClient.stages, packId ? { packId } : 'skip')
-  const [open, setOpen] = useState<string | null>(null)
+  // undefined — список ещё не трогали руками: тогда сам собой раскрыт этап,
+  // который ждёт ответа. Человек попадает сразу на дело, а не на список.
+  const [picked, setPicked] = useState<string | null | undefined>(undefined)
 
   if (!packId || data === undefined) {
     return (
@@ -33,13 +35,15 @@ export default function ClientStages() {
   }
   if (!data) return null
 
+  const auto = (data.stages.find((s) => s.canAct)?._id as string | undefined) ?? null
+  const open = picked === undefined ? auto : picked
+
   return (
     <>
-      <h1 className="text-2xl font-bold text-ink mb-1">Документы по этапам</h1>
+      <h1 className="text-2xl font-bold text-ink mb-1">Документы</h1>
       <p className="text-[15px] text-muted mb-5">
-        Откройте документ, при желании поставьте оценку и выберите: принять или вернуть на
-        доработку. Правки обсуждаем в привычном канале — комментарий здесь не нужен. Этап
-        считается принятым, когда приняты все его обязательные документы.
+        Откройте документ и решите: принять или вернуть на доработку. Правки обсуждаем в
+        привычном канале.
       </p>
 
       <div className="flex flex-col gap-3">
@@ -49,7 +53,7 @@ export default function ClientStages() {
             stage={s}
             now={data.now}
             open={open === (s._id as string)}
-            onToggle={() => setOpen(open === (s._id as string) ? null : (s._id as string))}
+            onToggle={() => setPicked(open === (s._id as string) ? null : (s._id as string))}
           />
         ))}
       </div>
@@ -71,86 +75,60 @@ function StageCard({
   open: boolean
   onToggle: () => void
 }) {
+  const approved = stage.status === 'approved'
+  const locked = stage.status === 'locked'
+
   return (
     <section className="card overflow-hidden">
       <button
         onClick={onToggle}
-        className="w-full text-left px-5 py-4 flex items-start gap-3 hover:bg-chip/40 transition-colors"
+        className="w-full text-left px-5 py-4 flex items-center gap-3 hover:bg-chip/40 transition-colors"
       >
-        <span className="mt-0.5 text-muted shrink-0">
+        <span className="text-muted-2 shrink-0">
           {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
         </span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2 flex-wrap">
-            <span className="text-[15px] font-semibold text-ink">{stage.title}</span>
-            <StageChip status={stage.status} />
-            {stage.kind === 'zero' && (
-              <span className="chip bg-chip text-muted">подготовительный</span>
-            )}
-            <span className="chip bg-chip text-ink-2">{stage.weight}% готовности</span>
-            {stage.canAct && (
+            <span className={`text-[15px] font-semibold ${locked ? 'text-muted' : 'text-ink'}`}>
+              {stage.title}
+            </span>
+            {/* Одно состояние на этап, а не три чипа рядом: принятому хватает
+                галочки, заблокированному — приглушённого названия. */}
+            {stage.canAct ? (
               <span className="chip bg-[#e8effd] text-[#2563eb]">нужен ваш ответ</span>
+            ) : approved ? (
+              <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-green-d">
+                <Check size={14} /> принят
+              </span>
+            ) : locked ? null : (
+              <StageChip status={stage.status} />
             )}
           </span>
-          <span className="flex items-center gap-3 flex-wrap text-[13px] text-muted mt-1">
-            {stage.startDate && stage.endDate && (
-              <span>
-                {stage.startDate} — {stage.endDate}
-              </span>
-            )}
-            {stage.dueAt && stage.status !== 'approved' && (
-              <span className="inline-flex items-center gap-1">
-                <Clock size={12} /> <Deadline at={stage.dueAt} now={now} />
-              </span>
-            )}
-            {stage.approvedAt && (
-              <span className="text-green-d">утверждён {dateTime(stage.approvedAt)}</span>
-            )}
-          </span>
+          {/* Срок показываем только там, где он про клиента. */}
+          {stage.canAct && stage.dueAt && (
+            <span className="block text-[13px] mt-1">
+              <Deadline at={stage.dueAt} now={now} />
+            </span>
+          )}
         </span>
       </button>
 
       {open && (
-        <div className="px-5 pb-5 border-t border-line pt-4 flex flex-col gap-4">
+        <div className="px-5 pb-5 border-t border-line pt-4 flex flex-col gap-3">
           {stage.note && (
-            <div className="rounded-xl bg-chip p-3 text-[15px] text-ink-2 whitespace-pre-line">
-              {stage.note}
+            <p className="text-[15px] text-ink-2 whitespace-pre-line">{stage.note}</p>
+          )}
+          {stage.materials.length === 0 ? (
+            <p className="text-[13px] text-muted">
+              Документы появятся, когда команда передаст этап на проверку.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {stage.materials.map((m) => (
+                <MaterialRow key={m._id} material={m} />
+              ))}
             </div>
           )}
-          {stage.doneCondition && (
-            <div className="text-[13px] text-muted">
-              Условия завершения: {stage.doneCondition}
-            </div>
-          )}
-
-          {stage.canAct && (
-            <div className="rounded-xl border border-[#cddcf9] bg-[#f5f8ff] p-3 text-[13px] text-ink-2">
-              Этап ждёт вашего решения. Примите или верните на доработку каждый обязательный
-              документ ниже — как только приняты все, этап закрывается, а часть пазла открывается
-              (при условии, что вы успели в срок).
-            </div>
-          )}
-
-          {/* Материалы этапа */}
-          <div>
-            <div className="flex items-center gap-2 mb-2">
-              <Paperclip size={14} className="text-green" />
-              <span className="text-[15px] font-semibold text-ink">Материалы</span>
-              <span className="chip bg-chip text-muted">{stage.materials.length}</span>
-            </div>
-            {stage.materials.length === 0 ? (
-              <p className="text-[13px] text-muted">
-                Материалы появятся, когда команда передаст этап на проверку.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {stage.materials.map((m) => (
-                  <MaterialRow key={m._id} material={m} />
-                ))}
-              </div>
-            )}
-          </div>
-
         </div>
       )}
     </section>
@@ -166,27 +144,17 @@ function MaterialRow({ material }: { material: Stage['materials'][number] }) {
   const [busy, setBusy] = useState('')
   const [error, setError] = useState('')
 
+  const mine = material.side === 'client'
+  // Прошлые версии прячем: пока она одна, показывать «историю» не из чего.
+  const history = material.versions.slice(1)
+  const more = history.length > 0 || !!material.description
+
   return (
     <div className="rounded-xl border border-line p-3">
-      <div className="flex items-start gap-2 flex-wrap">
-        <button onClick={() => setOpen((v) => !v)} className="text-muted shrink-0 mt-0.5">
-          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[15px] font-semibold text-ink">{material.title}</span>
-            <MaterialChip status={material.status} />
-            {material.side === 'client' && (
-              <span className="chip bg-[#e8effd] text-[#2563eb]">загружаете вы</span>
-            )}
-            {material.required && <span className="chip bg-chip text-ink-2">обязательный</span>}
-          </div>
-          <div className="text-[13px] text-muted mt-0.5">
-            {MATERIAL_KIND_LABEL[material.kind] ?? material.kind}
-            {material.version > 0 ? ` · версия ${material.version}` : ' · пока не загружен'}
-            {material.dueDate ? ` · до ${material.dueDate}` : ''}
-          </div>
-        </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[15px] font-semibold text-ink min-w-0 flex-1">{material.title}</span>
+        <MaterialChip status={material.status} />
+        {mine && <span className="chip bg-[#e8effd] text-[#2563eb]">загружаете вы</span>}
         {material.versions[0] && (
           <AttachmentLink
             kind={material.versions[0].kind}
@@ -196,106 +164,104 @@ function MaterialRow({ material }: { material: Stage['materials'][number] }) {
         )}
       </div>
 
-      {open && (
-        <div className="mt-3 pt-3 border-t border-line flex flex-col gap-3">
-          {material.description && (
-            <div className="text-[13px] text-ink-2">{material.description}</div>
-          )}
-
-          {/* §6.3: оценка от 1 до 5 звёзд. Не заменяет «Принять». */}
-          {material.canRate && <Stars material={material} />}
-
-          {/* §6.2: два решения. Обязательный комментарий не требуется. */}
+      {/* Решение — сразу в строке, а не под раскрытием: это главное действие
+          экрана, ради него сюда и заходят. */}
+      {(material.canDecide || material.canRate) && (
+        <div className="mt-3 pt-3 border-t border-line flex flex-col gap-2.5">
           {material.canDecide && <Decision material={material} />}
+          {material.canRate && <Stars material={material} />}
+        </div>
+      )}
 
-          <div>
-            <div className="text-[13px] font-semibold text-muted uppercase tracking-wide mb-1.5">
-              История версий
-            </div>
-            {material.versions.length === 0 ? (
-              <p className="text-[13px] text-muted">Версий пока нет.</p>
-            ) : (
-              <div className="flex flex-col gap-1.5">
-                {material.versions.map((v) => (
-                  <div key={v._id} className="flex items-center gap-2 flex-wrap text-[13px]">
-                    <span className="chip bg-chip text-ink-2">v{v.version}</span>
-                    <AttachmentLink kind={v.kind} name={v.name} url={v.url} />
-                    <span className="text-muted-2">
-                      {dateTime(v.at)} · {v.by?.name ?? 'FRANCHONE'}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+      {mine && (
+        <div className="mt-3 pt-3 border-t border-line flex items-center gap-2 flex-wrap">
+          <input
+            ref={fileRef}
+            type="file"
+            className="hidden"
+            onChange={async (e) => {
+              const f = e.target.files?.[0]
+              e.target.value = ''
+              if (!f) return
+              setBusy('file')
+              setError('')
+              try {
+                const storageId = await uploadToStorage(() => genUrl({}), f)
+                await upload({ materialId: material._id, kind: 'file', name: f.name, storageId })
+              } catch (err) {
+                setError(errMessage(err, 'Не удалось загрузить файл.'))
+              } finally {
+                setBusy('')
+              }
+            }}
+          />
+          <button
+            onClick={() => fileRef.current?.click()}
+            disabled={busy === 'file'}
+            className="mini-btn"
+          >
+            {busy === 'file' ? <Loader2 size={12} className="animate-spin" /> : <FileUp size={12} />}
+            Загрузить файл
+          </button>
+          <input
+            className={`${inputCls} h-9 w-full sm:w-56`}
+            placeholder="или вставьте ссылку"
+            value={link}
+            onChange={(e) => setLink(e.target.value)}
+          />
+          <button
+            onClick={async () => {
+              if (!link.trim()) return
+              setBusy('link')
+              setError('')
+              try {
+                await upload({
+                  materialId: material._id,
+                  kind: 'link',
+                  name: link.trim(),
+                  url: link.trim(),
+                })
+                setLink('')
+              } catch (err) {
+                setError(errMessage(err, 'Не удалось добавить ссылку.'))
+              } finally {
+                setBusy('')
+              }
+            }}
+            disabled={busy === 'link' || !link.trim()}
+            className="mini-btn disabled:opacity-50"
+          >
+            {busy === 'link' ? <Loader2 size={12} className="animate-spin" /> : <Link2 size={12} />}
+            Добавить
+          </button>
+        </div>
+      )}
+      {error && <p className="text-[13px] text-[#c53030] mt-2">{error}</p>}
 
-          {/* §3: клиент грузит свои исходники */}
-          {material.side === 'client' && (
-            <div className="flex items-center gap-2 flex-wrap">
-              <input
-                ref={fileRef}
-                type="file"
-                className="hidden"
-                onChange={async (e) => {
-                  const f = e.target.files?.[0]
-                  e.target.value = ''
-                  if (!f) return
-                  setBusy('file')
-                  setError('')
-                  try {
-                    const storageId = await uploadToStorage(() => genUrl({}), f)
-                    await upload({ materialId: material._id, kind: 'file', name: f.name, storageId })
-                  } catch (err) {
-                    setError(errMessage(err, 'Не удалось загрузить файл.'))
-                  } finally {
-                    setBusy('')
-                  }
-                }}
-              />
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={busy === 'file'}
-                className="mini-btn"
-              >
-                {busy === 'file' ? <Loader2 size={12} className="animate-spin" /> : <FileUp size={12} />}
-                Загрузить файл
-              </button>
-              <input
-                className={`${inputCls} h-8 w-full sm:w-56`}
-                placeholder="или вставьте ссылку"
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-              />
-              <button
-                onClick={async () => {
-                  if (!link.trim()) return
-                  setBusy('link')
-                  setError('')
-                  try {
-                    await upload({
-                      materialId: material._id,
-                      kind: 'link',
-                      name: link.trim(),
-                      url: link.trim(),
-                    })
-                    setLink('')
-                  } catch (err) {
-                    setError(errMessage(err, 'Не удалось добавить ссылку.'))
-                  } finally {
-                    setBusy('')
-                  }
-                }}
-                disabled={busy === 'link' || !link.trim()}
-                className="mini-btn disabled:opacity-50"
-              >
-                {busy === 'link' ? <Loader2 size={12} className="animate-spin" /> : <Link2 size={12} />}
-                Добавить
-              </button>
+      {more && (
+        <>
+          <button
+            onClick={() => setOpen((v) => !v)}
+            className="mt-2 inline-flex items-center gap-1 text-[13px] text-muted hover:text-ink-2"
+          >
+            {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+            {open ? 'Свернуть' : 'Подробнее'}
+          </button>
+          {open && (
+            <div className="mt-2 flex flex-col gap-2">
+              {material.description && (
+                <p className="text-[13px] text-ink-2">{material.description}</p>
+              )}
+              {history.map((v) => (
+                <div key={v._id} className="flex items-center gap-2 flex-wrap text-[13px]">
+                  <span className="chip bg-chip text-ink-2">v{v.version}</span>
+                  <AttachmentLink kind={v.kind} name={v.name} url={v.url} />
+                  <span className="text-muted-2">{dateTime(v.at)}</span>
+                </div>
+              ))}
             </div>
           )}
-          {error && <p className="text-[15px] text-[#c53030]">{error}</p>}
-
-        </div>
+        </>
       )}
     </div>
   )
@@ -308,8 +274,8 @@ function Stars({ material }: { material: Stage['materials'][number] }) {
   const [busy, setBusy] = useState(0)
   const value = material.rating ?? 0
   return (
-    <div className="flex items-center gap-2 flex-wrap">
-      <span className="text-[13px] text-muted">Ваша оценка:</span>
+    <div className="flex items-center gap-2">
+      <span className="text-[13px] text-muted">Оценка</span>
       <div className="flex items-center gap-0.5">
         {[1, 2, 3, 4, 5].map((n) => (
           <button
@@ -334,7 +300,6 @@ function Stars({ material }: { material: Stage['materials'][number] }) {
           </button>
         ))}
       </div>
-      {value > 0 && <span className="text-[13px] text-muted-2">{value} из 5</span>}
     </div>
   )
 }
@@ -360,10 +325,7 @@ function Decision({ material }: { material: Stage['materials'][number] }) {
   }
 
   return (
-    <div className="rounded-xl border border-[#cddcf9] bg-[#f5f8ff] p-3 flex flex-col gap-2">
-      <div className="text-[13px] text-ink-2">
-        Документ ждёт вашего решения.
-      </div>
+    <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={() => act('accept', () => accept({ materialId: material._id }))}
@@ -382,7 +344,7 @@ function Decision({ material }: { material: Stage['materials'][number] }) {
           На доработку
         </button>
       </div>
-      {error && <p className="text-[15px] text-[#c53030]">{error}</p>}
+      {error && <p className="text-[13px] text-[#c53030]">{error}</p>}
     </div>
   )
 }
