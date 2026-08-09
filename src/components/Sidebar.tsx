@@ -24,6 +24,7 @@ import { useCurrentUser, roleLabel } from '@/store'
 import { usePerms } from '@/lib/usePerms'
 import { useData } from '@/lib/useData'
 import { useIsPhone, useIsDesktop } from '@/lib/useMediaQuery'
+import { reportsDaily } from '@/lib/constants'
 import Avatar from './ui/Avatar'
 
 interface NavItem {
@@ -38,12 +39,18 @@ interface NavItem {
   // BR-11 упаковщик ведёт назначенные ему проекты, и само назначение должно
   // показать раздел. Решение принимает сервер (packs.access).
   packAccess?: boolean
+  // Раздел «Отчёты» показывается только тем, кому там есть что делать: кто
+  // сдаёт ежедневный отчёт сам или смотрит дисциплину команды. Упаковщик не
+  // делает ни того, ни другого — его работа видна по этапам и материалам
+  // (ТЗ Упаковка §1.1: «фиксировать работу упаковщика без отдельного
+  // ежедневного отчёта»), и пустая страница ему только мешает.
+  reports?: boolean
 }
 
 const menu: NavItem[] = [
   { to: '/', label: 'Дашборд', icon: LayoutDashboard },
   { to: '/tasks', label: 'Задачи', icon: CheckSquare, perm: 'tasks:view' },
-  { to: '/reports', label: 'Отчёты', icon: ClipboardList },
+  { to: '/reports', label: 'Отчёты', icon: ClipboardList, reports: true },
   { to: '/kpi', label: 'KPI', icon: Target, perm: 'kpi:view' },
 ]
 
@@ -147,8 +154,14 @@ export default function Sidebar({
   // Видимость раздела — по матрице прав (§9). Владелец видит всё.
   const { can, isOwner } = usePerms()
   const packAccess = useQuery(api.packs.access, {})
+  // Та же пара условий, что решает состав вкладок на самой странице отчётов
+  // (Reports.tsx): своя форма — у профильных должностей, «Дисциплина» — у
+  // владельца и руководителя. Нет ни того, ни другого — нет и пункта меню.
+  const seesReports =
+    reportsDaily(user.role, user.position) || user.role === 'owner' || user.role === 'head'
   const visible = (items: NavItem[]) =>
     items.filter((i) => {
+      if (i.reports) return seesReports
       if (i.packAccess) return packAccess?.canView === true
       if (!i.perm) return true
       if (i.perm === 'owner') return isOwner
