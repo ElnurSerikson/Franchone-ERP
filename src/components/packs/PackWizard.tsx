@@ -17,7 +17,15 @@ import { kzt } from '@/lib/format'
 import { TODAY } from '@/lib/constants'
 import { Field, areaCls, inputCls } from './ui'
 
-const STEPS = ['Проект', 'Люди', 'Экономика', 'Этапы'] as const
+// ТЗ v1.1 §2, §9.2: экономику проекта задаёт только администратор, поэтому
+// упаковщику этот шаг не показывается вовсе — сервер его цифры всё равно
+// обнуляет, и вводить их значило бы обещать несуществующее.
+const ALL_STEPS = [
+  { key: 'project', label: 'Проект' },
+  { key: 'people', label: 'Люди' },
+  { key: 'economy', label: 'Экономика' },
+  { key: 'stages', label: 'Этапы' },
+] as const
 
 export default function PackWizard({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate()
@@ -44,6 +52,9 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
   // Ответственный упаковщик не выбирается: им становится тот, кто создал
   // проект. Сервер подставляет создателя сам, поменять можно в карточке.
   const meId = (board?.meId as string | undefined) ?? ''
+  const isOwner = !!board?.isOwner
+  const steps = ALL_STEPS.filter((s) => s.key !== 'economy' || isOwner)
+  const current = steps[Math.min(step, steps.length - 1)]?.key
 
   const reward = Math.round((Number(price || 0) * Number(percent || 0)) / 100)
 
@@ -97,9 +108,9 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
 
         {/* Шаги */}
         <div className="shrink-0 bg-white border-b border-line px-5 sm:px-6 py-3 flex items-center gap-2 flex-nowrap overflow-x-auto no-scrollbar">
-          {STEPS.map((s, i) => (
+          {steps.map((s, i) => (
             <button
-              key={s}
+              key={s.key}
               onClick={() => setStep(i)}
               className={`chip whitespace-nowrap transition-colors ${
                 i === step
@@ -109,13 +120,13 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
                     : 'bg-chip text-muted'
               }`}
             >
-              {i < step && <Check size={11} />} {i + 1}. {s}
+              {i < step && <Check size={11} />} {i + 1}. {s.label}
             </button>
           ))}
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5 flex flex-col gap-4">
-          {step === 0 && (
+          {current === 'project' && (
             <>
               <Field label="Название упаковки">
                 <input
@@ -157,7 +168,7 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
             </>
           )}
 
-          {step === 1 && (
+          {current === 'people' && (
             <>
               <Field
                 label="Клиент"
@@ -213,7 +224,7 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
             </>
           )}
 
-          {step === 2 && (
+          {current === 'economy' && (
             <>
               <div className="rounded-xl bg-[#fff6e6] border border-[#f3d9a4] p-3 text-[11px] text-[#8a5a12]">
                 Это внутренние поля. Клиент не видит ни стоимость проекта, ни процент, ни
@@ -253,7 +264,7 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
             </>
           )}
 
-          {step === 3 && (
+          {current === 'stages' && (
             <>
               <Field
                 label="Структура этапов"
@@ -294,7 +305,7 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
               <ChevronLeft size={15} /> {step === 0 ? 'Отмена' : 'Назад'}
             </button>
             <div className="flex-1" />
-            {step < STEPS.length - 1 ? (
+            {step < steps.length - 1 ? (
               <button onClick={() => setStep(step + 1)} className="btn btn-ghost">
                 Далее <ChevronRight size={15} />
               </button>

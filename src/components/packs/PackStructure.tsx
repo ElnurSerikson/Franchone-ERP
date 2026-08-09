@@ -189,6 +189,10 @@ function Economy({
   launched: boolean
 }) {
   const update = useMutation(api.packs.update)
+  // ТЗ v1.1 §2, §9.2: стоимость и процент задаёт только администратор.
+  // Упаковщику они показываются как есть, без полей и кнопки сохранения —
+  // сервер его правку всё равно отклонит.
+  const readOnly = !pack.isOwner
   const [price, setPrice] = useState(String(pack.price))
   const [percent, setPercent] = useState(String(pack.packerPercent))
   const [reason, setReason] = useState('')
@@ -205,13 +209,22 @@ function Economy({
         <Wallet size={16} className="text-green" />
         <h3 className="sec-title">Экономика проекта</h3>
         <span className="chip bg-[#fff6e6] text-[#b7791f]">клиент этого не видит</span>
+        {readOnly && <span className="chip bg-chip text-muted">задаёт администратор</span>}
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label="Стоимость проекта, ₸ (P)">
-          <input className={inputCls} type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} />
+          {readOnly ? (
+            <div className="text-sm font-semibold text-ink tabular-nums py-2">{kzt(pack.price)}</div>
+          ) : (
+            <input className={inputCls} type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} />
+          )}
         </Field>
         <Field label="Процент упаковщика, % (R)">
-          <input className={inputCls} type="number" min={0} max={100} value={percent} onChange={(e) => setPercent(e.target.value)} />
+          {readOnly ? (
+            <div className="text-sm font-semibold text-ink tabular-nums py-2">{pack.packerPercent}%</div>
+          ) : (
+            <input className={inputCls} type="number" min={0} max={100} value={percent} onChange={(e) => setPercent(e.target.value)} />
+          )}
         </Field>
         <div className="rounded-xl bg-chip p-3">
           <div className="text-[11px] text-muted">Полное вознаграждение · W = P × R / 100</div>
@@ -221,7 +234,7 @@ function Economy({
           </div>
         </div>
       </div>
-      {launched && dirty && (
+      {!readOnly && launched && dirty && (
         <div className="mt-3">
           <Field
             label="Причина изменения"
@@ -232,34 +245,36 @@ function Economy({
         </div>
       )}
       {error && <p className="text-sm text-[#c53030] mt-3">{error}</p>}
-      <div className="mt-4 flex items-center gap-2">
-        <button
-          onClick={async () => {
-            setBusy(true)
-            setError('')
-            try {
-              await update({
-                id: packId,
-                price: Number(price),
-                packerPercent: Number(percent),
-                reason: reason || undefined,
-              })
-              setSaved(true)
-              setReason('')
-              setTimeout(() => setSaved(false), 2000)
-            } catch (e) {
-              setError(errMessage(e, 'Не удалось сохранить экономику.'))
-            } finally {
-              setBusy(false)
-            }
-          }}
-          disabled={busy || !dirty}
-          className="btn btn-green h-9 px-3 text-sm disabled:opacity-50"
-        >
-          {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Сохранить
-        </button>
-        {saved && <span className="text-sm text-green-d">Сохранено</span>}
-      </div>
+      {!readOnly && (
+        <div className="mt-4 flex items-center gap-2">
+          <button
+            onClick={async () => {
+              setBusy(true)
+              setError('')
+              try {
+                await update({
+                  id: packId,
+                  price: Number(price),
+                  packerPercent: Number(percent),
+                  reason: reason || undefined,
+                })
+                setSaved(true)
+                setReason('')
+                setTimeout(() => setSaved(false), 2000)
+              } catch (e) {
+                setError(errMessage(e, 'Не удалось сохранить экономику.'))
+              } finally {
+                setBusy(false)
+              }
+            }}
+            disabled={busy || !dirty}
+            className="btn btn-green h-9 px-3 text-sm disabled:opacity-50"
+          >
+            {busy ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} Сохранить
+          </button>
+          {saved && <span className="text-sm text-green-d">Сохранено</span>}
+        </div>
+      )}
     </section>
   )
 }
