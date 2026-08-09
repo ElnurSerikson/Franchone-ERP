@@ -3,6 +3,7 @@
 // уведомления и итоговый хаб готовой франшизы.
 
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from 'convex/react'
 import {
   ArrowLeft, BookOpen, CalendarDays, CheckCircle2, FolderOpen, Gift, Loader2, Play, Sparkles,
@@ -140,7 +141,13 @@ export function ClientCalendar() {
 export function ClientLearn() {
   const packId = useClientPack()
   const rows = useQuery(api.packClient.content, packId ? { packId } : 'skip')
-  const [openId, setOpenId] = useState<string | null>(null)
+  // Открытый материал — это адрес, а не состояние компонента. Иначе на
+  // телефоне системный жест «назад» уносит из раздела целиком: браузер о
+  // раскрытой карточке не знает и отматывает историю на шаг раньше. С
+  // параметром в адресе жест закрывает материал и возвращает к списку —
+  // ровно то, чего человек и ждёт.
+  const [params, setParams] = useSearchParams()
+  const openId = params.get('m')
   if (!packId || rows === undefined) return <Loading />
 
   const active = rows.find((c) => (c._id as string) === openId) ?? null
@@ -154,7 +161,14 @@ export function ClientLearn() {
       </p>
 
       {active ? (
-        <ContentView content={active} packId={packId} onBack={() => setOpenId(null)} />
+        <ContentView
+          content={active}
+          packId={packId}
+          // Кнопка не добавляет новый шаг в историю, а снимает текущий:
+          // иначе после «Ко всем материалам» жест «назад» снова открывал бы
+          // только что закрытый материал.
+          onBack={() => setParams({}, { replace: true })}
+        />
       ) : rows.length === 0 ? (
         <Empty
           icon={BookOpen}
@@ -166,7 +180,7 @@ export function ClientLearn() {
           {rows.map((c) => (
             <button
               key={c._id}
-              onClick={() => setOpenId(c._id as string)}
+              onClick={() => setParams({ m: c._id as string })}
               className="card overflow-hidden text-left hover:shadow-soft transition-shadow"
             >
               {c.coverUrl ? (
