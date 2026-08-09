@@ -361,18 +361,6 @@ export const todo = query({
     if (!pack || pack.clientId !== me._id || !pack.launchedAt) return null
 
     const rows = await stagesOf(ctx, packId)
-    const materials = await ctx.db
-      .query('packMaterials')
-      .withIndex('by_pack', (q) => q.eq('packId', packId))
-      .collect()
-    const comments = (
-      await ctx.db
-        .query('packComments')
-        .withIndex('by_pack', (q) => q.eq('packId', packId))
-        .collect()
-    ).filter((c) => c.scope === 'client')
-
-    const stageTitle = new Map(rows.map((s) => [s._id as string, s.title]))
     return {
       // Этапы, ожидающие проверки.
       awaitingStages: rows
@@ -384,27 +372,9 @@ export const todo = query({
           dueAt: s.dueAt ?? null,
           repeat: (s.handoverCount ?? 0) > 1,
         })),
-      // Материалы, которые нужно загрузить.
-      uploads: materials
-        .filter((m) => m.side === 'client' && m.version === 0)
-        .map((m) => ({
-          _id: m._id,
-          title: m.title,
-          description: m.description ?? null,
-          stage: stageTitle.get(m.stageId as string) ?? '',
-          dueDate: m.dueDate ?? null,
-          required: m.required,
-        })),
-      // Неотвеченные комментарии: последнее слово за командой и вопрос не закрыт.
-      openComments: comments
-        .filter((c) => !c.resolved && c.authorId !== me._id)
-        .sort((a, b) => b.at - a.at)
-        .map((c) => ({
-          _id: c._id,
-          text: c.text,
-          at: c.at,
-          stage: c.stageId ? (stageTitle.get(c.stageId as string) ?? null) : null,
-        })),
+      // Списки «загрузить материалы» и «неотвеченные комментарии» из блока
+      // убраны — заказчик работает с материалами в разделе «Документы», и
+      // дублировать их на обзоре не нужно.
       // Ближайшие сроки.
       deadlines: rows
         .filter((s) => s.dueAt && s.status !== 'approved')
