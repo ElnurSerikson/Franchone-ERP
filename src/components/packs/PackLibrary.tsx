@@ -55,6 +55,9 @@ function ContentTab() {
   const update = useMutation(api.packExtras.updateContent)
   const remove = useMutation(api.packExtras.removeContent)
 
+  // Одна форма на создание и на правку: поля те же, отличается только то,
+  // какая мутация вызывается и что написано на кнопке. Пусто — создаём.
+  const [editId, setEditId] = useState<Id<'packContent'> | null>(null)
   const [open, setOpen] = useState(false)
   const [title, setTitle] = useState('')
   const [kind, setKind] = useState('article')
@@ -80,13 +83,47 @@ function ContentTab() {
     )
   }
 
+  const reset = () => {
+    setEditId(null)
+    setOpen(false)
+    setTitle('')
+    setKind('article')
+    setBody('')
+    setUrl('')
+    setSummary('')
+    setCoverId(null)
+    setCoverName('')
+    setQuestions([])
+    setPackIds([])
+    setAvailability('always')
+    setAfterStage('1')
+    setError('')
+  }
+
+  // Открыть форму на существующем материале — все поля из него же.
+  const startEdit = (c: (typeof rows)[number]) => {
+    setEditId(c._id)
+    setTitle(c.title)
+    setKind(c.kind)
+    setBody(c.body ?? '')
+    setUrl(c.url ?? '')
+    setSummary(c.summary ?? '')
+    setCoverId(c.coverId ?? null)
+    setCoverName(c.coverId ? 'загруженная обложка' : '')
+    setQuestions(c.questions as Question[])
+    setPackIds(c.packIds as string[])
+    setAvailability(c.availability)
+    setAfterStage(String(c.afterStageOrder ?? 1))
+    setError('')
+    setOpen(true)
+  }
+
   const save = async () => {
     setError('')
     setBusy(true)
     try {
-      await create({
+      const fields = {
         title,
-        kind: kind as 'article',
         body: body || undefined,
         url: url || undefined,
         summary: summary || undefined,
@@ -95,16 +132,15 @@ function ContentTab() {
         availability: availability as 'always',
         afterStageOrder: Number(afterStage) || 1,
         packIds: packIds as Id<'packs'>[],
-      })
-      setOpen(false)
-      setTitle('')
-      setBody('')
-      setUrl('')
-      setSummary('')
-      setCoverId(null)
-      setCoverName('')
-      setQuestions([])
-      setPackIds([])
+      }
+      if (editId) {
+        // Обложку сняли — говорим об этом явно, иначе сервер решит, что поле
+        // просто не передали, и оставит старую.
+        await update({ id: editId, ...fields, clearCover: coverId === null })
+      } else {
+        await create({ ...fields, kind: kind as 'article' })
+      }
+      reset()
     } catch (e) {
       setError(errMessage(e, 'Не удалось сохранить материал.'))
     } finally {
@@ -118,21 +154,34 @@ function ContentTab() {
         <h3 className="sec-title">Материалы для клиентов</h3>
         <span className="chip bg-chip text-muted">{rows.length}</span>
         <div className="flex-1" />
-        <button onClick={() => setOpen((v) => !v)} className="btn btn-green h-9 px-3 text-sm">
+        <button
+          onClick={() => (open ? reset() : setOpen(true))}
+          className="btn btn-green h-9 px-3 text-sm"
+        >
           {open ? <X size={15} /> : <Plus size={15} />} {open ? 'Свернуть' : 'Добавить материал'}
         </button>
       </div>
 
       {open && (
         <section className="card p-5 mb-4 flex flex-col gap-4">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h4 className="sec-title">
+              {editId ? 'Изменение материала' : 'Новый материал'}
+            </h4>
+            {editId && <span className="chip bg-[#e8effd] text-[#2563eb]">правка</span>}
+          </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Название">
               <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Как продавать франшизу" />
             </Field>
-            <Field label="Тип">
+            <Field
+              label="Тип"
+              hint={editId ? 'Тип не меняется — удалите материал и создайте заново.' : undefined}
+            >
               <Select
                 value={kind}
                 onChange={setKind}
+                disabled={!!editId}
                 options={Object.entries(CONTENT_KIND_LABEL).map(([value, label]) => ({ value, label }))}
               />
             </Field>
@@ -220,9 +269,13 @@ function ContentTab() {
             </div>
           </div>
           {error && <p className="text-sm text-[#c53030]">{error}</p>}
-          <div>
+          <div className="flex items-center gap-2">
             <button onClick={save} disabled={busy} className="btn btn-green disabled:opacity-60">
-              {busy && <Loader2 size={15} className="animate-spin" />} Опубликовать
+              {busy && <Loader2 size={15} className="animate-spin" />}
+              {editId ? 'Сохранить изменения' : 'Опубликовать'}
+            </button>
+            <button onClick={reset} className="btn btn-ghost">
+              Отмена
             </button>
           </div>
         </section>
@@ -258,7 +311,10 @@ function ContentTab() {
                   {c.url}
                 </a>
               )}
-              <div className="mt-3 pt-3 border-t border-line flex items-center gap-2">
+              <div className="mt-3 pt-3 border-t border-line flex items-center gap-2 flex-wrap">
+                <button onClick={() => startEdit(c)} className="mini-btn">
+                  <Pencil size={12} /> Изменить
+                </button>
                 <button
                   onClick={() => void update({ id: c._id, published: !c.published })}
                   className="mini-btn"

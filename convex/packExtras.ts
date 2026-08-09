@@ -304,6 +304,9 @@ export const updateContent = mutation({
     url: v.optional(v.string()),
     summary: v.optional(v.string()),
     coverId: v.optional(v.id('_storage')),
+    // Отсутствие coverId значит «не трогали», поэтому снятие обложки нужно
+    // передавать отдельным флагом — иначе убрать её при правке нельзя.
+    clearCover: v.optional(v.boolean()),
     questions: v.optional(v.array(
         v.object({
           text: v.string(),
@@ -333,7 +336,8 @@ export const updateContent = mutation({
     const next: Record<string, unknown> = {}
     if (patch.summary !== undefined) next.summary = patch.summary.trim() || undefined
     // §8.1: обложку можно заменить или удалить до публикации.
-    if (patch.coverId !== undefined) next.coverId = patch.coverId
+    if (patch.clearCover) next.coverId = undefined
+    else if (patch.coverId !== undefined) next.coverId = patch.coverId
     if (patch.questions !== undefined) next.questions = patch.questions.length ? patch.questions : undefined
     if (patch.stageOrder !== undefined) next.stageOrder = patch.stageOrder
     if (patch.title !== undefined) {
