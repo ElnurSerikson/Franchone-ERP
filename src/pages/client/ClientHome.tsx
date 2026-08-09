@@ -27,13 +27,16 @@ const CAPTION = 'text-center text-[12px] leading-snug text-muted'
 // стоят вплотную, без зазоров. Каждая открытая часть показывает ровно свой
 // кусок общего изображения: col/row — место в сетке 3×3, cs/rs — сколько
 // ячеек занимает. Отсюда же считаются размер и сдвиг картинки внутри плитки.
+// `corner` — плитка стоит в углу квадрата и обязана повторить его радиус:
+// иначе обводка активной части упирается в скругление контейнера и её
+// срезает по прямой.
 const PUZZLE_IMAGE = '/puzzle-globe.svg'
 const CELLS = [
-  { span: 'col-span-2 row-span-2', col: 0, row: 0, cs: 2, rs: 2 },
-  { span: '', col: 2, row: 0, cs: 1, rs: 1 },
-  { span: '', col: 2, row: 1, cs: 1, rs: 1 },
-  { span: 'col-span-2', col: 0, row: 2, cs: 2, rs: 1 },
-  { span: '', col: 2, row: 2, cs: 1, rs: 1 },
+  { span: 'col-span-2 row-span-2', corner: 'rounded-tl-2xl', col: 0, row: 0, cs: 2, rs: 2 },
+  { span: '', corner: 'rounded-tr-2xl', col: 2, row: 0, cs: 1, rs: 1 },
+  { span: '', corner: '', col: 2, row: 1, cs: 1, rs: 1 },
+  { span: 'col-span-2', corner: 'rounded-bl-2xl', col: 0, row: 2, cs: 2, rs: 1 },
+  { span: '', corner: 'rounded-br-2xl', col: 2, row: 2, cs: 1, rs: 1 },
 ]
 
 export default function ClientHome() {
@@ -329,7 +332,7 @@ function Puzzle({
               <div
                 key={p.index}
                 title={p.title}
-                className={`${bento ? c.span : 'aspect-square rounded-xl'} relative overflow-hidden grid place-items-center font-bold transition-all duration-500 ${
+                className={`${bento ? `${c.span} ${c.corner}` : 'aspect-square rounded-xl'} relative overflow-hidden grid place-items-center font-bold transition-all duration-500 ${
                   big ? 'text-4xl' : 'text-xl'
                 } ${
                   p.open
