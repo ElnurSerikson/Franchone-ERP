@@ -1124,18 +1124,23 @@ export async function preflight(
       issues.push({ level: 'error', text: `Вес этапа «${s.title}» должен быть больше 0%` })
     }
   }
-  // §15: этап нельзя активировать без обязательных материалов, если
-  // администратор явно не разрешил этап без документов.
-  for (const s of stages) {
+  // §15: «этап нельзя АКТИВИРОВАТЬ, пока не добавлен хотя бы один
+  // обязательный материал, либо администратор явно разрешает этап без
+  // документов». Запуск проекта активирует ровно один этап — первый;
+  // остальные уходят в «Заблокирован» и проверяются, когда до них доходит
+  // очередь (startStage). Требовать материалы сразу для всех шести значило бы
+  // просить заранее приложить документы к этапу, до которого ещё два месяца.
+  const first = stages[0]
+  if (first) {
     const materials = await ctx.db
       .query('packMaterials')
-      .withIndex('by_stage', (q) => q.eq('stageId', s._id))
+      .withIndex('by_stage', (q) => q.eq('stageId', first._id))
       .collect()
     const required = materials.filter((m) => m.required && m.side === 'team')
-    if (required.length === 0 && s.allowNoDocs !== true) {
+    if (required.length === 0 && first.allowNoDocs !== true) {
       issues.push({
         level: 'error',
-        text: `У этапа «${s.title}» нет обязательных материалов — добавьте их или разрешите этап без документов`,
+        text: `У первого этапа «${first.title}» нет обязательных материалов — добавьте их или включите «этап без документов» в его настройках`,
       })
     }
   }

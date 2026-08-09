@@ -117,6 +117,8 @@ export const updateStage = mutation({
     rereviewDays: v.optional(v.number()),
     fixDays: v.optional(v.number()),
     doneCondition: v.optional(v.string()),
+    // §15: «либо администратор явно разрешает этап без документов».
+    allowNoDocs: v.optional(v.boolean()),
     reason: v.optional(v.string()),
   },
   handler: async (ctx, { id, reason, ...patch }) => {
@@ -154,6 +156,20 @@ export const updateStage = mutation({
       // он участвует в прогрессе и KPI (но части пазла не открывает).
       if (patch.weight < 0 || patch.weight > 100) throw new ConvexError('Вес этапа — от 0 до 100%')
       set('вес', 'weight', stage.weight, patch.weight, 'stage_weight')
+    }
+    // §15: разрешение работать без обязательных документов — решение
+    // администратора, упаковщик его себе выдать не может.
+    if (patch.allowNoDocs !== undefined && patch.allowNoDocs !== (stage.allowNoDocs ?? false)) {
+      if (me.role !== 'owner') {
+        throw new ConvexError('Этап без документов разрешает только администратор')
+      }
+      next.allowNoDocs = patch.allowNoDocs
+      changes.push({
+        field: 'этап без документов',
+        from: stage.allowNoDocs ? 'да' : 'нет',
+        to: patch.allowNoDocs ? 'да' : 'нет',
+        type: 'stage_updated',
+      })
     }
     if (patch.reviewDays !== undefined) set('срок первичной проверки', 'reviewDays', stage.reviewDays, patch.reviewDays)
     if (patch.rereviewDays !== undefined) set('срок повторной проверки', 'rereviewDays', stage.rereviewDays, patch.rereviewDays)
@@ -297,6 +313,20 @@ export const startStage = mutation({
       throw new ConvexError('Предыдущий этап ещё не утверждён — этот пока заблокирован')
     }
     if (stage.status !== 'planned') return
+    // §15: активировать этап без обязательных материалов нельзя, если
+    // администратор явно этого не разрешил. Проверка живёт здесь, в момент
+    // активации, а не при запуске проекта: до дальних этапов очередь доходит
+    // спустя недели, и требовать их документы заранее бессмысленно.
+    const materials = await ctx.db
+      .query('packMaterials')
+      .withIndex('by_stage', (q) => q.eq('stageId', id))
+      .collect()
+    const required = materials.filter((m) => m.required && m.side === 'team')
+    if (required.length === 0 && stage.allowNoDocs !== true) {
+      throw new ConvexError(
+        'У этапа нет обязательных материалов — добавьте хотя бы один или включите «этап без документов» в его настройках',
+      )
+    }
     await ctx.db.patch(id, {
       status: 'in_progress',
       startedAt: Date.now(),
@@ -1205,6 +1235,7 @@ export const board = query({
         rereviewDays: s.rereviewDays,
         fixDays: s.fixDays,
         doneCondition: s.doneCondition ?? null,
+        allowNoDocs: s.allowNoDocs ?? false,
         status: s.status as StageStatus,
         dueAt: s.dueAt ?? null,
         awaiting: s.awaiting ?? null,

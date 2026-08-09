@@ -162,6 +162,7 @@ export default function PackStructure({
               key={s._id}
               stage={s}
               canManage={canManage}
+              isOwner={pack.isOwner}
               launched={launched}
               onUp={i > 0 && !launched ? () => void move(i, -1) : undefined}
               onDown={i < board.stages.length - 1 && !launched ? () => void move(i, 1) : undefined}
@@ -467,12 +468,14 @@ type BoardStage = NonNullable<ReturnType<typeof useQuery<typeof api.packStages.b
 function StageEditor({
   stage,
   canManage,
+  isOwner,
   launched,
   onUp,
   onDown,
 }: {
   stage: BoardStage
   canManage: boolean
+  isOwner: boolean
   launched: boolean
   onUp?: () => void
   onDown?: () => void
@@ -491,6 +494,7 @@ function StageEditor({
     reviewDays: String(stage.reviewDays),
     rereviewDays: String(stage.rereviewDays),
     fixDays: String(stage.fixDays),
+    allowNoDocs: stage.allowNoDocs,
   })
   const [reason, setReason] = useState('')
   const [busy, setBusy] = useState(false)
@@ -512,6 +516,7 @@ function StageEditor({
         reviewDays: Number(d.reviewDays),
         rereviewDays: Number(d.rereviewDays),
         fixDays: Number(d.fixDays),
+        allowNoDocs: isOwner ? d.allowNoDocs : undefined,
         reason: reason || undefined,
       })
       setOpen(false)
@@ -530,6 +535,9 @@ function StageEditor({
           {stage.order}. {stage.title}
         </span>
         {stage.kind === 'zero' && <span className="chip bg-chip text-muted">нулевой</span>}
+        {stage.allowNoDocs && (
+          <span className="chip bg-[#fff6e6] text-[#b7791f]">без документов</span>
+        )}
         <span className="chip bg-chip text-ink-2">{stage.weight}%</span>
         <span className="text-[11px] text-muted whitespace-nowrap">
           {stage.startDate ?? '—'} → {stage.endDate ?? '—'}
@@ -600,6 +608,25 @@ function StageEditor({
           <Field label="Условия завершения этапа">
             <textarea className={areaCls} value={d.doneCondition} onChange={(e) => setD({ ...d, doneCondition: e.target.value })} />
           </Field>
+          {/* §15: разрешение администратора вести этап без обязательных
+              документов — иначе этап без материалов не активировать. */}
+          {isOwner && (
+            <label className="flex items-start gap-2.5 rounded-xl border border-line p-3 cursor-pointer">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={d.allowNoDocs}
+                onChange={(e) => setD({ ...d, allowNoDocs: e.target.checked })}
+              />
+              <span>
+                <span className="text-[13px] font-semibold text-ink">Этап без обязательных документов</span>
+                <span className="block text-[11px] text-muted mt-0.5">
+                  Этап можно взять в работу и принять, не прикладывая ни одного обязательного
+                  материала. Без этого хотя бы один такой материал нужен.
+                </span>
+              </span>
+            </label>
+          )}
           {launched && (
             <Field label="Причина изменения" hint="Обязательна для веса и сроков после запуска.">
               <input className={inputCls} value={reason} onChange={(e) => setReason(e.target.value)} />
