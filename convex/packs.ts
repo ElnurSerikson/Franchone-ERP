@@ -1491,11 +1491,20 @@ export const packerPanel = query({
     )
 
     const cards = []
-    // §9.1 «Сегодня»
-    const dueToday: { packId: Id<'packs'>; pack: string; stage: string; dueAt: number }[] = []
+    // §9.1: горизонт панели — ближайшие пять дней. Один день был слишком
+    // узким окном: этап со сроком «завтра» в блок не попадал, а вчерашний
+    // просроченный из него пропадал совсем.
+    const HORIZON_DAYS = 5
+    const horizonEnd = dayEnd(addDays(t, HORIZON_DAYS))
+    const dueSoon: {
+      packId: Id<'packs'>
+      pack: string
+      stage: string
+      dueAt: number
+      overdue: boolean
+    }[] = []
     const returned: { packId: Id<'packs'>; pack: string; stage: string; at: number }[] = []
     const toHandover: { packId: Id<'packs'>; pack: string; stage: string }[] = []
-    let newClientComments = 0
 
     for (const pack of mine) {
       const stages = await stagesOf(ctx, pack._id)
@@ -1509,12 +1518,20 @@ export const packerPanel = query({
         .withIndex('by_pack', (q) => q.eq('packId', pack._id))
         .collect()
       const openComments = comments.filter((c) => c.scope === 'client' && !c.resolved)
-      newClientComments += openComments.length
 
       for (const s of stages) {
         if (s.status === 'approved' || s.status === 'locked') continue
-        if (s.dueAt && new Date(s.dueAt + 5 * 3600 * 1000).toISOString().slice(0, 10) === t) {
-          dueToday.push({ packId: pack._id, pack: pack.title, stage: s.title, dueAt: s.dueAt })
+        // Просроченное остаётся в списке: срок, который уже прошёл, горит
+        // сильнее завтрашнего, и прятать его до следующего открытия панели
+        // было бы ровно наоборот.
+        if (s.dueAt && s.dueAt <= horizonEnd) {
+          dueSoon.push({
+            packId: pack._id,
+            pack: pack.title,
+            stage: s.title,
+            dueAt: s.dueAt,
+            overdue: s.dueAt < now,
+          })
         }
         if (s.status === 'rework') {
           returned.push({
@@ -1550,11 +1567,7 @@ export const packerPanel = query({
       })
     }
 
-    // §9.1: задачи и встречи подтягиваются из существующих модулей ERP.
-    const tasks = (await ctx.db
-      .query('tasks')
-      .withIndex('by_assignee', (q) => q.eq('assigneeId', me._id))
-      .collect()).filter((x) => x.status !== 'done')
+    // §9.1: встречи подтягиваются из общего модуля ERP.
     const meetings = (await ctx.db.query('meetings').collect()).filter(
       (m) =>
         (m.status ?? 'planned') === 'planned' &&
@@ -1568,19 +1581,19 @@ export const packerPanel = query({
         return (rank[a.health] ?? 9) - (rank[b.health] ?? 9)
       }),
       todayBlock: {
-        tasksToday: tasks.filter((x) => x.deadline === t).length,
-        tasksOverdue: tasks.filter((x) => x.deadline && x.deadline < t).length,
-        meetingsToday: meetings.filter((m) => m.date === t).length,
+        // Конец окна — чтобы фронт подписал заголовок диапазоном дат.
+        horizonUntil: addDays(t, HORIZON_DAYS),
         meetingsSoon: meetings.filter((m) => m.date > t).slice(0, 5).map((m) => ({
           _id: m._id,
           title: m.title,
           date: m.date,
           time: m.time,
         })),
-        stagesDueToday: dueToday,
+        // Просроченные — первыми, самое залежавшееся сверху; дальше ближайшие
+        // сроки по возрастанию.
+        stagesDueSoon: dueSoon.sort((a, b) => a.dueAt - b.dueAt),
         returnedStages: returned,
         toHandover,
-        newClientComments,
       },
     }
   },

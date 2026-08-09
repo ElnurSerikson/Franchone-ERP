@@ -13,7 +13,8 @@ import { api } from '../../../convex/_generated/api'
 import StatCard from '@/components/ui/StatCard'
 import DatePicker from '@/components/ui/DatePicker'
 import { ProgressBar } from '@/components/ui/Progress'
-import { kzt, pct } from '@/lib/format'
+import { kzt, pct, shortDate } from '@/lib/format'
+import { DAY_MS, humanDuration } from '../../../convex/packModel'
 import { Deadline, Empty, HealthChip, SideChip } from './ui'
 
 export default function PackerPanel() {
@@ -94,30 +95,31 @@ export default function PackerPanel() {
         />
       </div>
 
-      {/* §9.1: блок «Сегодня» */}
+      {/* §9.1: горизонт панели — ближайшие пять дней. */}
       <section className="card p-5 mb-4">
         <div className="flex items-center gap-2 mb-4">
           <CalendarDays size={16} className="text-green" />
-          <h3 className="sec-title">Сегодня</h3>
-          <span className="text-xs text-muted">{panel.today}</span>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 mb-4">
-          <Mini label="Задачи на сегодня" value={t.tasksToday} to="/tasks" />
-          <Mini label="Просроченные задачи" value={t.tasksOverdue} tone={t.tasksOverdue > 0 ? 'red' : undefined} to="/tasks" />
-          <Mini label="Встречи сегодня" value={t.meetingsToday} to="/meetings" />
-          <Mini label="Новые комментарии клиентов" value={t.newClientComments} tone={t.newClientComments > 0 ? 'amber' : undefined} />
+          <h3 className="sec-title">Дедлайны ближайших 5 дней</h3>
+          <span className="text-xs text-muted">
+            {shortDate(panel.today)} — {shortDate(t.horizonUntil)}
+          </span>
         </div>
 
         <div className="grid gap-4 lg:grid-cols-3">
           <Bucket
             icon={Clock}
-            title="Этапы с дедлайном сегодня"
-            empty="На сегодня дедлайнов нет."
-            items={t.stagesDueToday.map((x) => ({
+            title="Этапы с дедлайном"
+            empty="Дедлайнов в эти дни нет."
+            items={t.stagesDueSoon.map((x) => ({
               key: `${x.packId}-${x.stage}`,
               to: `/packs/${x.packId}`,
               main: x.stage,
               sub: x.pack,
+              // Просроченное горит сильнее завтрашнего — красным и сверху.
+              note: x.overdue
+                ? `просрочен ${humanDuration(now - x.dueAt)} назад`
+                : dueLabel(x.dueAt, now),
+              danger: x.overdue,
             }))}
           />
           <Bucket
@@ -261,32 +263,14 @@ export default function PackerPanel() {
   )
 }
 
-function Mini({
-  label,
-  value,
-  tone,
-  to,
-}: {
-  label: string
-  value: number
-  tone?: 'red' | 'amber'
-  to?: string
-}) {
-  const color =
-    tone === 'red' ? 'text-[#c53030]' : tone === 'amber' ? 'text-[#b7791f]' : 'text-ink'
-  const body = (
-    <div className="rounded-xl bg-chip p-3 text-center h-full">
-      <div className={`text-xl font-bold ${color}`}>{value}</div>
-      <div className="text-[11px] text-muted mt-0.5 leading-tight">{label}</div>
-    </div>
-  )
-  return to ? (
-    <Link to={to} className="block hover:opacity-90 transition-opacity">
-      {body}
-    </Link>
-  ) : (
-    body
-  )
+// Срок в человеческом виде: «сегодня», «завтра», «через 3 дня».
+function dueLabel(at: number, now: number): string {
+  const left = at - now
+  if (left <= 0) return 'сегодня'
+  const days = Math.floor(left / DAY_MS)
+  if (days === 0) return `сегодня, осталось ${humanDuration(left)}`
+  if (days === 1) return 'завтра'
+  return `через ${humanDuration(left)}`
 }
 
 function Bucket({
@@ -298,7 +282,7 @@ function Bucket({
 }: {
   icon: LucideIcon
   title: string
-  items: { key: string; to: string; main: string; sub: string }[]
+  items: { key: string; to: string; main: string; sub: string; note?: string; danger?: boolean }[]
   empty: string
   tone?: 'amber' | 'green'
 }) {
@@ -319,10 +303,21 @@ function Bucket({
             <Link
               key={i.key}
               to={i.to}
-              className="block rounded-lg bg-chip px-2.5 py-2 hover:bg-line-2 transition-colors"
+              className={`block rounded-lg px-2.5 py-2 transition-colors ${
+                i.danger ? 'bg-[#fdeaea] hover:bg-[#fbdcdc]' : 'bg-chip hover:bg-line-2'
+              }`}
             >
               <div className="text-[13px] font-medium text-ink truncate">{i.main}</div>
               <div className="text-[11px] text-muted truncate">{i.sub}</div>
+              {i.note && (
+                <div
+                  className={`text-[11px] mt-0.5 truncate ${
+                    i.danger ? 'text-[#c53030] font-semibold' : 'text-muted-2'
+                  }`}
+                >
+                  {i.note}
+                </div>
+              )}
             </Link>
           ))}
         </div>
