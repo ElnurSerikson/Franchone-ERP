@@ -7,7 +7,7 @@ import { useRef, useState } from 'react'
 import { useMutation, useQuery } from 'convex/react'
 import {
   Check, ChevronDown, ChevronRight, Clock, FileUp, Link2, Loader2, Lock,
-  MessageSquare, Paperclip, Plus, RotateCcw, Send, Star, Trash2, Users,
+  Paperclip, Plus, RotateCcw, Star, Trash2,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -204,7 +204,6 @@ function StageCard({
           {error && <p className="text-sm text-[#c53030]">{error}</p>}
 
           <Materials packId={packId} stage={stage} board={board} />
-          <Comments packId={packId} stage={stage} board={board} />
         </div>
       )}
     </section>
@@ -577,100 +576,11 @@ function MaterialRow({
   )
 }
 
-// ——— §11.3: комментарии ———
-
-function Comments({ packId, stage, board }: { packId: Id<'packs'>; stage: Stage; board: Board }) {
-  const add = useMutation(api.packStages.addComment)
-  const genUrl = useMutation(api.packs.generateUploadUrl)
-  const fileRef = useRef<HTMLInputElement>(null)
-  const [text, setText] = useState('')
-  const scope: 'internal' = 'internal'
-  const [files, setFiles] = useState<{ kind: 'file'; name: string; storageId: Id<'_storage'> }[]>([])
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-
-  const send = async () => {
-    if (!text.trim()) return
-    setBusy(true)
-    setError('')
-    try {
-      await add({ packId, stageId: stage._id, scope, text, attachments: files })
-      setText('')
-      setFiles([])
-    } catch (e) {
-      setError(errMessage(e, 'Не удалось отправить комментарий.'))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div>
-      <div className="flex items-center gap-2 mb-2">
-        <MessageSquare size={14} className="text-green" />
-        <span className="text-sm font-semibold text-ink">Заметки команды</span>
-        <span className="chip bg-chip text-muted">{stage.comments.length}</span>
-      </div>
-
-      <CommentList comments={stage.comments} packId={packId} />
-
-      {board.canWork && (
-        <div className="mt-3 rounded-xl border border-line p-3 flex flex-col gap-2">
-          {/* §16: чата между заказчиком и упаковщиком в модуле нет —
-              правки обсуждаются во внешних каналах. Здесь только внутренние
-              заметки команды, клиент их не видит никогда. */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="chip bg-[#fff6e6] text-[#b7791f]">
-              <Users size={11} /> Внутренняя заметка — клиент не увидит
-            </span>
-          </div>
-          <textarea
-            className={areaCls}
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder="Заметка для команды" 
-          />
-          {files.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {files.map((f, i) => (
-                <span key={i} className="chip bg-chip text-ink-2">
-                  <Paperclip size={11} /> {f.name}
-                  <button onClick={() => setFiles((p) => p.filter((_, j) => j !== i))}>×</button>
-                </span>
-              ))}
-            </div>
-          )}
-          {error && <p className="text-sm text-[#c53030]">{error}</p>}
-          <div className="flex items-center gap-2">
-            <input
-              ref={fileRef}
-              type="file"
-              className="hidden"
-              onChange={async (e) => {
-                const f = e.target.files?.[0]
-                e.target.value = ''
-                if (!f) return
-                try {
-                  const storageId = await uploadToStorage(() => genUrl({}), f)
-                  setFiles((p) => [...p, { kind: 'file', name: f.name, storageId }])
-                } catch (err) {
-                  setError(errMessage(err, 'Не удалось загрузить файл.'))
-                }
-              }}
-            />
-            <button onClick={() => fileRef.current?.click()} className="mini-btn">
-              <Paperclip size={12} /> Вложение
-            </button>
-            <div className="flex-1" />
-            <button onClick={send} disabled={busy || !text.trim()} className="btn btn-green h-8 px-3 text-sm disabled:opacity-60">
-              {busy ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} Отправить
-            </button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
+// ——— §11.3: комментарии к материалу ———
+//
+// Отдельного блока заметок у этапа больше нет: обсуждение правок идёт во
+// внешних каналах (§16), а всё, что нужно сказать по делу, пишется прямо
+// под материалом.
 
 function CommentList({
   comments,
