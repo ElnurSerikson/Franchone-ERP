@@ -10,7 +10,7 @@ import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-do
 import { useQuery } from 'convex/react'
 import { useAuthActions } from '@convex-dev/auth/react'
 import {
-  BookOpen, CalendarDays, FolderOpen, Gift, Home, Loader2, LogOut, Sparkles,
+  BookOpen, CalendarDays, FolderOpen, Home, Loader2, LogOut, Sparkles,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -19,7 +19,7 @@ import Select from '@/components/ui/Select'
 import ClientHome from './ClientHome'
 import ClientStages from './ClientStages'
 import {
-  ClientCalendar, ClientHub, ClientLearn, ClientMaterials, ClientRewards,
+  ClientCalendar, ClientHub, ClientLearn, ClientMaterials,
 } from './ClientExtras'
 
 // Текущий проект клиента: у него почти всегда один, но архитектура допускает
@@ -33,15 +33,14 @@ export function useClientPack() {
 // получает только целевые Telegram-сообщения (§12). Поэтому вкладки
 // «Уведомления» здесь тоже нет.
 // `short` — подпись под иконкой на телефоне, там на слово ровно одна строка.
-// `mobile: false` — раздел не помещается в пятёрку нижних иконок и остаётся
-// только на широком экране; его содержимое всё равно дублируется на «Обзоре».
+// Разделов ровно пять и на телефоне, и на широком экране. Отдельной страницы
+// пазла нет: он живёт на «Обзоре», рядом с готовностью проекта.
 const NAV = [
-  { to: '/', label: 'Обзор', short: 'Обзор', icon: Home, end: true, mobile: true },
-  { to: '/stages', label: 'Документы', short: 'Документы', icon: FolderOpen, end: false, mobile: true },
-  { to: '/calendar', label: 'Сроки', short: 'Сроки', icon: CalendarDays, end: false, mobile: true },
-  { to: '/rewards', label: 'Пазл и подарок', short: 'Пазл', icon: Gift, end: false, mobile: false },
-  { to: '/learn', label: 'Полезное', short: 'Полезное', icon: BookOpen, end: false, mobile: true },
-  { to: '/hub', label: 'Итоговый комплект', short: 'Комплект', icon: Sparkles, end: false, mobile: true },
+  { to: '/', label: 'Обзор', short: 'Обзор', icon: Home, end: true },
+  { to: '/stages', label: 'Документы', short: 'Документы', icon: FolderOpen, end: false },
+  { to: '/calendar', label: 'Сроки', short: 'Сроки', icon: CalendarDays, end: false },
+  { to: '/learn', label: 'Полезное', short: 'Полезное', icon: BookOpen, end: false },
+  { to: '/hub', label: 'Итоговый комплект', short: 'Комплект', icon: Sparkles, end: false },
 ]
 
 export default function ClientApp() {
@@ -153,7 +152,7 @@ export default function ClientApp() {
                   Горизонтальной прокрутки нет — вся навигация видна сразу,
                   как в мобильном приложении. */}
               <div className="grid grid-cols-5 gap-1 md:hidden">
-                {NAV.filter((n) => n.mobile).map((n) => {
+                {NAV.map((n) => {
                   const Icon = n.icon
                   return (
                     <NavLink
@@ -208,7 +207,6 @@ export default function ClientApp() {
               <Route path="stages" element={<ClientStages />} />
               <Route path="materials" element={<ClientMaterials />} />
               <Route path="calendar" element={<ClientCalendar />} />
-              <Route path="rewards" element={<ClientRewards />} />
               <Route path="learn" element={<ClientLearn />} />
               <Route path="hub" element={<ClientHub />} />
               <Route path="*" element={<Navigate to="/" replace />} />
