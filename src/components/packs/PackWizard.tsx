@@ -32,7 +32,6 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
   const [startDate, setStartDate] = useState(TODAY)
   const [dueDate, setDueDate] = useState(addMonths(TODAY, 2))
   const [clientId, setClientId] = useState('')
-  const [packerId, setPackerId] = useState('')
   const [memberIds, setMemberIds] = useState<string[]>([])
   const [price, setPrice] = useState('')
   const [percent, setPercent] = useState('20')
@@ -42,8 +41,9 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState('')
 
   const packers = board?.packers ?? []
-  const meId = board?.meId
-  const effectivePacker = packerId || (meId as string | undefined) || ''
+  // Ответственный упаковщик не выбирается: им становится тот, кто создал
+  // проект. Сервер подставляет создателя сам, поменять можно в карточке.
+  const meId = (board?.meId as string | undefined) ?? ''
 
   const reward = Math.round((Number(price || 0) * Number(percent || 0)) / 100)
 
@@ -62,7 +62,6 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
         startDate,
         dueDate,
         clientId: clientId ? (clientId as Id<'employees'>) : undefined,
-        packerId: effectivePacker ? (effectivePacker as Id<'employees'>) : undefined,
         memberIds: memberIds as Id<'employees'>[],
         price: Number(price || 0),
         packerPercent: Number(percent || 0),
@@ -176,14 +175,6 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
                   ]}
                 />
               </Field>
-              <Field label="Ответственный упаковщик">
-                <Select
-                  value={effectivePacker}
-                  onChange={setPackerId}
-                  placeholder="Выберите упаковщика"
-                  options={packers.map((p) => ({ value: p._id as string, label: p.name }))}
-                />
-              </Field>
               <div>
                 <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">
                   Дополнительные участники
@@ -193,7 +184,7 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {packers
-                    .filter((p) => (p._id as string) !== effectivePacker)
+                    .filter((p) => (p._id as string) !== meId)
                     .map((p) => {
                       const on = memberIds.includes(p._id as string)
                       return (
