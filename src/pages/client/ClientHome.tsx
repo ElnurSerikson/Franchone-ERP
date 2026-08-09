@@ -6,8 +6,8 @@
 import { Link } from 'react-router-dom'
 import { useQuery } from 'convex/react'
 import {
-  ArrowRight, Check, CheckCircle2, Clock, FileUp, Gauge, Gift, Loader2, MessageSquare,
-  PuzzleIcon as Puzzle_, Sparkles, type LucideIcon,
+  ArrowRight, Check, CheckCircle2, Clock, Gauge, Gift, Loader2,
+  PuzzleIcon as Puzzle_, Route, Sparkles, type LucideIcon,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { ProgressRing } from '@/components/ui/Progress'
@@ -113,10 +113,50 @@ export default function ClientHome() {
           Колонки тянутся по ширине карточки, поэтому трек обходится без
           горизонтальной прокрутки и обрезанных названий. */}
       <section className="card p-5 sm:p-6 mb-5">
-        <div className="text-[13px] font-semibold text-muted uppercase tracking-wide mb-4">
-          Пять этапов упаковки
+        <div className="flex items-center gap-2 mb-5">
+          <Route size={16} className="text-green" />
+          <h2 className="sec-title">Пять этапов упаковки</h2>
         </div>
-        <div className="flex items-start">
+
+        {/* Телефон: путь идёт сверху вниз, название этапа — справа от кружка.
+            В строку пять названий на узком экране не встают. */}
+        <div className="md:hidden flex flex-col">
+          {p.path.map((s, i) => {
+            const done = s.status === 'approved'
+            const active = !done && p.currentStage?._id === s._id
+            const last = i === p.path.length - 1
+            return (
+              <div key={s._id} className={`flex gap-4 ${last ? '' : 'pb-5'}`}>
+                <div className="relative w-14 shrink-0">
+                  {!last && (
+                    <span
+                      className={`absolute left-1/2 -translate-x-1/2 top-14 -bottom-0 w-1.5 ${
+                        done ? 'bg-green' : 'bg-line'
+                      }`}
+                    />
+                  )}
+                  <div
+                    className={`relative w-14 h-14 rounded-full grid place-items-center text-2xl font-bold ${
+                      done
+                        ? 'bg-green text-white'
+                        : active
+                          ? 'bg-[#e2f2ef] text-green-d ring-4 ring-green-light'
+                          : 'bg-chip text-muted'
+                    }`}
+                  >
+                    {done ? <CheckCircle2 size={30} /> : i + 1}
+                  </div>
+                </div>
+                <div className="min-h-14 flex items-center text-[15px] leading-snug text-ink-2">
+                  {s.title}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Планшет и десктоп: горизонтальный трек, названия под кружками. */}
+        <div className="hidden md:flex items-start">
           {p.path.map((s, i) => {
             const done = s.status === 'approved'
             const active = !done && p.currentStage?._id === s._id
@@ -141,7 +181,7 @@ export default function ClientHome() {
                     />
                   )}
                   <div
-                    className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-full grid place-items-center text-2xl font-bold ${
+                    className={`relative w-16 h-16 rounded-full grid place-items-center text-2xl font-bold ${
                       done
                         ? 'bg-green text-white'
                         : active
@@ -172,77 +212,33 @@ export default function ClientHome() {
           <div className="grid place-items-center py-6 text-muted">
             <Loader2 className="animate-spin" size={18} />
           </div>
-        ) : !todo ? null : todo.awaitingStages.length === 0 &&
-          todo.uploads.length === 0 &&
-          todo.openComments.length === 0 ? (
+        ) : !todo ? null : todo.awaitingStages.length === 0 ? (
           <p className="text-[15px] text-muted">
             Сейчас от вас ничего не требуется. Команда FRANCHONE работает над проектом — как только
             этап будет готов, он придёт вам на проверку.
           </p>
         ) : (
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Block
-              icon={CheckCircle2}
-              title="Этапы на проверке"
-              empty="Этапов на проверке нет."
-              count={todo.awaitingStages.length}
-            >
-              {todo.awaitingStages.map((s) => (
-                <Link
-                  key={s._id}
-                  to="/stages"
-                  className="block rounded-xl border border-line p-3 hover:bg-chip/60 transition-colors"
-                >
-                  <div className="text-[15px] font-semibold text-ink">{s.title}</div>
-                  {s.note && <div className="text-[13px] text-muted mt-0.5 line-clamp-2">{s.note}</div>}
-                  <div className="text-[13px] mt-1">
-                    <Deadline at={s.dueAt} now={todo.now} />
-                    {s.repeat && ' · повторная проверка'}
-                  </div>
-                </Link>
-              ))}
-            </Block>
-
-            <Block
-              icon={FileUp}
-              title="Загрузить материалы"
-              empty="Ничего загружать не нужно."
-              count={todo.uploads.length}
-            >
-              {todo.uploads.map((m) => (
-                <Link
-                  key={m._id}
-                  to="/stages"
-                  className="block rounded-xl border border-line p-3 hover:bg-chip/60 transition-colors"
-                >
-                  <div className="text-[15px] font-semibold text-ink">{m.title}</div>
-                  <div className="text-[13px] text-muted mt-0.5">
-                    {m.stage}
-                    {m.dueDate ? ` · до ${m.dueDate}` : ''}
-                    {m.required ? ' · обязательный' : ''}
-                  </div>
-                </Link>
-              ))}
-            </Block>
-
-            <Block
-              icon={MessageSquare}
-              title="Неотвеченные комментарии"
-              empty="Открытых вопросов нет."
-              count={todo.openComments.length}
-            >
-              {todo.openComments.slice(0, 5).map((c) => (
-                <Link
-                  key={c._id}
-                  to="/stages"
-                  className="block rounded-xl border border-line p-3 hover:bg-chip/60 transition-colors"
-                >
-                  <div className="text-[13px] text-ink-2 line-clamp-3">{c.text}</div>
-                  {c.stage && <div className="text-[13px] text-muted mt-0.5">{c.stage}</div>}
-                </Link>
-              ))}
-            </Block>
-          </div>
+          <Block
+            icon={CheckCircle2}
+            title="Этапы на проверке"
+            empty="Этапов на проверке нет."
+            count={todo.awaitingStages.length}
+          >
+            {todo.awaitingStages.map((s) => (
+              <Link
+                key={s._id}
+                to="/stages"
+                className="block rounded-xl border border-line p-3 hover:bg-chip/60 transition-colors"
+              >
+                <div className="text-[15px] font-semibold text-ink">{s.title}</div>
+                {s.note && <div className="text-[13px] text-muted mt-0.5 line-clamp-2">{s.note}</div>}
+                <div className="text-[13px] mt-1">
+                  <Deadline at={s.dueAt} now={todo.now} />
+                  {s.repeat && ' · повторная проверка'}
+                </div>
+              </Link>
+            ))}
+          </Block>
         )}
 
         {todo && todo.deadlines.length > 0 && (
