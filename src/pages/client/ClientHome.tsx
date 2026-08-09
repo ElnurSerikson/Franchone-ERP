@@ -3,6 +3,7 @@
 // Главный вопрос клиента: что уже готово, что происходит сейчас и что
 // требуется от меня. На него страница и отвечает — в таком порядке.
 
+import type { CSSProperties } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from 'convex/react'
 import {
@@ -12,6 +13,7 @@ import {
 import { api } from '../../../convex/_generated/api'
 import { ProgressRing } from '@/components/ui/Progress'
 import Confetti, { useCelebrate } from '@/components/ui/Confetti'
+import { SectionHead, TINT, gcard, type Tint } from './clientUi'
 import { longDate } from '@/lib/format'
 import { Deadline, HealthChip } from '@/components/packs/ui'
 import { useClientPack } from './ClientApp'
@@ -57,61 +59,65 @@ export default function ClientHome() {
 
   return (
     <>
-      {/* §10.1: верхняя зона — тёмный герой. Две карточки одного устройства:
-          заголовок с чипом, пояснение, квадрат с графикой, подпись внизу.
-          Порядок и размеры совпадают, поэтому строки читаются парами. */}
+      {/* §10.1: верхняя зона. Две карточки одного устройства: цветная шапка,
+          пояснение, квадрат с графикой, подпись внизу. Порядок и размеры
+          совпадают, поэтому строки читаются парами. */}
       <div className="grid gap-5 lg:grid-cols-2 mb-5">
-        {/* Готовность проекта */}
-        <section className="hero-dark card border-transparent rise p-5 sm:p-6 flex flex-col relative">
+        {/* Готовность проекта — мятная карточка с градиентным кольцом. */}
+        <section className="g-card card rise p-5 sm:p-6 flex flex-col relative" style={gcard('teal')}>
           <Confetti show={finished} />
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <Gauge size={16} className="text-[#7fd4c4]" />
-            <h2 className="sec-title text-white">{p.title}</h2>
-            <HealthChip health={p.health} reason={p.healthReason} />
-          </div>
-          <p className="text-[13px] text-white/60">
+          <SectionHead
+            icon={Gauge}
+            tint="teal"
+            title={p.title}
+            chip={<HealthChip health={p.health} reason={p.healthReason} />}
+          />
+          <p className="text-[13px] text-muted -mt-2">
             Готовность считается по утверждённым этапам. Плановое завершение —{' '}
             {longDate(p.dueDate)}.
           </p>
 
           <div className={FIGURE}>
-            <div className={p.health === 'red' || p.health === 'yellow' ? 'rounded-full halo' : ''}>
+            <div
+              className={p.health === 'red' || p.health === 'yellow' ? 'rounded-full halo' : ''}
+              style={{ '--halo': 'rgba(217,119,6,0.35)' } as CSSProperties}
+            >
               <ProgressRing
                 value={p.progress / 100}
                 size={264}
-                stroke={20}
+                stroke={22}
                 caption="готовность"
-                labelClass="text-[52px] text-white"
-                captionClass="text-[15px] text-white"
-                track="rgba(255,255,255,0.12)"
-                gradient={['#7fd4c4', '#4db3a6']}
+                labelClass="text-[54px] font-display font-extrabold text-ink"
+                captionClass="text-[13px] uppercase tracking-[0.22em] text-muted"
+                track="#e3edeb"
+                gradient={['#0a857a', '#7c5cd6']}
                 animate
                 glow
               />
             </div>
           </div>
 
-          <div className={`${CAPTION} text-white/60`}>
+          <div className={CAPTION}>
             {p.currentStage && (
-              <div className="font-semibold text-white/90">Сейчас: {p.currentStage.title}</div>
+              <div className="font-semibold text-ink-2">Сейчас: {p.currentStage.title}</div>
             )}
             {p.pausedReason && (
-              <div className="mt-0.5 text-[#f6c66b]">Проект на паузе: {p.pausedReason}</div>
+              <div className="mt-0.5 text-[#b7791f]">Проект на паузе: {p.pausedReason}</div>
             )}
           </div>
 
           {/* §10.1: таймер текущего согласования — единственное место, где
               заказчика зовут действовать прямо с обзора. */}
           {p.timerDueAt && (
-            <div className="mt-3 rounded-xl bg-white/10 ring-1 ring-white/20 backdrop-blur p-3 flex items-center gap-2 flex-wrap justify-center">
-              <Clock size={15} className="text-[#9dc0ff] shrink-0" />
-              <span className="text-[15px] text-white/90">
+            <div className="mt-3 rounded-xl bg-[#ecf2fe] ring-1 ring-[#cddcf9] p-3 flex items-center gap-2 flex-wrap justify-center">
+              <Clock size={15} className="text-[#2563eb] shrink-0" />
+              <span className="text-[15px] text-[#1d4ed8]">
                 Ответ по этапу «{p.awaitingStage?.title}» —{' '}
                 <Deadline at={p.timerDueAt} now={data.now} />
               </span>
               <Link
                 to="/stages"
-                className="btn h-9 px-3.5 text-[15px] bg-white text-green-d hover:bg-white/90"
+                className="btn btn-shine h-9 px-3.5 text-[15px] text-white bg-gradient-to-r from-green-2 to-green-d shadow-[0_10px_20px_-10px_rgba(4,79,72,0.9)]"
               >
                 Открыть документы <ArrowRight size={14} />
               </Link>
@@ -127,10 +133,7 @@ export default function ClientHome() {
           Колонки тянутся по ширине карточки, поэтому трек обходится без
           горизонтальной прокрутки и обрезанных названий. */}
       <section className="card rise d2 p-5 sm:p-6 mb-5">
-        <div className="flex items-center gap-2 mb-5">
-          <Route size={16} className="text-green" />
-          <h2 className="sec-title">Пять этапов упаковки</h2>
-        </div>
+        <SectionHead icon={Route} tint="teal" title="Пять этапов упаковки" />
 
         {/* Телефон: путь идёт сверху вниз, название этапа — справа от кружка.
             В строку пять названий на узком экране не встают. */}
@@ -146,11 +149,12 @@ export default function ClientHome() {
                     следующего кружка. Отступ снизу и есть длина линии. */}
                 <div className={`relative w-14 shrink-0 ${last ? '' : 'pb-6'}`}>
                   <div
-                    className={`relative w-14 h-14 rounded-full grid place-items-center text-2xl font-bold ${
+                    style={{ '--halo': 'rgba(77,179,166,0.45)' } as CSSProperties}
+                    className={`relative w-14 h-14 rounded-full grid place-items-center text-2xl font-bold font-display ${
                       done
                         ? 'bg-gradient-to-br from-green-2 to-green-d text-white shadow-[0_6px_16px_-8px_rgba(4,79,72,0.9)]'
                         : active
-                          ? 'bg-[#e2f2ef] text-green-d ring-4 ring-green-light halo'
+                          ? 'bg-white text-green-d ring-4 ring-green-light halo'
                           : 'bg-chip text-muted'
                     }`}
                   >
@@ -159,7 +163,7 @@ export default function ClientHome() {
                   {!last && (
                     <span
                       className={`absolute left-1/2 -translate-x-1/2 top-14 bottom-0 w-1.5 ${
-                        done ? 'bg-green' : 'bg-line'
+                        done ? 'bg-gradient-to-r from-green-2 to-green-light' : 'bg-line'
                       }`}
                     />
                   )}
@@ -190,23 +194,24 @@ export default function ClientHome() {
                   {i > 0 && (
                     <span
                       className={`absolute left-0 top-1/2 -translate-y-1/2 h-1.5 w-1/2 ${
-                        prevDone ? 'bg-green' : 'bg-line'
+                        prevDone ? 'bg-gradient-to-r from-green-light to-green-2' : 'bg-line'
                       }`}
                     />
                   )}
                   {i < p.path.length - 1 && (
                     <span
                       className={`absolute right-0 top-1/2 -translate-y-1/2 h-1.5 w-1/2 ${
-                        done ? 'bg-green' : 'bg-line'
+                        done ? 'bg-gradient-to-r from-green-2 to-green-light' : 'bg-line'
                       }`}
                     />
                   )}
                   <div
-                    className={`relative w-16 h-16 rounded-full grid place-items-center text-2xl font-bold ${
+                    style={{ '--halo': 'rgba(77,179,166,0.45)' } as CSSProperties}
+                    className={`relative w-16 h-16 rounded-full grid place-items-center text-2xl font-bold font-display ${
                       done
                         ? 'bg-gradient-to-br from-green-2 to-green-d text-white shadow-[0_6px_16px_-8px_rgba(4,79,72,0.9)]'
                         : active
-                          ? 'bg-[#e2f2ef] text-green-d ring-4 ring-green-light halo'
+                          ? 'bg-white text-green-d ring-4 ring-green-light halo'
                           : 'bg-chip text-muted'
                     }`}
                   >
@@ -224,16 +229,19 @@ export default function ClientHome() {
 
       {/* §6.1: блок «Требуется ваше внимание» */}
       <section className="card rise d3 p-5 mb-5">
-        <div className="flex items-center gap-2 mb-4">
-          <Sparkles size={16} className="text-[#2563eb]" />
-          <h2 className="sec-title">Требуется ваше внимание</h2>
-          {todo && todo.awaitingStages.length > 0 && (
-            <span className="chip bg-[#e8effd] text-[#2563eb]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#2563eb] dot-pulse" />
-              {todo.awaitingStages.length}
-            </span>
-          )}
-        </div>
+        <SectionHead
+          icon={Sparkles}
+          tint="blue"
+          title="Требуется ваше внимание"
+          chip={
+            todo && todo.awaitingStages.length > 0 ? (
+              <span className="chip bg-[#e8effd] text-[#2563eb]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2563eb] dot-pulse" />
+                {todo.awaitingStages.length}
+              </span>
+            ) : undefined
+          }
+        />
 
         {todo === undefined ? (
           <div className="grid place-items-center py-6 text-muted">
@@ -290,30 +298,9 @@ export default function ClientHome() {
       {/* Мост в остальные разделы: с обзора должно быть видно, куда идти
           дальше, а не только что происходит сейчас. */}
       <section className="grid gap-4 sm:grid-cols-3 rise d4 mb-5">
-        <NextCard
-          to="/stages"
-          icon={FolderOpen}
-          title="Документы"
-          text="Открыть, оценить и принять"
-          tint="from-[#e8effd] to-white"
-          color="#2563eb"
-        />
-        <NextCard
-          to="/calendar"
-          icon={CalendarClock}
-          title="Сроки"
-          text="Что и когда предстоит"
-          tint="from-[#fff6e6] to-white"
-          color="#b7791f"
-        />
-        <NextCard
-          to="/learn"
-          icon={BookOpen}
-          title="Полезное"
-          text="Видео, статьи и тесты"
-          tint="from-[#f1ecfd] to-white"
-          color="#7c5cd6"
-        />
+        <NextCard to="/stages" icon={FolderOpen} title="Документы" text="Открыть, оценить и принять" tint="blue" />
+        <NextCard to="/calendar" icon={CalendarClock} title="Сроки" text="Что и когда предстоит" tint="amber" />
+        <NextCard to="/learn" icon={BookOpen} title="Полезное" text="Видео, статьи и тесты" tint="violet" />
       </section>
     </>
   )
@@ -327,34 +314,30 @@ function NextCard({
   title,
   text,
   tint,
-  color,
 }: {
   to: string
   icon: LucideIcon
   title: string
   text: string
-  tint: string
-  color: string
+  tint: Tint
 }) {
   return (
     <Link
       to={to}
-      className={`card lift group relative overflow-hidden p-5 bg-gradient-to-br ${tint} flex items-center gap-4`}
+      className="g-card card lift group relative overflow-hidden p-5 flex items-center gap-4"
+      style={gcard(tint)}
     >
-      <span
-        className="w-12 h-12 rounded-2xl grid place-items-center shrink-0 ring-1 ring-black/5"
-        style={{ background: '#fff', color }}
-      >
+      <span className={`icon-tile w-12 h-12 rounded-2xl bg-gradient-to-br ${TINT[tint].grad}`}>
         <Icon size={22} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-[16px] font-bold text-ink">{title}</span>
+        <span className="block text-[17px] font-bold text-ink font-display">{title}</span>
         <span className="block text-[13px] text-muted mt-0.5">{text}</span>
       </span>
       <ArrowRight
         size={18}
-        className="shrink-0 text-muted-2 transition-transform group-hover:translate-x-1"
-        style={{ color }}
+        className="shrink-0 transition-transform group-hover:translate-x-1.5"
+        style={{ color: TINT[tint].a }}
       />
     </Link>
   )
@@ -391,22 +374,25 @@ function Puzzle({
   const won = useCelebrate(`puzzle:${packId}`, puzzle.collected)
 
   return (
-    <section className="hero-dark card border-transparent rise d1 p-5 sm:p-6 flex flex-col relative">
+    <section className="g-card card rise d1 p-5 sm:p-6 flex flex-col relative" style={gcard('violet')}>
       <Confetti show={won} />
-      <div className="flex items-center gap-2 flex-wrap mb-1">
-        <Puzzle_ size={16} className="text-[#c4b1f5]" />
-        <h2 className="sec-title text-white">Пазл</h2>
-        <span
-          className={`chip ${
-            puzzle.collected === puzzle.total
-              ? 'bg-[#7c5cd6] text-white'
-              : 'bg-white/12 text-white/80 ring-1 ring-white/20'
-          }`}
-        >
-          собрано {puzzle.collected} из {puzzle.total}
-        </span>
-      </div>
-      <p className="text-[13px] text-white/60">
+      <SectionHead
+        icon={Puzzle_}
+        tint="violet"
+        title="Пазл"
+        chip={
+          <span
+            className={`chip ${
+              puzzle.collected === puzzle.total
+                ? 'bg-gradient-to-r from-[#7c5cd6] to-[#a78bfa] text-white'
+                : 'bg-[#f1ecfd] text-[#5b3fb0]'
+            }`}
+          >
+            собрано {puzzle.collected} из {puzzle.total}
+          </span>
+        }
+      />
+      <p className="text-[13px] text-muted -mt-2">
         Каждая часть открывается, когда вы принимаете этап в срок. Полный пазл — гарантированный
         персональный подарок от FRANCHONE.
       </p>
@@ -430,17 +416,17 @@ function Puzzle({
                   p.open
                     ? ''
                     : p.missed
-                      ? 'bg-[#4a1f28] text-[#ff9b9b] ring-1 ring-inset ring-white/10'
+                      ? 'bg-[#fdecf2] text-[#d6336c] ring-1 ring-inset ring-white'
                       : p.active
-                        ? 'bg-white/15 text-white ring-2 ring-inset ring-[#7fd4c4] animate-pulse'
-                        : 'bg-white/[0.09] text-white/45 ring-1 ring-inset ring-white/15'
+                        ? 'bg-white text-[#7c5cd6] ring-2 ring-inset ring-[#a78bfa] animate-pulse'
+                        : 'bg-[#efeafb] text-[#b7a8e8] ring-1 ring-inset ring-white'
                 }`}
               >
+                {/* Кусок общей картинки: растягиваем её до размера всего
+                    квадрата и сдвигаем так, чтобы в окне плитки оказалась
+                    именно её доля. */}
                 {p.open && bento ? (
                   <>
-                  // Кусок общей картинки: растягиваем её до размера всего
-                  // квадрата и сдвигаем так, чтобы в окне плитки оказалась
-                  // именно её доля.
                   <img
                     src={PUZZLE_IMAGE}
                     alt=""
@@ -471,8 +457,8 @@ function Puzzle({
       </div>
 
       {gift.earned ? (
-        <div className={`${CAPTION} text-white/60`}>
-          <div className="font-semibold text-[#c4b1f5]">
+        <div className={CAPTION}>
+          <div className="font-semibold text-[#5b3fb0]">
             <Gift size={13} className="inline -mt-0.5 mr-1" />
             Пазл собран полностью
           </div>
@@ -482,8 +468,8 @@ function Puzzle({
           </div>
         </div>
       ) : (
-        <div className={`${CAPTION} text-white/60`}>
-          <div className="font-semibold text-white/90">
+        <div className={CAPTION}>
+          <div className="font-semibold text-ink-2">
             Осталось собрать частей: {puzzle.total - puzzle.collected}
           </div>
         </div>

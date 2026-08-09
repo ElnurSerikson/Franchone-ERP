@@ -163,102 +163,128 @@
    КАБИНЕТ ЗАКАЗЧИКА
    ═══════════════════════════════════════════════════════════════════════
    Всё внутри `.client-shell` — ERP команды это не задевает ни на пиксель.
-   Кабинет читают снаружи компании, часто один раз в неделю и с телефона:
-   ему нужен собственный характер, а не плотность рабочей админки.
+   Кабинет светлый, но цветной: за белыми «листами» дрейфует цветная аврора,
+   у каждой секции свой акцент, заголовки набраны Onest.
 
-   Цвет здесь означает состояние, а не украшает:
-     синий   — ждут вас;      янтарь — срок близко;
-     зелёный — принято;       сирень — награда, пазл, подарок.
+   Цвет — это роль, а не украшение:
+     мята    — прогресс и принятое;   синий  — ждут вас;
+     янтарь  — деньги и сроки;        сирень — пазл и награды;
+     роза    — праздник и финал.
 */
 @layer components {
   .client-shell {
-    --c-blue: #2563eb;
-    --c-blue-soft: #e8effd;
-    --c-amber: #b7791f;
-    --c-amber-soft: #fff6e6;
-    --c-violet: #7c5cd6;
-    --c-violet-soft: #f1ecfd;
-    --c-rose: #d6336c;
-    /* Тёмная герой-зона: шапка и верхний блок «Обзора». */
-    --hero: linear-gradient(150deg, #01302c 0%, #044f48 45%, #057269 100%);
-    --font-display: ui-rounded, 'SF Pro Rounded', 'Segoe UI Variable Display',
-      'Nunito Sans', 'Fira Sans', system-ui, sans-serif;
-    /* Мягкий перелив под карточками — вместо ровной серой заливки. */
-    background:
-      radial-gradient(1100px 520px at 12% -8%, #e4f2ef 0%, rgba(228, 242, 239, 0) 62%),
-      radial-gradient(900px 480px at 92% 4%, #eae7fb 0%, rgba(234, 231, 251, 0) 58%),
-      #f4f4f4;
+    --font-display: 'Onest', 'Fira Sans', system-ui, sans-serif;
+    background: #f4f6f6;
   }
 
-  /* Заголовки кабинета — вторым шрифтом и плотнее, чем в ERP. */
-  .client-shell h1,
-  .client-shell h2,
-  .client-shell .sec-title {
-    font-family: var(--font-display);
-    letter-spacing: -0.018em;
-  }
-
-  /* Тёмная герой-зона. Пятна света держим внутри через ::before. */
-  .hero-dark {
-    position: relative;
+  /* Аврора: три больших пятна цвета дрейфуют за контентом. Слой fixed —
+     свечение живёт и при прокрутке; контент поверх (relative + z-index). */
+  .aurora {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
     overflow: hidden;
-    background: var(--hero);
-    color: #fff;
-  }
-  .hero-dark::before {
-    content: '';
-    position: absolute;
-    inset: -40% -10% auto -10%;
-    height: 180%;
-    background:
-      radial-gradient(420px 260px at 18% 22%, rgba(77, 179, 166, 0.34), transparent 68%),
-      radial-gradient(380px 240px at 82% 12%, rgba(124, 92, 214, 0.26), transparent 66%);
     pointer-events: none;
   }
-  .hero-dark > * {
-    position: relative;
+  .aurora span {
+    position: absolute;
+    border-radius: 9999px;
+    filter: blur(90px);
+    opacity: 0.55;
   }
+  .aurora span:nth-child(1) {
+    width: 560px; height: 560px; left: -140px; top: -180px;
+    background: #93d6c8;
+    animation: drift1 26s ease-in-out infinite alternate;
+  }
+  .aurora span:nth-child(2) {
+    width: 520px; height: 520px; right: -160px; top: -60px;
+    background: #cabdf5;
+    animation: drift2 32s ease-in-out infinite alternate;
+  }
+  .aurora span:nth-child(3) {
+    width: 480px; height: 480px; left: 32%; bottom: -240px;
+    background: #f8d9b0;
+    animation: drift3 38s ease-in-out infinite alternate;
+  }
+  @keyframes drift1 { to { transform: translate(80px, 50px) scale(1.08) } }
+  @keyframes drift2 { to { transform: translate(-70px, 80px) scale(1.12) } }
+  @keyframes drift3 { to { transform: translate(50px, -70px) scale(1.05) } }
 
-  /* Заголовок с градиентной заливкой — только для главных строк. */
-  .title-gradient {
-    background: linear-gradient(96deg, #057269 0%, #0a857a 40%, #7c5cd6 100%);
+  /* Заголовки и крупные цифры — Onest. */
+  .client-shell h1,
+  .client-shell h2,
+  .client-shell h3,
+  .client-shell .sec-title {
+    font-family: var(--font-display);
+    letter-spacing: -0.01em;
+  }
+  .font-display { font-family: var(--font-display) }
+
+  /* Живой градиентный заголовок страницы: заливка медленно перетекает. */
+  .title-pan {
+    background: linear-gradient(90deg, #057269 0%, #7c5cd6 40%, #d6336c 65%, #057269 100%);
+    background-size: 300% 100%;
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+    animation: pan 9s linear infinite;
+  }
+  @keyframes pan { to { background-position: 300% 0 } }
+
+  /* Карточка с цветной кромкой и мягкой заливкой от своего цвета к белому.
+     Цвета задаются переменными: --wash, --gb-a, --gb-b, --lift-shadow. */
+  .g-card {
+    border: 1px solid transparent;
+    background:
+      linear-gradient(165deg, var(--wash, #fff) 0%, #fff 55%) padding-box,
+      linear-gradient(135deg, var(--gb-a, #e7e9ea), var(--gb-b, #e7e9ea)) border-box;
   }
 
-  /* Карточка кабинета: мягче тень, заметнее отклик на наведение. */
   .client-shell .card {
-    transition:
-      box-shadow 0.25s ease,
-      transform 0.25s ease;
+    transition: box-shadow 0.25s ease, transform 0.25s ease;
   }
   .lift:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 12px 30px -12px rgba(4, 79, 72, 0.28);
+    transform: translateY(-3px);
+    box-shadow: 0 18px 40px -16px var(--lift-shadow, rgba(4, 79, 72, 0.3));
   }
+
+  /* Квадратик-иконка секции на градиенте — единый знак начала секции. */
+  .icon-tile {
+    display: inline-grid;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.9rem;
+    color: #fff;
+    box-shadow: 0 10px 20px -10px rgba(0, 0, 0, 0.4);
+    flex-shrink: 0;
+  }
+
+  /* Блик, пробегающий по кнопке при наведении. */
+  .btn-shine { position: relative; overflow: hidden }
+  .btn-shine::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    transform: translateX(-130%);
+    background: linear-gradient(100deg, transparent 32%, rgba(255, 255, 255, 0.45) 50%, transparent 68%);
+  }
+  .btn-shine:hover::after { animation: sheen 0.9s ease }
 
   /* ——— Движение ——— */
   @keyframes riseIn {
-    from {
-      opacity: 0;
-      transform: translateY(14px);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
+    from { opacity: 0; transform: translateY(14px) }
+    to { opacity: 1; transform: none }
   }
-  .rise {
-    animation: riseIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
-  }
+  .rise { animation: riseIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both }
   .d1 { animation-delay: 0.06s }
   .d2 { animation-delay: 0.12s }
   .d3 { animation-delay: 0.18s }
   .d4 { animation-delay: 0.24s }
   .d5 { animation-delay: 0.3s }
 
-  /* Блик по собранной части пазла и по обложкам. */
+  /* Блик по собранной части пазла и обложкам. */
   @keyframes sheen {
     0% { transform: translateX(-120%) }
     100% { transform: translateX(220%) }
@@ -267,31 +293,22 @@
     content: '';
     position: absolute;
     inset: 0;
-    background: linear-gradient(
-      100deg,
-      transparent 35%,
-      rgba(255, 255, 255, 0.42) 50%,
-      transparent 65%
-    );
+    background: linear-gradient(100deg, transparent 35%, rgba(255, 255, 255, 0.42) 50%, transparent 65%);
     animation: sheen 2.4s ease-in-out 0.5s;
     pointer-events: none;
   }
 
-  /* Пульс вокруг того, что ждёт действия. */
+  /* Пульс вокруг того, что ждёт действия. Цвет — через --halo. */
   @keyframes haloPulse {
-    0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35) }
-    50% { box-shadow: 0 0 0 8px rgba(37, 99, 235, 0) }
+    0%, 100% { box-shadow: 0 0 0 0 var(--halo, rgba(37, 99, 235, 0.35)) }
+    50% { box-shadow: 0 0 0 10px transparent }
   }
-  .halo {
-    animation: haloPulse 2.2s ease-out infinite;
-  }
+  .halo { animation: haloPulse 2.2s ease-out infinite }
   @keyframes dotPulse {
     0%, 100% { opacity: 1; transform: scale(1) }
     50% { opacity: 0.45; transform: scale(0.72) }
   }
-  .dot-pulse {
-    animation: dotPulse 1.6s ease-in-out infinite;
-  }
+  .dot-pulse { animation: dotPulse 1.6s ease-in-out infinite }
 
   /* Салют: один элемент — одна частица, летит и гаснет. */
   @keyframes confettiFall {
@@ -310,7 +327,8 @@
   @media (prefers-reduced-motion: reduce) {
     .client-shell *,
     .client-shell *::after,
-    .client-shell *::before {
+    .client-shell *::before,
+    .aurora span {
       animation-duration: 0.001ms !important;
       animation-iteration-count: 1 !important;
       transition-duration: 0.001ms !important;

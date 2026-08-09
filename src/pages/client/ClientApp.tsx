@@ -100,11 +100,18 @@ export default function ClientApp() {
     <BrowserRouter>
       <PackCtx.Provider value={{ packId }}>
         <div className="client-shell min-h-screen flex flex-col">
-          {/* Шапка кабинета — тёмная герой-зона: кабинет заказчика должен
-              читаться как отдельный продукт, а не как раздел админки. */}
-          <header className="hero-dark sticky top-0 z-30 shadow-[0_10px_30px_-18px_rgba(1,48,44,0.9)]">
+          {/* Цветная аврора дрейфует за контентом на всех экранах кабинета. */}
+          <div className="aurora" aria-hidden>
+            <span />
+            <span />
+            <span />
+          </div>
+
+          {/* Шапка — светлое стекло: кабинет заказчика читается как отдельный
+              продукт, а не как раздел админки. */}
+          <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-xl border-b border-line/70 shadow-[0_10px_30px_-24px_rgba(4,79,72,0.5)]">
             <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-white/12 ring-1 ring-white/25 backdrop-blur flex items-center justify-center text-white text-[17px] font-extrabold shrink-0 select-none">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-green-2 to-green-d flex items-center justify-center text-white text-[18px] font-extrabold shrink-0 select-none shadow-[0_8px_18px_-8px_rgba(4,79,72,0.8)]">
                 F
               </div>
               <div className="min-w-0 flex-1">
@@ -116,27 +123,27 @@ export default function ClientApp() {
                     options={data.packs.map((p) => ({ value: p._id as string, label: p.title }))}
                   />
                 ) : (
-                  <div className="text-[17px] font-bold text-white truncate leading-tight">
+                  <div className="text-[17px] font-bold text-ink truncate leading-tight font-display">
                     {data.pack.title}
                   </div>
                 )}
-                <div className="text-[13px] text-white/60 truncate">
+                <div className="text-[13px] text-muted truncate">
                   Кабинет клиента FRANCHONE
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <Avatar src={data.me.avatarUrl} initials={data.me.initials} color={data.me.avatarColor} size={32} />
                 <div className="min-w-0 hidden sm:block">
-                  <div className="text-[13px] font-semibold text-white truncate max-w-[140px]">
+                  <div className="text-[13px] font-semibold text-ink truncate max-w-[140px]">
                     {data.me.name}
                   </div>
-                  <div className="text-[12px] text-white/60 truncate max-w-[140px]">
+                  <div className="text-[12px] text-muted truncate max-w-[140px]">
                     {data.me.company}
                   </div>
                 </div>
                 <button
                   onClick={() => void signOut()}
-                  className="w-9 h-9 rounded-xl bg-white/10 ring-1 ring-white/20 text-white/80 hover:bg-white/20 hover:text-white transition-colors inline-flex items-center justify-center"
+                  className="ico-btn w-9 h-9"
                   aria-label="Выйти"
                   title="Выйти"
                 >
@@ -163,8 +170,8 @@ export default function ClientApp() {
                       className={({ isActive }) =>
                         `flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${
                           isActive
-                            ? 'bg-white text-green-d shadow-[0_6px_16px_-6px_rgba(0,0,0,0.5)]'
-                            : 'text-white/70 active:bg-white/10'
+                            ? 'bg-gradient-to-br from-green-2 to-green-d text-white shadow-[0_10px_20px_-10px_rgba(4,79,72,0.8)]'
+                            : 'text-muted active:bg-chip'
                         }`
                       }
                     >
@@ -191,8 +198,8 @@ export default function ClientApp() {
                       className={({ isActive }) =>
                         `inline-flex items-center gap-2 h-12 px-5 rounded-xl text-base font-semibold whitespace-nowrap transition-all ${
                           isActive
-                            ? 'bg-white text-green-d shadow-[0_8px_20px_-8px_rgba(0,0,0,0.55)]'
-                            : 'bg-white/10 text-white/75 ring-1 ring-white/15 hover:bg-white/20 hover:text-white'
+                            ? 'bg-gradient-to-r from-green-2 to-green-d text-white shadow-[0_12px_24px_-12px_rgba(4,79,72,0.9)]'
+                            : 'bg-white ring-1 ring-line text-ink-2 hover:ring-green-light hover:text-green-d hover:shadow-soft'
                         }`
                       }
                     >
@@ -204,7 +211,7 @@ export default function ClientApp() {
             </nav>
           </header>
 
-          <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-5">
+          <main className="relative z-[1] flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6">
             <Routes>
               <Route index element={<ClientHome />} />
               <Route path="stages" element={<ClientStages />} />
@@ -216,8 +223,9 @@ export default function ClientApp() {
             </Routes>
           </main>
 
-          <footer className="border-t border-line bg-card">
-            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 text-[13px] text-muted-2">
+          <footer className="relative z-[1] border-t border-line/60 bg-white/70 backdrop-blur">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center gap-2.5 text-[13px] text-muted">
+              <span className="w-2 h-2 rounded-full bg-gradient-to-br from-green-2 to-[#7c5cd6]" />
               FRANCHONE · упаковка франшизы. Все материалы и история согласований останутся
               доступны и после завершения проекта.
             </div>

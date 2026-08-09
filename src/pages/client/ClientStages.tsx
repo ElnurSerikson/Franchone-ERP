@@ -18,6 +18,7 @@ import {
   AttachmentLink, Deadline, MaterialChip, StageChip, dateTime, inputCls,
 } from '@/components/packs/ui'
 import { useClientPack } from './ClientApp'
+import { PageTitle, TINT, gcard, type Tint } from './clientUi'
 
 export default function ClientStages() {
   const packId = useClientPack()
@@ -40,11 +41,21 @@ export default function ClientStages() {
 
   return (
     <>
-      <h1 className="text-3xl font-extrabold title-gradient mb-1 rise">Документы</h1>
-      <p className="text-[15px] text-muted mb-5 rise d1">
-        Откройте документ и решите: принять или вернуть на доработку. Правки обсуждаем в
-        привычном канале.
-      </p>
+      <PageTitle
+        title="Документы"
+        sub="Откройте документ и решите: принять или вернуть на доработку. Правки обсуждаем в привычном канале."
+      />
+
+      {/* Сводка одним взглядом: где проект и что из этого — ваше. */}
+      <div className="grid grid-cols-3 gap-3 mb-5 rise d1">
+        <Stat tint="teal" value={data.stages.filter((x) => x.status === 'approved').length} label="принято" />
+        <Stat tint="blue" value={data.stages.filter((x) => x.canAct).length} label="ждут вас" />
+        <Stat
+          tint="violet"
+          value={data.stages.filter((x) => x.status !== 'approved' && !x.canAct).length}
+          label="впереди"
+        />
+      </div>
 
       <div className="flex flex-col gap-3">
         {data.stages.map((s, i) => (
@@ -59,6 +70,18 @@ export default function ClientStages() {
         ))}
       </div>
     </>
+  )
+}
+
+// Мини-плитка сводки: крупная цифра в цвете своей роли.
+function Stat({ tint, value, label }: { tint: Tint; value: number; label: string }) {
+  return (
+    <div className="g-card card p-4 text-center" style={gcard(tint)}>
+      <div className="text-3xl font-extrabold font-display" style={{ color: TINT[tint].a }}>
+        {value}
+      </div>
+      <div className="text-[13px] text-muted mt-0.5">{label}</div>
+    </div>
   )
 }
 
@@ -314,9 +337,11 @@ function Stars({ material }: { material: Stage['materials'][number] }) {
             className="p-0.5 disabled:opacity-60"
           >
             <Star
-              size={18}
-              className={n <= value ? 'text-[#d69e2e]' : 'text-muted-2'}
-              fill={n <= value ? '#d69e2e' : 'none'}
+              size={22}
+              className={`transition-transform hover:scale-110 ${
+                n <= value ? 'text-[#f59e0b]' : 'text-muted-2'
+              }`}
+              fill={n <= value ? '#f59e0b' : 'none'}
             />
           </button>
         ))}
@@ -351,7 +376,7 @@ function Decision({ material }: { material: Stage['materials'][number] }) {
         <button
           onClick={() => act('accept', () => accept({ materialId: material._id }))}
           disabled={!!busy}
-          className="btn h-10 px-4 text-[15px] text-white bg-gradient-to-r from-green-2 to-green-d shadow-[0_8px_18px_-8px_rgba(4,79,72,0.9)] hover:opacity-95 disabled:opacity-60"
+          className="btn btn-shine h-10 px-4 text-[15px] text-white bg-gradient-to-r from-green-2 to-green-d shadow-[0_8px_18px_-8px_rgba(4,79,72,0.9)] hover:opacity-95 disabled:opacity-60"
         >
           {busy === 'accept' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
           Принять

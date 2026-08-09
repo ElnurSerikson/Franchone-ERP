@@ -18,6 +18,7 @@ import {
   CONTENT_KIND_LABEL, EVENT_LABEL, MATERIAL_KIND_LABEL, youtubeId,
 } from '../../../convex/packModel'
 import { AttachmentLink, Empty, MaterialChip, dateTime } from '@/components/packs/ui'
+import { PageTitle, gcard } from './clientUi'
 import { useClientPack } from './ClientApp'
 
 function Loading() {
@@ -43,10 +44,7 @@ export function ClientMaterials() {
 
   return (
     <>
-      <h1 className="text-2xl font-bold text-ink mb-1">Материалы проекта</h1>
-      <p className="text-[15px] text-muted mb-5">
-        Все доступные вам материалы и полная история версий.
-      </p>
+      <PageTitle title="Материалы проекта" sub="Все доступные вам материалы и полная история версий." />
       {rows.length === 0 ? (
         <Empty
           icon={FolderOpen}
@@ -119,6 +117,15 @@ const DOT: Record<string, string> = {
   finished: 'bg-green-light',
 }
 
+function Legend({ color, label }: { color: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+      {label}
+    </span>
+  )
+}
+
 type CalendarItem = { date: string; kind: string; title: string; fact: boolean }
 
 export function ClientCalendar() {
@@ -135,8 +142,15 @@ export function ClientCalendar() {
 
   return (
     <>
-      <h1 className="text-3xl font-extrabold title-gradient mb-1 rise">Сроки</h1>
-      <p className="text-[15px] text-muted mb-5 rise d1">Что и когда предстоит по проекту.</p>
+      <PageTitle title="Сроки" sub="Что и когда предстоит по проекту." />
+
+      {/* Легенда: цвет точки — это роль события. */}
+      <div className="flex items-center gap-4 flex-wrap mb-4 rise d1 text-[13px] text-muted">
+        <Legend color="#2563eb" label="ждут вас" />
+        <Legend color="#d69e2e" label="платежи и точки" />
+        <Legend color="#4db3a6" label="сделано и встречи" />
+        <Legend color="#c53030" label="срок проекта" />
+      </div>
 
       <section className="card rise d2 p-5 mb-3">
         {upcoming.length === 0 ? (
@@ -242,11 +256,10 @@ export function ClientLearn() {
 
   return (
     <>
-      <h1 className="text-3xl font-extrabold title-gradient mb-1 rise">Полезные материалы</h1>
-      <p className="text-[15px] text-muted mb-5 rise d1">
-        Видео, статьи и тесты от команды FRANCHONE. На ход проекта они не влияют — это польза
-        сверх упаковки.
-      </p>
+      <PageTitle
+        title="Полезные материалы"
+        sub="Видео, статьи и тесты от команды FRANCHONE. На ход проекта они не влияют — это польза сверх упаковки."
+      />
 
       {active ? (
         <ContentView
@@ -305,7 +318,15 @@ export function ClientLearn() {
               </div>
               <div className="p-4">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="chip bg-chip text-muted">
+                  <span
+                    className={`chip ${
+                      c.kind === 'video'
+                        ? 'bg-[#e8effd] text-[#1d4ed8]'
+                        : c.kind === 'test'
+                          ? 'bg-[#fde8ef] text-[#be185d]'
+                          : 'bg-[#e2f2ef] text-green-d'
+                    }`}
+                  >
                     {CONTENT_KIND_LABEL[c.kind] ?? c.kind}
                   </span>
                   {c.result && (
@@ -541,22 +562,30 @@ export function ClientHub() {
   if (!data) return null
 
   if (!data.open) {
+    // Сейф ещё заперт: вместо пустой заглушки — куда идём и сколько осталось.
     return (
-      <Empty
-        icon={Sparkles}
-        title="Итоговый хаб откроется после завершения"
-        text="Когда проект достигнет 100%, здесь появятся все итоговые документы, актуальные версии, история согласований и полученные награды. Кабинет останется у вас навсегда."
-      />
+      <section className="g-card card rise p-8 sm:p-10 text-center" style={gcard('violet')}>
+        <span className="icon-tile w-16 h-16 rounded-2xl mx-auto bg-gradient-to-br from-[#7c5cd6] to-[#d6336c]">
+          <Sparkles size={28} />
+        </span>
+        <h1 className="text-2xl font-extrabold text-ink mt-4">
+          Итоговый хаб откроется на 100%
+        </h1>
+        <p className="text-[15px] text-muted mt-2 max-w-xl mx-auto">
+          Когда проект будет завершён, здесь появятся все итоговые документы, актуальные версии,
+          история согласований и полученные награды. Кабинет останется у вас навсегда.
+        </p>
+      </section>
     )
   }
 
   return (
     <>
-      <section className="hero-dark card border-transparent rise p-6 mb-5 text-center relative overflow-hidden">
+      <section className="card border-transparent rise p-7 mb-5 text-center relative overflow-hidden bg-gradient-to-br from-[#7c5cd6] via-[#d6336c] to-[#f59e0b] text-white shadow-[0_24px_50px_-20px_rgba(124,92,214,0.7)]">
         <Confetti show={cheer} />
-        <div className="text-[13px] uppercase tracking-widest text-white/50">FRANCHONE</div>
-        <h1 className="text-3xl font-extrabold text-white mt-1">Франшиза упакована</h1>
-        <p className="text-[15px] text-white/70 mt-2 max-w-xl mx-auto">
+        <div className="text-[13px] uppercase tracking-[0.3em] text-white/70">FRANCHONE</div>
+        <h1 className="text-3xl sm:text-4xl font-extrabold text-white mt-1">Франшиза упакована</h1>
+        <p className="text-[15px] text-white/85 mt-2 max-w-xl mx-auto">
           Всё, что мы сделали вместе, останется здесь навсегда — документы, версии и награды.
         </p>
       </section>
