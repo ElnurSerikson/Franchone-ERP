@@ -7,7 +7,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery } from 'convex/react'
 import {
   Archive, ArrowLeft, Boxes, CalendarDays, CheckCircle2, Gift, ListChecks, Loader2,
-  Pause, Play, PuzzleIcon, Rocket, Settings2, Star, Users, Wallet,
+  Pause, Play, PuzzleIcon, Rocket, Settings2, Star, Wallet,
 } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -18,12 +18,12 @@ import { errMessage } from '@/lib/errors'
 import { kzt } from '@/lib/format'
 import StageBoard from '@/components/packs/StageBoard'
 import PackStructure from '@/components/packs/PackStructure'
-import { PackCalendarTab, PackRewardsTab, PackWorkTab } from '@/components/packs/PackTabs'
+import { PackCalendarTab, PackRewardsTab } from '@/components/packs/PackTabs'
 import {
   Deadline, HealthChip, PackStatusChip, SideChip, areaCls, dateOnly, tabStrip,
 } from '@/components/packs/ui'
 
-type Tab = 'stages' | 'structure' | 'calendar' | 'rewards' | 'work'
+type Tab = 'stages' | 'structure' | 'calendar' | 'rewards'
 
 export default function PackDetail() {
   const { id } = useParams<{ id: string }>()
@@ -85,7 +85,6 @@ export default function PackDetail() {
     { key: 'structure', label: 'Структура и экономика', icon: Settings2, show: pack.canManage },
     { key: 'calendar', label: 'Календарь', icon: CalendarDays, show: true },
     { key: 'rewards', label: 'Пазл', icon: PuzzleIcon, show: true },
-    { key: 'work', label: 'Задачи и встречи', icon: Users, show: true },
   ]
 
   return (
@@ -335,7 +334,6 @@ export default function PackDetail() {
       )}
       {tab === 'calendar' && <PackCalendarTab packId={packId} canManage={pack.canManage} />}
       {tab === 'rewards' && <PackRewardsTab packId={packId} isOwner={pack.isOwner} />}
-      {tab === 'work' && <PackWorkTab packId={packId} />}
     </>
   )
 }
