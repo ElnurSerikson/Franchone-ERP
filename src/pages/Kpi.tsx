@@ -9,6 +9,7 @@ import { useApp, useCurrentUser } from '@/store'
 import PageHeader from '@/components/PageHeader'
 import StatCard from '@/components/ui/StatCard'
 import SalesDashboardBlock from '@/components/sales/SalesDashboardBlock'
+import PackProjectsKpi from '@/components/packs/PackProjectsKpi'
 import TargetologDashboard from '@/components/campaigns/TargetologDashboard'
 import TargetLeadsPanel from '@/components/campaigns/TargetLeadsPanel'
 import { computeSmm } from '@/lib/kpi'
@@ -44,6 +45,11 @@ export default function Kpi() {
   const canSeeAll = role === 'owner' || role === 'head'
   const ownDept = DEPTS.find((d) => d.id === (me.position as Dept))?.id ?? null
   const active: Dept | null = canSeeAll ? dept : ownDept
+
+  // §7.4: KPI упаковщика по проектам. Показываем тому, у кого проекты есть —
+  // у остальных должностей запрос возвращает пустой список.
+  const packKpi = useQuery(api.packs.kpi, {})
+  const hasPacks = !!packKpi && packKpi.rows.length > 0
 
   const subtitle =
     active === 'smm'
@@ -108,12 +114,18 @@ export default function Kpi() {
       {active === 'smm' && <SmmKpi month={month} />}
       {active === 'targetolog' && <TargetologKpi />}
       {active === 'sales' && <SalesKpi month={month} />}
-      {active === null && (
+      {active === null && !hasPacks && (
         <EmptyKpi
           icon={Target}
           title="KPI для вашей должности не настроен"
           hint="Показатели считаются для SMM, таргетолога и отдела продаж. Если это ошибка — обратитесь к руководителю."
         />
+      )}
+
+      {hasPacks && (
+        <div className={active === null ? '' : 'mt-5'}>
+          <PackProjectsKpi />
+        </div>
       )}
     </>
   )
