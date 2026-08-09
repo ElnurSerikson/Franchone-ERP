@@ -187,15 +187,18 @@ export default function Sidebar({
         />
       )}
 
+      {/* 100dvh, а не 100vh: в мобильном Safari адресная строка съедает низ
+          экрана, и профиль уезжал под неё. overflow-hidden — чтобы длинный
+          список разделов прокручивался внутри, а не растягивал сайдбар. */}
       <aside
-        className={`shrink-0 h-screen bg-card border-r border-line flex flex-col py-5 fixed top-0 left-0 z-50 shadow-soft transition-transform duration-200 ease-in-out w-[280px] px-4 ${
+        className={`shrink-0 h-[100dvh] overflow-hidden bg-card border-r border-line flex flex-col py-5 fixed top-0 left-0 z-50 shadow-soft transition-transform duration-200 ease-in-out w-[280px] px-4 ${
           drawerOpen ? 'translate-x-0' : '-translate-x-full'
         } md:sticky md:top-0 md:left-auto md:z-30 md:shadow-none md:translate-x-0 md:transition-[width] ${
           collapsed ? 'md:w-[76px] md:px-3' : 'md:w-[264px] md:px-4'
         }`}
       >
         {/* Brand + toggle/close */}
-        <div className={`flex mb-6 ${collapsed ? 'justify-center' : 'items-center gap-2 px-1'}`}>
+        <div className={`shrink-0 flex mb-6 ${collapsed ? 'justify-center' : 'items-center gap-2 px-1'}`}>
           {collapsed ? (
             // В рейле: иконка бренда, по ховеру в той же ячейке — кнопка раскрытия.
             <div className="group relative w-9 h-9">
@@ -245,37 +248,39 @@ export default function Sidebar({
           )}
         </div>
 
-        {/* Menu */}
-        <div className={`${label} ${collapsed ? 'invisible' : ''}`}>МЕНЮ</div>
-        <nav className="flex flex-col gap-1">
-          {visible(menu).map((i) => (
-            <Item
-              key={i.to}
-              item={i.to === '/tasks' ? { ...i, badge: activeTasks } : i}
-              collapsed={collapsed}
-              onNavigate={onNavigate}
-            />
-          ))}
-        </nav>
+        {/* Разделы прокручиваются, если не помещаются: у владельца их десять,
+            и на телефоне они выдавливали профиль за нижний край. */}
+        <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">
+          <div className={`${label} ${collapsed ? 'invisible' : ''}`}>МЕНЮ</div>
+          <nav className="flex flex-col gap-1">
+            {visible(menu).map((i) => (
+              <Item
+                key={i.to}
+                item={i.to === '/tasks' ? { ...i, badge: activeTasks } : i}
+                collapsed={collapsed}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </nav>
 
-        {visible(manage).length > 0 && (
-          <>
-            <div className={`my-4 border-t border-line ${collapsed ? 'mx-1' : ''}`} />
-            <div className={`${label} ${collapsed ? 'invisible' : ''}`}>УПРАВЛЕНИЕ</div>
-            <nav className="flex flex-col gap-1">
-              {visible(manage).map((i) => (
-                <Item key={i.to} item={i} collapsed={collapsed} onNavigate={onNavigate} />
-              ))}
-            </nav>
-          </>
-        )}
-
-        <div className="flex-1" />
+          {visible(manage).length > 0 && (
+            <>
+              <div className={`my-4 border-t border-line ${collapsed ? 'mx-1' : ''}`} />
+              <div className={`${label} ${collapsed ? 'invisible' : ''}`}>УПРАВЛЕНИЕ</div>
+              <nav className="flex flex-col gap-1">
+                {visible(manage).map((i) => (
+                  <Item key={i.to} item={i} collapsed={collapsed} onNavigate={onNavigate} />
+                ))}
+              </nav>
+            </>
+          )}
+        </div>
 
         {/* Profile. Свой аватар — здесь же и меняется: раздел «Команда»
-            рядовому сотруднику закрыт правами, и другого места у него нет. */}
+            рядовому сотруднику закрыт правами, и другого места у него нет.
+            Блок прибит к низу и виден всегда — сколько бы ни было разделов. */}
         {collapsed ? (
-          <div className="flex flex-col items-center gap-2">
+          <div className="shrink-0 pt-4 flex flex-col items-center gap-2">
             <AvatarEdit
               id={user.id as Id<'employees'>}
               initials={user.initials}
@@ -291,7 +296,7 @@ export default function Sidebar({
             </button>
           </div>
         ) : (
-          <div className="rounded-2xl bg-chip border border-line p-3 flex items-center gap-3">
+          <div className="shrink-0 mt-4 rounded-2xl bg-chip border border-line p-3 flex items-center gap-3">
             <AvatarEdit
               id={user.id as Id<'employees'>}
               initials={user.initials}
