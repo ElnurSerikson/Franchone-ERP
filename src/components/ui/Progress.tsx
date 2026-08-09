@@ -8,6 +8,10 @@ interface RingProps {
   track?: string
   label?: string
   caption?: string
+  // Крупному кольцу нужна и крупная цифра внутри — иначе на 200 px она
+  // теряется в середине. Классы, а не пиксели: масштаб остаётся в системе.
+  labelClass?: string
+  captionClass?: string
 }
 
 export function ProgressRing({
@@ -18,6 +22,8 @@ export function ProgressRing({
   track = '#eef0f1',
   label,
   caption,
+  labelClass = 'text-2xl',
+  captionClass = 'text-xs',
 }: RingProps) {
   const r = (size - stroke) / 2
   const c = 2 * Math.PI * r
@@ -39,8 +45,10 @@ export function ProgressRing({
         />
       </svg>
       <div className="absolute text-center">
-        <div className="text-2xl font-bold text-ink">{label ?? Math.round(clamped * 100) + '%'}</div>
-        {caption && <div className="text-xs text-muted mt-0.5">{caption}</div>}
+        <div className={`${labelClass} font-bold text-ink leading-none`}>
+          {label ?? Math.round(clamped * 100) + '%'}
+        </div>
+        {caption && <div className={`${captionClass} text-muted mt-1`}>{caption}</div>}
       </div>
     </div>
   )

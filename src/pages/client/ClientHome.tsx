@@ -32,65 +32,83 @@ export default function ClientHome() {
 
   return (
     <>
-      {/* §10.1: верхняя зона */}
-      <section className="card p-5 sm:p-6 mb-5">
-        <div className="flex flex-col sm:flex-row items-start gap-6">
-          <div className="mx-auto sm:mx-0 shrink-0">
-            <ProgressRing
-              value={p.progress / 100}
-              size={140}
-              stroke={14}
-              caption="готовность"
-            />
+      {/* §10.1: верхняя зона. Две самостоятельные карточки в один ряд —
+          «насколько готово» и «где именно мы находимся». На телефоне встают
+          друг под друга. */}
+      <div className="grid gap-5 lg:grid-cols-2 mb-5">
+        {/* Готовность проекта: крупное кольцо, всё остальное под ним. */}
+        <section className="card p-5 sm:p-6 flex flex-col items-center text-center">
+          <ProgressRing
+            value={p.progress / 100}
+            size={208}
+            stroke={18}
+            caption="готовность"
+            labelClass="text-[44px]"
+            captionClass="text-[13px]"
+          />
+          <h1 className="text-xl font-bold text-ink mt-5">{p.title}</h1>
+          <div className="flex items-center justify-center gap-2 flex-wrap mt-2.5">
+            <HealthChip health={p.health} reason={p.healthReason} />
+            {p.currentStage && (
+              <span className="chip bg-chip text-ink-2">сейчас: {p.currentStage.title}</span>
+            )}
+            <span className="chip bg-chip text-muted">
+              плановое завершение {longDate(p.dueDate)}
+            </span>
           </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="text-xl font-bold text-ink">{p.title}</h1>
-            <div className="flex items-center gap-2 flex-wrap mt-2">
-              <HealthChip health={p.health} reason={p.healthReason} />
-              {p.currentStage && (
-                <span className="chip bg-chip text-ink-2">
-                  сейчас: {p.currentStage.title}
-                </span>
-              )}
-              <span className="chip bg-chip text-muted">
-                плановое завершение {longDate(p.dueDate)}
+          <p className="text-sm text-ink-2 mt-3">{p.nextAction}</p>
+          {p.pausedReason && (
+            <p className="text-sm text-[#b7791f] mt-1">Проект на паузе: {p.pausedReason}</p>
+          )}
+
+          {/* §10.1: таймер текущего согласования */}
+          {p.timerDueAt && (
+            <div className="mt-4 w-full rounded-xl bg-[#e8effd] p-3 flex items-center gap-2 flex-wrap justify-center">
+              <Clock size={15} className="text-[#2563eb]" />
+              <span className="text-sm text-[#1d4ed8]">
+                Ответ по этапу «{p.awaitingStage?.title}» —{' '}
+                <Deadline at={p.timerDueAt} now={data.now} />
               </span>
+              <Link to="/stages" className="btn btn-green h-8 px-3 text-sm">
+                Открыть документы <ArrowRight size={14} />
+              </Link>
             </div>
-            <p className="text-sm text-ink-2 mt-3">{p.nextAction}</p>
-            {p.pausedReason && (
-              <p className="text-sm text-[#b7791f] mt-1">Проект на паузе: {p.pausedReason}</p>
-            )}
+          )}
+        </section>
 
-            {/* §10.1: таймер текущего согласования */}
-            {p.timerDueAt && (
-              <div className="mt-3 rounded-xl bg-[#e8effd] p-3 flex items-center gap-2 flex-wrap">
-                <Clock size={15} className="text-[#2563eb]" />
-                <span className="text-sm text-[#1d4ed8]">
-                  Ответ по этапу «{p.awaitingStage?.title}» —{' '}
-                  <Deadline at={p.timerDueAt} now={data.now} />
-                </span>
-                <Link to="/stages" className="btn btn-green h-8 px-3 text-sm ml-auto">
-                  Открыть документы <ArrowRight size={14} />
-                </Link>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* §6.1, §7: линейка из пяти этапов с их статусами */}
-        <div className="mt-6">
-          <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-3">
+        {/* §6.1, §7: линейка из пяти этапов с их статусами. Колонки тянутся по
+            ширине карточки, поэтому трек живёт и в половине экрана — без
+            горизонтальной прокрутки и обрезанных названий. */}
+        <section className="card p-5 sm:p-6 flex flex-col">
+          <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-4">
             Пять этапов упаковки
           </div>
-          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-1 -mx-5 px-5 sm:mx-0 sm:px-0">
+          <div className="flex items-start flex-1">
             {p.path.map((s, i) => {
               const done = s.status === 'approved'
               const active = !done && p.currentStage?._id === s._id
+              const prevDone = i > 0 && p.path[i - 1].status === 'approved'
               return (
-                <div key={s._id} className="flex items-center shrink-0">
-                  <div className="flex flex-col items-center gap-1.5 w-[124px]">
+                <div key={s._id} className="flex-1 min-w-0 flex flex-col items-center gap-2">
+                  {/* Перемычки рисуем половинками по бокам кружка: так трек
+                      растягивается вместе с колонками. */}
+                  <div className="relative w-full h-11 flex items-center justify-center">
+                    {i > 0 && (
+                      <span
+                        className={`absolute left-0 top-1/2 -translate-y-1/2 h-1 w-1/2 ${
+                          prevDone ? 'bg-green' : 'bg-line'
+                        }`}
+                      />
+                    )}
+                    {i < p.path.length - 1 && (
+                      <span
+                        className={`absolute right-0 top-1/2 -translate-y-1/2 h-1 w-1/2 ${
+                          done ? 'bg-green' : 'bg-line'
+                        }`}
+                      />
+                    )}
                     <div
-                      className={`w-10 h-10 rounded-full grid place-items-center text-sm font-bold ${
+                      className={`relative w-11 h-11 rounded-full grid place-items-center text-sm font-bold ${
                         done
                           ? 'bg-green text-white'
                           : active
@@ -98,24 +116,21 @@ export default function ClientHome() {
                             : 'bg-chip text-muted'
                       }`}
                     >
-                      {done ? <CheckCircle2 size={18} /> : i + 1}
-                    </div>
-                    <div className="text-[11px] text-center leading-tight text-ink-2 line-clamp-2">
-                      {s.title}
-                    </div>
-                    <div className="text-[10px] text-muted-2">
-                      {s.weight}% · {STAGE_STATUS[s.status].label}
+                      {done ? <CheckCircle2 size={20} /> : i + 1}
                     </div>
                   </div>
-                  {i < p.path.length - 1 && (
-                    <div className={`h-1 w-6 rounded-full ${done ? 'bg-green' : 'bg-line'}`} />
-                  )}
+                  <div className="px-1 text-[11px] text-center leading-tight text-ink-2 line-clamp-3">
+                    {s.title}
+                  </div>
+                  <div className="px-1 text-[10px] text-center leading-tight text-muted-2">
+                    {s.weight}% · {STAGE_STATUS[s.status].label}
+                  </div>
                 </div>
               )
             })}
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
 
       {/* §6.1, §7: блок пазла — собранные части, активная и закрытые. */}
       <Puzzle puzzle={data.puzzle} gift={data.gift} />
