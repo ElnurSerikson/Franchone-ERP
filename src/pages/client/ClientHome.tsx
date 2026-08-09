@@ -12,7 +12,6 @@ import {
 import { api } from '../../../convex/_generated/api'
 import { ProgressRing } from '@/components/ui/Progress'
 import { longDate } from '@/lib/format'
-import { STAGE_STATUS } from '../../../convex/packModel'
 import { Deadline, HealthChip } from '@/components/packs/ui'
 import { useClientPack } from './ClientApp'
 
@@ -86,7 +85,6 @@ export default function ClientHome() {
             {p.currentStage && (
               <div className="font-semibold text-ink-2">Сейчас: {p.currentStage.title}</div>
             )}
-            <div className="mt-0.5">{p.nextAction}</div>
             {p.pausedReason && (
               <div className="mt-0.5 text-[#b7791f]">Проект на паузе: {p.pausedReason}</div>
             )}
@@ -156,9 +154,6 @@ export default function ClientHome() {
                 </div>
                 <div className="px-1 text-[11px] text-center leading-tight text-ink-2 line-clamp-3">
                   {s.title}
-                </div>
-                <div className="px-1 text-[10px] text-center leading-tight text-muted-2">
-                  {s.weight}% · {STAGE_STATUS[s.status].label}
                 </div>
               </div>
             )
@@ -390,7 +385,6 @@ function Puzzle({
           <div className="font-semibold text-ink-2">
             Осталось собрать частей: {puzzle.total - puzzle.collected}
           </div>
-          <div className="mt-0.5">Подготовительный этап в пазле не участвует.</div>
         </div>
       )}
     </section>
