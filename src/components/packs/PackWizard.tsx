@@ -9,7 +9,6 @@ import { useMutation, useQuery } from 'convex/react'
 import { Boxes, Check, ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
-import Avatar from '@/components/ui/Avatar'
 import DatePicker from '@/components/ui/DatePicker'
 import Select from '@/components/ui/Select'
 import { errMessage } from '@/lib/errors'
@@ -22,7 +21,7 @@ import { Field, areaCls, inputCls } from './ui'
 // обнуляет, и вводить их значило бы обещать несуществующее.
 const ALL_STEPS = [
   { key: 'project', label: 'Проект' },
-  { key: 'people', label: 'Люди' },
+  { key: 'client', label: 'Клиент' },
   { key: 'economy', label: 'Экономика' },
   { key: 'stages', label: 'Этапы' },
 ] as const
@@ -40,7 +39,6 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
   const [startDate, setStartDate] = useState(TODAY)
   const [dueDate, setDueDate] = useState(addMonths(TODAY, 2))
   const [clientId, setClientId] = useState('')
-  const [memberIds, setMemberIds] = useState<string[]>([])
   const [price, setPrice] = useState('')
   const [percent, setPercent] = useState('20')
   const [workingDays, setWorkingDays] = useState(false)
@@ -48,10 +46,8 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
 
-  const packers = board?.packers ?? []
   // Ответственный упаковщик не выбирается: им становится тот, кто создал
   // проект. Сервер подставляет создателя сам, поменять можно в карточке.
-  const meId = (board?.meId as string | undefined) ?? ''
   const isOwner = !!board?.isOwner
   const steps = ALL_STEPS.filter((s) => s.key !== 'economy' || isOwner)
   const current = steps[Math.min(step, steps.length - 1)]?.key
@@ -73,7 +69,6 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
         startDate,
         dueDate,
         clientId: clientId ? (clientId as Id<'employees'>) : undefined,
-        memberIds: memberIds as Id<'employees'>[],
         price: Number(price || 0),
         packerPercent: Number(percent || 0),
         workingDays,
@@ -168,60 +163,23 @@ export default function PackWizard({ onClose }: { onClose: () => void }) {
             </>
           )}
 
-          {current === 'people' && (
-            <>
-              <Field
-                label="Клиент"
-                hint="Обязателен перед запуском. Клиента можно завести во вкладке «Клиенты»."
-              >
-                <Select
-                  value={clientId}
-                  onChange={setClientId}
-                  placeholder="Выберите клиента"
-                  options={[
-                    { value: '', label: 'Пока не назначен' },
-                    ...(clients ?? [])
-                      .filter((c) => c.status === 'active')
-                      .map((c) => ({ value: c._id as string, label: `${c.name} · ${c.company}` })),
-                  ]}
-                />
-              </Field>
-              <div>
-                <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-1.5">
-                  Дополнительные участники
-                </div>
-                <p className="text-[11px] text-muted-2 mb-2">
-                  Видят проект и работают с материалами, но не меняют экономику и структуру.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  {packers
-                    .filter((p) => (p._id as string) !== meId)
-                    .map((p) => {
-                      const on = memberIds.includes(p._id as string)
-                      return (
-                        <button
-                          key={p._id}
-                          type="button"
-                          onClick={() =>
-                            setMemberIds((prev) =>
-                              prev.includes(p._id as string)
-                                ? prev.filter((x) => x !== (p._id as string))
-                                : [...prev, p._id as string],
-                            )
-                          }
-                          className={`inline-flex items-center gap-1.5 chip transition-colors ${
-                            on ? 'bg-[#e2f2ef] text-green-d' : 'bg-chip text-muted hover:text-ink-2'
-                          }`}
-                        >
-                          <Avatar initials={p.initials} color={p.avatarColor} size={18} />
-                          {p.name}
-                          {on && <Check size={12} />}
-                        </button>
-                      )
-                    })}
-                </div>
-              </div>
-            </>
+          {current === 'client' && (
+            <Field
+              label="Клиент"
+              hint="Обязателен перед запуском. Клиента можно завести во вкладке «Клиенты»."
+            >
+              <Select
+                value={clientId}
+                onChange={setClientId}
+                placeholder="Выберите клиента"
+                options={[
+                  { value: '', label: 'Пока не назначен' },
+                  ...(clients ?? [])
+                    .filter((c) => c.status === 'active')
+                    .map((c) => ({ value: c._id as string, label: `${c.name} · ${c.company}` })),
+                ]}
+              />
+            </Field>
           )}
 
           {current === 'economy' && (
