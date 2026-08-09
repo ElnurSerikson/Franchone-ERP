@@ -40,17 +40,18 @@ export default function ClientStages() {
 
   return (
     <>
-      <h1 className="text-2xl font-bold text-ink mb-1">Документы</h1>
-      <p className="text-[15px] text-muted mb-5">
+      <h1 className="text-3xl font-extrabold title-gradient mb-1 rise">Документы</h1>
+      <p className="text-[15px] text-muted mb-5 rise d1">
         Откройте документ и решите: принять или вернуть на доработку. Правки обсуждаем в
         привычном канале.
       </p>
 
       <div className="flex flex-col gap-3">
-        {data.stages.map((s) => (
+        {data.stages.map((s, i) => (
           <StageCard
             key={s._id}
             stage={s}
+            index={i}
             now={data.now}
             open={open === (s._id as string)}
             onToggle={() => setPicked(open === (s._id as string) ? null : (s._id as string))}
@@ -66,11 +67,13 @@ type Stage = Data['stages'][number]
 
 function StageCard({
   stage,
+  index,
   now,
   open,
   onToggle,
 }: {
   stage: Stage
+  index: number
   now: number
   open: boolean
   onToggle: () => void
@@ -79,7 +82,13 @@ function StageCard({
   const locked = stage.status === 'locked'
 
   return (
-    <section className="card overflow-hidden">
+    <section
+      className={`card overflow-hidden rise ${['d1', 'd2', 'd3', 'd4', 'd5'][Math.min(index, 4)]} ${
+        // Этап, который ждёт ответа, подсвечен: до него глаз должен дойти
+        // первым, даже если список длинный.
+        stage.canAct ? 'ring-2 ring-[#cddcf9] bg-gradient-to-br from-[#f7faff] to-white' : ''
+      } ${locked ? 'opacity-70' : ''}`}
+    >
       <button
         onClick={onToggle}
         className="w-full text-left px-5 py-4 flex items-center gap-3 hover:bg-chip/40 transition-colors"
@@ -95,7 +104,10 @@ function StageCard({
             {/* Одно состояние на этап, а не три чипа рядом: принятому хватает
                 галочки, заблокированному — приглушённого названия. */}
             {stage.canAct ? (
-              <span className="chip bg-[#e8effd] text-[#2563eb]">нужен ваш ответ</span>
+              <span className="chip bg-[#e8effd] text-[#2563eb]">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#2563eb] dot-pulse" />
+                нужен ваш ответ
+              </span>
             ) : approved ? (
               <span className="inline-flex items-center gap-1 text-[13px] font-semibold text-green-d">
                 <Check size={14} /> принят
@@ -150,7 +162,11 @@ function MaterialRow({ material }: { material: Stage['materials'][number] }) {
   const more = history.length > 0 || !!material.description
 
   return (
-    <div className="rounded-xl border border-line p-3">
+    <div
+      className={`rounded-xl border p-3 transition-colors ${
+        material.canDecide ? 'border-[#cddcf9] bg-[#f7faff]' : 'border-line'
+      }`}
+    >
       <div className="flex items-center gap-2 flex-wrap">
         <span className="text-[15px] font-semibold text-ink min-w-0 flex-1">{material.title}</span>
         <MaterialChip status={material.status} />
@@ -335,7 +351,7 @@ function Decision({ material }: { material: Stage['materials'][number] }) {
         <button
           onClick={() => act('accept', () => accept({ materialId: material._id }))}
           disabled={!!busy}
-          className="btn btn-green h-9 px-3 text-[15px] disabled:opacity-60"
+          className="btn h-10 px-4 text-[15px] text-white bg-gradient-to-r from-green-2 to-green-d shadow-[0_8px_18px_-8px_rgba(4,79,72,0.9)] hover:opacity-95 disabled:opacity-60"
         >
           {busy === 'accept' ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
           Принять

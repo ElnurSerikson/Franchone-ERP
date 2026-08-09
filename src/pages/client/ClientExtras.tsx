@@ -10,6 +10,8 @@ import {
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { longDate, shortDate } from '@/lib/format'
+import { ProgressRing } from '@/components/ui/Progress'
+import Confetti, { useCelebrate } from '@/components/ui/Confetti'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { errMessage } from '@/lib/errors'
 import {
@@ -133,10 +135,10 @@ export function ClientCalendar() {
 
   return (
     <>
-      <h1 className="text-2xl font-bold text-ink mb-1">Сроки</h1>
-      <p className="text-[15px] text-muted mb-5">Что и когда предстоит по проекту.</p>
+      <h1 className="text-3xl font-extrabold title-gradient mb-1 rise">Сроки</h1>
+      <p className="text-[15px] text-muted mb-5 rise d1">Что и когда предстоит по проекту.</p>
 
-      <section className="card p-5 mb-3">
+      <section className="card rise d2 p-5 mb-3">
         {upcoming.length === 0 ? (
           <p className="text-[15px] text-muted">Впереди сроков нет.</p>
         ) : (
@@ -145,7 +147,7 @@ export function ClientCalendar() {
       </section>
 
       {past.length > 0 && (
-        <section className="card p-5">
+        <section className="card rise d3 p-5">
           <button
             onClick={() => setShowPast((v) => !v)}
             className="flex items-center gap-2 text-[15px] font-semibold text-ink-2 hover:text-ink"
@@ -190,7 +192,11 @@ function Timeline({ items, today }: { items: CalendarItem[]; today: string }) {
             >
               {shortDate(date)}
             </div>
-            {date === today && <div className="text-[11px] text-green-d">сегодня</div>}
+            {date === today && (
+              <div className="mt-0.5 inline-flex text-[11px] font-bold text-white bg-gradient-to-r from-green-2 to-green-d px-2 py-0.5 rounded-full">
+                сегодня
+              </div>
+            )}
           </div>
           <div className="min-w-0 flex-1 flex flex-col gap-1.5">
             {rows.map((i, k) => {
@@ -200,9 +206,9 @@ function Timeline({ items, today }: { items: CalendarItem[]; today: string }) {
               return (
                 <div key={k} className="flex items-baseline gap-2">
                   <span
-                    className={`w-1.5 h-1.5 rounded-full shrink-0 translate-y-[-2px] ${
+                    className={`w-2 h-2 rounded-full shrink-0 translate-y-[-2px] ring-4 ring-white shadow-sm ${
                       DOT[i.kind] ?? 'bg-muted-2'
-                    }`}
+                    } ${i.kind === 'client_deadline' ? 'dot-pulse' : ''}`}
                   />
                   <span className="text-[15px] text-ink-2">{head}</span>
                   {rest.length > 0 && (
@@ -236,8 +242,8 @@ export function ClientLearn() {
 
   return (
     <>
-      <h1 className="text-2xl font-bold text-ink mb-1">Полезные материалы</h1>
-      <p className="text-[15px] text-muted mb-5">
+      <h1 className="text-3xl font-extrabold title-gradient mb-1 rise">Полезные материалы</h1>
+      <p className="text-[15px] text-muted mb-5 rise d1">
         Видео, статьи и тесты от команды FRANCHONE. На ход проекта они не влияют — это польза
         сверх упаковки.
       </p>
@@ -259,19 +265,44 @@ export function ClientLearn() {
         />
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {rows.map((c) => (
+          {rows.map((c, i) => (
             <button
               key={c._id}
               onClick={() => setParams({ m: c._id as string })}
-              className="card overflow-hidden text-left hover:shadow-soft transition-shadow"
+              className={`card lift group overflow-hidden text-left rise ${
+                ['d1', 'd2', 'd3', 'd4', 'd5'][Math.min(i, 4)]
+              }`}
             >
-              {c.coverUrl ? (
-                <img src={c.coverUrl} alt="" className="w-full h-36 object-cover" />
-              ) : (
-                <div className="w-full h-36 hatch grid place-items-center text-muted-2">
-                  {c.kind === 'video' ? <Play size={28} /> : <BookOpen size={28} />}
-                </div>
-              )}
+              <div className="relative w-full h-40 overflow-hidden">
+                {c.coverUrl ? (
+                  <img
+                    src={c.coverUrl}
+                    alt=""
+                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                  />
+                ) : (
+                  // Обложки нет — рисуем её сами: цвет по типу материала,
+                  // так сетка не проваливается в серую штриховку.
+                  <div
+                    className={`w-full h-full grid place-items-center text-white bg-gradient-to-br ${
+                      c.kind === 'video'
+                        ? 'from-[#2563eb] to-[#7c5cd6]'
+                        : c.kind === 'test'
+                          ? 'from-[#d6336c] to-[#7c5cd6]'
+                          : 'from-green-2 to-green-d'
+                    }`}
+                  >
+                    {c.kind === 'video' ? <Play size={34} /> : <BookOpen size={34} />}
+                  </div>
+                )}
+                {c.kind === 'video' && (
+                  <span className="absolute inset-0 grid place-items-center">
+                    <span className="w-12 h-12 rounded-full bg-white/90 text-green-d grid place-items-center shadow-soft transition-transform group-hover:scale-110">
+                      <Play size={20} />
+                    </span>
+                  </span>
+                )}
+              </div>
               <div className="p-4">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="chip bg-chip text-muted">
@@ -383,17 +414,28 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
 
   if (result) {
     return (
-      <div className="mt-5 rounded-xl bg-[#e2f2ef] p-4">
-        <div className="text-[15px] font-semibold text-green-d">Тест пройден</div>
-        <div className="text-2xl font-bold text-green-d mt-1 tabular-nums">
-          {result.correct} из {result.total}
+      <div className="mt-5 rounded-2xl bg-gradient-to-br from-[#e2f2ef] to-white p-5 relative overflow-hidden text-center">
+        <Confetti show={result.correct === result.total} />
+        <div className="grid place-items-center">
+          <ProgressRing
+            value={result.total ? result.correct / result.total : 0}
+            size={140}
+            stroke={12}
+            label={`${result.correct}/${result.total}`}
+            caption="верных ответов"
+            labelClass="text-3xl text-green-d"
+            captionClass="text-[13px] text-green-d"
+            gradient={['#4db3a6', '#057269']}
+            animate
+          />
         </div>
+        <div className="text-[15px] font-semibold text-green-d mt-2">Тест пройден</div>
         <button
           onClick={() => {
             setResult(null)
             setAnswers(content.questions.map(() => []))
           }}
-          className="btn btn-ghost h-8 px-3 text-[15px] mt-3"
+          className="btn btn-ghost h-9 px-3.5 text-[15px] mt-3"
         >
           Пройти заново
         </button>
@@ -401,8 +443,26 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
     )
   }
 
+  const answered = answers.filter((a) => a.length > 0).length
   return (
     <div className="mt-5 flex flex-col gap-4">
+      {/* Видно, сколько осталось: длинный тест без этого выглядит бесконечным. */}
+      <div>
+        <div className="flex items-baseline justify-between mb-1.5">
+          <span className="text-[13px] font-semibold text-ink-2">
+            Отвечено {answered} из {content.questions.length}
+          </span>
+          <span className="text-[13px] text-muted tabular-nums">
+            {Math.round((answered / Math.max(1, content.questions.length)) * 100)}%
+          </span>
+        </div>
+        <div className="w-full rounded-full bg-line overflow-hidden h-2">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-[#7c5cd6] to-[#d6336c] transition-all duration-500"
+            style={{ width: `${(answered / Math.max(1, content.questions.length)) * 100}%` }}
+          />
+        </div>
+      </div>
       {content.questions.map((q, qi) => (
         <div key={qi} className="rounded-xl border border-line p-4">
           <div className="text-[15px] font-semibold text-ink">
@@ -419,13 +479,15 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
                   key={oi}
                   onClick={() => toggle(qi, oi, q.multiple)}
                   className={`text-left rounded-lg border p-2.5 transition-colors flex items-start gap-2.5 ${
-                    on ? 'border-green-light bg-[#e2f2ef]' : 'border-line hover:bg-chip'
+                    on
+                      ? 'border-[#7c5cd6] bg-[#f1ecfd] shadow-[0_6px_16px_-10px_rgba(124,92,214,0.8)]'
+                      : 'border-line hover:bg-chip'
                   }`}
                 >
                   <span
                     className={`w-4 h-4 shrink-0 mt-0.5 grid place-items-center border ${
                       q.multiple ? 'rounded' : 'rounded-full'
-                    } ${on ? 'bg-green border-green text-white' : 'border-muted-2'}`}
+                    } ${on ? 'bg-[#7c5cd6] border-[#7c5cd6] text-white' : 'border-muted-2'}`}
                   >
                     {on && <CheckCircle2 size={10} />}
                   </span>
@@ -473,6 +535,8 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
 export function ClientHub() {
   const packId = useClientPack()
   const data = useQuery(api.packClient.hub, packId ? { packId } : 'skip')
+  // Финальный салют — один раз на проект, при первом открытии хаба.
+  const cheer = useCelebrate(`hub:${packId}`, data?.open ? 1 : 0)
   if (!packId || data === undefined) return <Loading />
   if (!data) return null
 
@@ -488,15 +552,24 @@ export function ClientHub() {
 
   return (
     <>
-      <h1 className="text-2xl font-bold text-ink mb-1">Итоговый хаб · {data.title}</h1>
-      <p className="text-[15px] text-muted mb-5">
+      <section className="hero-dark card border-transparent rise p-6 mb-5 text-center relative overflow-hidden">
+        <Confetti show={cheer} />
+        <div className="text-[13px] uppercase tracking-widest text-white/50">FRANCHONE</div>
+        <h1 className="text-3xl font-extrabold text-white mt-1">Франшиза упакована</h1>
+        <p className="text-[15px] text-white/70 mt-2 max-w-xl mx-auto">
+          Всё, что мы сделали вместе, останется здесь навсегда — документы, версии и награды.
+        </p>
+      </section>
+
+      <h2 className="sr-only">Итоговый хаб · {data.title}</h2>
+      <p className="text-[15px] text-muted mb-5 rise d1">
         Проект завершён{data.finishedAt ? ` ${longDate(new Date(data.finishedAt).toISOString().slice(0, 10))}` : ''}. Всё
         нужное остаётся здесь.
       </p>
 
       {data.note && <div className="card p-4 mb-4 text-[15px] text-ink-2">{data.note}</div>}
 
-      <section className="card p-5 mb-4">
+      <section className="card rise d2 p-5 mb-4">
         <div className="flex items-center gap-2 mb-3">
           <FolderOpen size={16} className="text-green" />
           <h2 className="sec-title">Итоговые документы</h2>
@@ -520,9 +593,9 @@ export function ClientHub() {
       </section>
 
       {data.rewards.length > 0 && (
-        <section className="card p-5 mb-4">
+        <section className="card rise d3 p-5 mb-4 bg-gradient-to-br from-[#f1ecfd] to-white">
           <div className="flex items-center gap-2 mb-3">
-            <Gift size={16} className="text-green" />
+            <Gift size={16} className="text-[#7c5cd6]" />
             <h2 className="sec-title">Полученные награды</h2>
           </div>
           <div className="flex flex-wrap gap-2">

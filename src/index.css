@@ -158,3 +158,162 @@
     @apply fixed inset-0 z-[70] bg-black/30;
   }
 }
+
+/* ═══════════════════════════════════════════════════════════════════════
+   КАБИНЕТ ЗАКАЗЧИКА
+   ═══════════════════════════════════════════════════════════════════════
+   Всё внутри `.client-shell` — ERP команды это не задевает ни на пиксель.
+   Кабинет читают снаружи компании, часто один раз в неделю и с телефона:
+   ему нужен собственный характер, а не плотность рабочей админки.
+
+   Цвет здесь означает состояние, а не украшает:
+     синий   — ждут вас;      янтарь — срок близко;
+     зелёный — принято;       сирень — награда, пазл, подарок.
+*/
+@layer components {
+  .client-shell {
+    --c-blue: #2563eb;
+    --c-blue-soft: #e8effd;
+    --c-amber: #b7791f;
+    --c-amber-soft: #fff6e6;
+    --c-violet: #7c5cd6;
+    --c-violet-soft: #f1ecfd;
+    --c-rose: #d6336c;
+    /* Тёмная герой-зона: шапка и верхний блок «Обзора». */
+    --hero: linear-gradient(150deg, #01302c 0%, #044f48 45%, #057269 100%);
+    --font-display: ui-rounded, 'SF Pro Rounded', 'Segoe UI Variable Display',
+      'Nunito Sans', 'Fira Sans', system-ui, sans-serif;
+    /* Мягкий перелив под карточками — вместо ровной серой заливки. */
+    background:
+      radial-gradient(1100px 520px at 12% -8%, #e4f2ef 0%, rgba(228, 242, 239, 0) 62%),
+      radial-gradient(900px 480px at 92% 4%, #eae7fb 0%, rgba(234, 231, 251, 0) 58%),
+      #f4f4f4;
+  }
+
+  /* Заголовки кабинета — вторым шрифтом и плотнее, чем в ERP. */
+  .client-shell h1,
+  .client-shell h2,
+  .client-shell .sec-title {
+    font-family: var(--font-display);
+    letter-spacing: -0.018em;
+  }
+
+  /* Тёмная герой-зона. Пятна света держим внутри через ::before. */
+  .hero-dark {
+    position: relative;
+    overflow: hidden;
+    background: var(--hero);
+    color: #fff;
+  }
+  .hero-dark::before {
+    content: '';
+    position: absolute;
+    inset: -40% -10% auto -10%;
+    height: 180%;
+    background:
+      radial-gradient(420px 260px at 18% 22%, rgba(77, 179, 166, 0.34), transparent 68%),
+      radial-gradient(380px 240px at 82% 12%, rgba(124, 92, 214, 0.26), transparent 66%);
+    pointer-events: none;
+  }
+  .hero-dark > * {
+    position: relative;
+  }
+
+  /* Заголовок с градиентной заливкой — только для главных строк. */
+  .title-gradient {
+    background: linear-gradient(96deg, #057269 0%, #0a857a 40%, #7c5cd6 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Карточка кабинета: мягче тень, заметнее отклик на наведение. */
+  .client-shell .card {
+    transition:
+      box-shadow 0.25s ease,
+      transform 0.25s ease;
+  }
+  .lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px -12px rgba(4, 79, 72, 0.28);
+  }
+
+  /* ——— Движение ——— */
+  @keyframes riseIn {
+    from {
+      opacity: 0;
+      transform: translateY(14px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  .rise {
+    animation: riseIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .d1 { animation-delay: 0.06s }
+  .d2 { animation-delay: 0.12s }
+  .d3 { animation-delay: 0.18s }
+  .d4 { animation-delay: 0.24s }
+  .d5 { animation-delay: 0.3s }
+
+  /* Блик по собранной части пазла и по обложкам. */
+  @keyframes sheen {
+    0% { transform: translateX(-120%) }
+    100% { transform: translateX(220%) }
+  }
+  .sheen::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      100deg,
+      transparent 35%,
+      rgba(255, 255, 255, 0.42) 50%,
+      transparent 65%
+    );
+    animation: sheen 2.4s ease-in-out 0.5s;
+    pointer-events: none;
+  }
+
+  /* Пульс вокруг того, что ждёт действия. */
+  @keyframes haloPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.35) }
+    50% { box-shadow: 0 0 0 8px rgba(37, 99, 235, 0) }
+  }
+  .halo {
+    animation: haloPulse 2.2s ease-out infinite;
+  }
+  @keyframes dotPulse {
+    0%, 100% { opacity: 1; transform: scale(1) }
+    50% { opacity: 0.45; transform: scale(0.72) }
+  }
+  .dot-pulse {
+    animation: dotPulse 1.6s ease-in-out infinite;
+  }
+
+  /* Салют: один элемент — одна частица, летит и гаснет. */
+  @keyframes confettiFall {
+    0% { opacity: 1; transform: translate3d(0, 0, 0) rotate(0deg) }
+    100% { opacity: 0; transform: translate3d(var(--dx), var(--dy), 0) rotate(var(--rot)) }
+  }
+  .confetti-piece {
+    position: absolute;
+    width: 9px;
+    height: 14px;
+    border-radius: 2px;
+    animation: confettiFall 1.5s cubic-bezier(0.15, 0.7, 0.3, 1) forwards;
+  }
+
+  /* Кому движение мешает — статика. Требование не косметическое. */
+  @media (prefers-reduced-motion: reduce) {
+    .client-shell *,
+    .client-shell *::after,
+    .client-shell *::before {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}

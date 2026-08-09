@@ -99,11 +99,12 @@ export default function ClientApp() {
   return (
     <BrowserRouter>
       <PackCtx.Provider value={{ packId }}>
-        <div className="client-shell min-h-screen bg-bg flex flex-col">
-          {/* Шапка кабинета */}
-          <header className="sticky top-0 z-30 bg-card border-b border-line">
+        <div className="client-shell min-h-screen flex flex-col">
+          {/* Шапка кабинета — тёмная герой-зона: кабинет заказчика должен
+              читаться как отдельный продукт, а не как раздел админки. */}
+          <header className="hero-dark sticky top-0 z-30 shadow-[0_10px_30px_-18px_rgba(1,48,44,0.9)]">
             <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl bg-green flex items-center justify-center text-white text-[17px] font-extrabold shrink-0 select-none">
+              <div className="w-9 h-9 rounded-xl bg-white/12 ring-1 ring-white/25 backdrop-blur flex items-center justify-center text-white text-[17px] font-extrabold shrink-0 select-none">
                 F
               </div>
               <div className="min-w-0 flex-1">
@@ -115,27 +116,27 @@ export default function ClientApp() {
                     options={data.packs.map((p) => ({ value: p._id as string, label: p.title }))}
                   />
                 ) : (
-                  <div className="text-[15px] font-bold text-ink truncate leading-tight">
+                  <div className="text-[17px] font-bold text-white truncate leading-tight">
                     {data.pack.title}
                   </div>
                 )}
-                <div className="text-[13px] text-muted truncate">
+                <div className="text-[13px] text-white/60 truncate">
                   Кабинет клиента FRANCHONE
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <Avatar src={data.me.avatarUrl} initials={data.me.initials} color={data.me.avatarColor} size={32} />
                 <div className="min-w-0 hidden sm:block">
-                  <div className="text-[13px] font-semibold text-ink truncate max-w-[140px]">
+                  <div className="text-[13px] font-semibold text-white truncate max-w-[140px]">
                     {data.me.name}
                   </div>
-                  <div className="text-[12px] text-muted truncate max-w-[140px]">
+                  <div className="text-[12px] text-white/60 truncate max-w-[140px]">
                     {data.me.company}
                   </div>
                 </div>
                 <button
                   onClick={() => void signOut()}
-                  className="ico-btn w-9 h-9"
+                  className="w-9 h-9 rounded-xl bg-white/10 ring-1 ring-white/20 text-white/80 hover:bg-white/20 hover:text-white transition-colors inline-flex items-center justify-center"
                   aria-label="Выйти"
                   title="Выйти"
                 >
@@ -160,8 +161,10 @@ export default function ClientApp() {
                       to={n.to}
                       end={n.end}
                       className={({ isActive }) =>
-                        `flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-colors ${
-                          isActive ? 'bg-green text-white' : 'text-muted active:bg-chip'
+                        `flex flex-col items-center justify-center gap-1 py-2 rounded-xl transition-all ${
+                          isActive
+                            ? 'bg-white text-green-d shadow-[0_6px_16px_-6px_rgba(0,0,0,0.5)]'
+                            : 'text-white/70 active:bg-white/10'
                         }`
                       }
                     >
@@ -186,10 +189,10 @@ export default function ClientApp() {
                       to={n.to}
                       end={n.end}
                       className={({ isActive }) =>
-                        `inline-flex items-center gap-2 h-12 px-5 rounded-xl text-base font-semibold whitespace-nowrap transition-colors ${
+                        `inline-flex items-center gap-2 h-12 px-5 rounded-xl text-base font-semibold whitespace-nowrap transition-all ${
                           isActive
-                            ? 'bg-green text-white'
-                            : 'bg-chip text-ink-2 hover:bg-line-2 hover:text-ink'
+                            ? 'bg-white text-green-d shadow-[0_8px_20px_-8px_rgba(0,0,0,0.55)]'
+                            : 'bg-white/10 text-white/75 ring-1 ring-white/15 hover:bg-white/20 hover:text-white'
                         }`
                       }
                     >
