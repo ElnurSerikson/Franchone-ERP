@@ -64,7 +64,7 @@ export default function ClientApp() {
       <div className="min-h-screen grid place-items-center p-6">
         <div className="card p-8 max-w-md text-center">
           <div className="sec-title mb-2">Кабинет недоступен</div>
-          <p className="text-sm text-muted mb-4">
+          <p className="text-[15px] text-muted mb-4">
             Похоже, доступ закрыт. Свяжитесь с командой FRANCHONE.
           </p>
           <button onClick={() => void signOut()} className="btn btn-ghost inline-flex">
@@ -83,7 +83,7 @@ export default function ClientApp() {
             <Sparkles size={20} />
           </span>
           <div className="sec-title mb-2">Проект ещё готовится</div>
-          <p className="text-sm text-muted mb-4">
+          <p className="text-[15px] text-muted mb-4">
             {data.me.name}, как только команда FRANCHONE откроет вам проект упаковки франшизы, он
             появится здесь — вместе с этапами, сроками и материалами.
           </p>
@@ -100,7 +100,7 @@ export default function ClientApp() {
   return (
     <BrowserRouter>
       <PackCtx.Provider value={{ packId }}>
-        <div className="min-h-screen bg-bg flex flex-col">
+        <div className="client-shell min-h-screen bg-bg flex flex-col">
           {/* Шапка кабинета */}
           <header className="sticky top-0 z-30 bg-card border-b border-line">
             <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-3">
@@ -120,17 +120,17 @@ export default function ClientApp() {
                     {data.pack.title}
                   </div>
                 )}
-                <div className="text-[11px] text-muted truncate">
+                <div className="text-[13px] text-muted truncate">
                   Кабинет клиента FRANCHONE
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <Avatar initials={data.me.initials} color={data.me.avatarColor} size={32} />
                 <div className="min-w-0 hidden sm:block">
-                  <div className="text-[12px] font-semibold text-ink truncate max-w-[140px]">
+                  <div className="text-[13px] font-semibold text-ink truncate max-w-[140px]">
                     {data.me.name}
                   </div>
-                  <div className="text-[10px] text-muted truncate max-w-[140px]">
+                  <div className="text-[12px] text-muted truncate max-w-[140px]">
                     {data.me.company}
                   </div>
                 </div>
@@ -167,6 +167,8 @@ export default function ClientApp() {
                       }
                     >
                       <Icon size={24} strokeWidth={1.75} />
+                      {/* Подпись под иконкой остаётся мелкой: пять слов и так
+                          делят ширину телефона, крупнее — начнут обрезаться. */}
                       <span className="text-[11px] font-semibold leading-none truncate max-w-full">
                         {n.short}
                       </span>
@@ -185,7 +187,7 @@ export default function ClientApp() {
                       to={n.to}
                       end={n.end}
                       className={({ isActive }) =>
-                        `inline-flex items-center gap-2 h-11 px-4 rounded-xl text-[15px] font-semibold whitespace-nowrap transition-colors ${
+                        `inline-flex items-center gap-2 h-12 px-5 rounded-xl text-base font-semibold whitespace-nowrap transition-colors ${
                           isActive
                             ? 'bg-green text-white'
                             : 'bg-chip text-ink-2 hover:bg-line-2 hover:text-ink'
@@ -214,7 +216,7 @@ export default function ClientApp() {
           </main>
 
           <footer className="border-t border-line bg-card">
-            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 text-[11px] text-muted-2">
+            <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 text-[13px] text-muted-2">
               FRANCHONE · упаковка франшизы. Все материалы и история согласований останутся
               доступны и после завершения проекта.
             </div>

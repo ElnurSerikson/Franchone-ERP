@@ -104,6 +104,23 @@
     @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold;
   }
 
+  /* Кабинет заказчика читают с обычного ноутбука и без привычки к плотным
+     админкам, поэтому общие элементы там крупнее, чем в ERP команды. Правка
+     живёт здесь, а не россыпью по компонентам: размер общего чипа или
+     заголовка задаётся в одном месте. */
+  .client-shell .chip {
+    @apply px-3 py-1.5 text-[13px];
+  }
+  .client-shell .sec-title {
+    @apply text-lg;
+  }
+  .client-shell .mini-btn {
+    @apply h-9 px-3.5 text-[13px];
+  }
+  .client-shell .btn {
+    @apply text-[15px];
+  }
+
   /* Diagonal hatch fill used by the demo's empty bars */
   .hatch {
     background-image: repeating-linear-gradient(

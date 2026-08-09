@@ -20,7 +20,7 @@ import { useClientPack } from './ClientApp'
 // вынесены, чтобы «привести к одному стандарту» означало одну правку, а не
 // две симметричные.
 const FIGURE = 'my-5 flex-1 grid place-items-center'
-const CAPTION = 'text-center text-[12px] leading-snug text-muted'
+const CAPTION = 'text-center text-[13px] leading-snug text-muted'
 
 // §7: пазл — это одна картинка, разрезанная на пять частей, поэтому плитки
 // стоят вплотную, без зазоров. Каждая открытая часть показывает ровно свой
@@ -65,7 +65,7 @@ export default function ClientHome() {
             <h2 className="sec-title">{p.title}</h2>
             <HealthChip health={p.health} reason={p.healthReason} />
           </div>
-          <p className="text-xs text-muted">
+          <p className="text-[13px] text-muted">
             Готовность считается по утверждённым этапам. Плановое завершение —{' '}
             {longDate(p.dueDate)}.
           </p>
@@ -77,7 +77,7 @@ export default function ClientHome() {
               stroke={20}
               caption="готовность"
               labelClass="text-[52px]"
-              captionClass="text-[13px]"
+              captionClass="text-[15px]"
             />
           </div>
 
@@ -94,11 +94,11 @@ export default function ClientHome() {
           {p.timerDueAt && (
             <div className="mt-3 rounded-xl bg-[#e8effd] p-3 flex items-center gap-2 flex-wrap justify-center">
               <Clock size={15} className="text-[#2563eb]" />
-              <span className="text-sm text-[#1d4ed8]">
+              <span className="text-[15px] text-[#1d4ed8]">
                 Ответ по этапу «{p.awaitingStage?.title}» —{' '}
                 <Deadline at={p.timerDueAt} now={data.now} />
               </span>
-              <Link to="/stages" className="btn btn-green h-8 px-3 text-sm">
+              <Link to="/stages" className="btn btn-green h-8 px-3 text-[15px]">
                 Открыть документы <ArrowRight size={14} />
               </Link>
             </div>
@@ -113,7 +113,7 @@ export default function ClientHome() {
           Колонки тянутся по ширине карточки, поэтому трек обходится без
           горизонтальной прокрутки и обрезанных названий. */}
       <section className="card p-5 sm:p-6 mb-5">
-        <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-4">
+        <div className="text-[13px] font-semibold text-muted uppercase tracking-wide mb-4">
           Пять этапов упаковки
         </div>
         <div className="flex items-start">
@@ -122,37 +122,37 @@ export default function ClientHome() {
             const active = !done && p.currentStage?._id === s._id
             const prevDone = i > 0 && p.path[i - 1].status === 'approved'
             return (
-              <div key={s._id} className="flex-1 min-w-0 flex flex-col items-center gap-2">
+              <div key={s._id} className="flex-1 min-w-0 flex flex-col items-center gap-3">
                 {/* Перемычки рисуем половинками по бокам кружка: так трек
                     растягивается вместе с колонками. */}
-                <div className="relative w-full h-11 flex items-center justify-center">
+                <div className="relative w-full h-16 flex items-center justify-center">
                   {i > 0 && (
                     <span
-                      className={`absolute left-0 top-1/2 -translate-y-1/2 h-1 w-1/2 ${
+                      className={`absolute left-0 top-1/2 -translate-y-1/2 h-1.5 w-1/2 ${
                         prevDone ? 'bg-green' : 'bg-line'
                       }`}
                     />
                   )}
                   {i < p.path.length - 1 && (
                     <span
-                      className={`absolute right-0 top-1/2 -translate-y-1/2 h-1 w-1/2 ${
+                      className={`absolute right-0 top-1/2 -translate-y-1/2 h-1.5 w-1/2 ${
                         done ? 'bg-green' : 'bg-line'
                       }`}
                     />
                   )}
                   <div
-                    className={`relative w-11 h-11 rounded-full grid place-items-center text-sm font-bold ${
+                    className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-full grid place-items-center text-2xl font-bold ${
                       done
                         ? 'bg-green text-white'
                         : active
-                          ? 'bg-[#e2f2ef] text-green-d ring-2 ring-green-light'
+                          ? 'bg-[#e2f2ef] text-green-d ring-4 ring-green-light'
                           : 'bg-chip text-muted'
                     }`}
                   >
-                    {done ? <CheckCircle2 size={20} /> : i + 1}
+                    {done ? <CheckCircle2 size={30} /> : i + 1}
                   </div>
                 </div>
-                <div className="px-1 text-[11px] text-center leading-tight text-ink-2 line-clamp-3">
+                <div className="px-1 text-[13px] text-center leading-tight text-ink-2 line-clamp-3">
                   {s.title}
                 </div>
               </div>
@@ -175,7 +175,7 @@ export default function ClientHome() {
         ) : !todo ? null : todo.awaitingStages.length === 0 &&
           todo.uploads.length === 0 &&
           todo.openComments.length === 0 ? (
-          <p className="text-sm text-muted">
+          <p className="text-[15px] text-muted">
             Сейчас от вас ничего не требуется. Команда FRANCHONE работает над проектом — как только
             этап будет готов, он придёт вам на проверку.
           </p>
@@ -193,9 +193,9 @@ export default function ClientHome() {
                   to="/stages"
                   className="block rounded-xl border border-line p-3 hover:bg-chip/60 transition-colors"
                 >
-                  <div className="text-[13px] font-semibold text-ink">{s.title}</div>
-                  {s.note && <div className="text-[11px] text-muted mt-0.5 line-clamp-2">{s.note}</div>}
-                  <div className="text-[11px] mt-1">
+                  <div className="text-[15px] font-semibold text-ink">{s.title}</div>
+                  {s.note && <div className="text-[13px] text-muted mt-0.5 line-clamp-2">{s.note}</div>}
+                  <div className="text-[13px] mt-1">
                     <Deadline at={s.dueAt} now={todo.now} />
                     {s.repeat && ' · повторная проверка'}
                   </div>
@@ -215,8 +215,8 @@ export default function ClientHome() {
                   to="/stages"
                   className="block rounded-xl border border-line p-3 hover:bg-chip/60 transition-colors"
                 >
-                  <div className="text-[13px] font-semibold text-ink">{m.title}</div>
-                  <div className="text-[11px] text-muted mt-0.5">
+                  <div className="text-[15px] font-semibold text-ink">{m.title}</div>
+                  <div className="text-[13px] text-muted mt-0.5">
                     {m.stage}
                     {m.dueDate ? ` · до ${m.dueDate}` : ''}
                     {m.required ? ' · обязательный' : ''}
@@ -237,8 +237,8 @@ export default function ClientHome() {
                   to="/stages"
                   className="block rounded-xl border border-line p-3 hover:bg-chip/60 transition-colors"
                 >
-                  <div className="text-[12px] text-ink-2 line-clamp-3">{c.text}</div>
-                  {c.stage && <div className="text-[11px] text-muted mt-0.5">{c.stage}</div>}
+                  <div className="text-[13px] text-ink-2 line-clamp-3">{c.text}</div>
+                  {c.stage && <div className="text-[13px] text-muted mt-0.5">{c.stage}</div>}
                 </Link>
               ))}
             </Block>
@@ -247,7 +247,7 @@ export default function ClientHome() {
 
         {todo && todo.deadlines.length > 0 && (
           <div className="mt-4 pt-4 border-t border-line">
-            <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-2">
+            <div className="text-[13px] font-semibold text-muted uppercase tracking-wide mb-2">
               Ближайшие сроки
             </div>
             <div className="flex flex-wrap gap-2">
@@ -309,7 +309,7 @@ function Puzzle({
           собрано {puzzle.collected} из {puzzle.total}
         </span>
       </div>
-      <p className="text-xs text-muted">
+      <p className="text-[13px] text-muted">
         Каждая часть открывается, когда вы принимаете этап в срок. Полный пазл — гарантированный
         персональный подарок от FRANCHONE.
       </p>
@@ -328,7 +328,7 @@ function Puzzle({
                 key={p.index}
                 title={p.title}
                 className={`${bento ? `${c.span} ${c.corner}` : 'aspect-square rounded-xl'} relative overflow-hidden grid place-items-center font-bold transition-all duration-500 ${
-                  big ? 'text-4xl' : 'text-xl'
+                  big ? 'text-4xl' : 'text-2xl'
                 } ${
                   p.open
                     ? ''
@@ -408,11 +408,11 @@ function Block({
     <div>
       <div className="flex items-center gap-2 mb-2">
         <Icon size={14} className="text-muted" />
-        <span className="text-sm font-semibold text-ink">{title}</span>
+        <span className="text-[15px] font-semibold text-ink">{title}</span>
         {count > 0 && <span className="chip bg-[#e2f2ef] text-green-d">{count}</span>}
       </div>
       {count === 0 ? (
-        <p className="text-[12px] text-muted">{empty}</p>
+        <p className="text-[13px] text-muted">{empty}</p>
       ) : (
         <div className="flex flex-col gap-2">{children}</div>
       )}

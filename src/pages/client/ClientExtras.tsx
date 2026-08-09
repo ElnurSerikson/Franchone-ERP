@@ -40,8 +40,8 @@ export function ClientMaterials() {
 
   return (
     <>
-      <h1 className="text-xl font-bold text-ink mb-1">Материалы проекта</h1>
-      <p className="text-sm text-muted mb-5">
+      <h1 className="text-2xl font-bold text-ink mb-1">Материалы проекта</h1>
+      <p className="text-[15px] text-muted mb-5">
         Все доступные вам материалы и полная история версий.
       </p>
       {rows.length === 0 ? (
@@ -59,19 +59,19 @@ export function ClientMaterials() {
                 {items.map((m) => (
                   <div key={m._id} className="rounded-xl border border-line p-3">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[13px] font-semibold text-ink flex-1">{m.title}</span>
+                      <span className="text-[15px] font-semibold text-ink flex-1">{m.title}</span>
                       <MaterialChip status={m.status} />
                       <span className="chip bg-chip text-muted">
                         {MATERIAL_KIND_LABEL[m.kind] ?? m.kind}
                       </span>
                     </div>
                     {m.description && (
-                      <p className="text-[12px] text-muted mt-1">{m.description}</p>
+                      <p className="text-[13px] text-muted mt-1">{m.description}</p>
                     )}
                     {m.versions.length > 0 && (
                       <div className="flex flex-col gap-1.5 mt-2">
                         {m.versions.map((v) => (
-                          <div key={v._id} className="flex items-center gap-2 flex-wrap text-[12px]">
+                          <div key={v._id} className="flex items-center gap-2 flex-wrap text-[13px]">
                             <span className="chip bg-chip text-ink-2">v{v.version}</span>
                             <AttachmentLink kind={v.kind} name={v.name} url={v.url} />
                             <span className="text-muted-2">{dateTime(v.at)}</span>
@@ -106,8 +106,8 @@ export function ClientCalendar() {
 
   return (
     <>
-      <h1 className="text-xl font-bold text-ink mb-1">Календарь проекта</h1>
-      <p className="text-sm text-muted mb-5">
+      <h1 className="text-2xl font-bold text-ink mb-1">Календарь проекта</h1>
+      <p className="text-[15px] text-muted mb-5">
         Плановые и фактические даты этапов, проверок и контрольных точек.
       </p>
       <div className="flex flex-col gap-3">
@@ -115,16 +115,16 @@ export function ClientCalendar() {
           <div key={date} className="card p-4">
             <div className="flex items-center gap-2 mb-2">
               <CalendarDays size={14} className="text-green" />
-              <span className="text-sm font-semibold text-ink">{longDate(date)}</span>
+              <span className="text-[15px] font-semibold text-ink">{longDate(date)}</span>
               {date === data.today && <span className="chip bg-[#e2f2ef] text-green-d">сегодня</span>}
               {date < data.today && <span className="chip bg-chip text-muted">прошло</span>}
             </div>
             <div className="flex flex-col gap-1.5">
               {items.map((i, k) => (
-                <div key={k} className="text-[13px] text-ink-2 flex items-center gap-2">
+                <div key={k} className="text-[15px] text-ink-2 flex items-center gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-light shrink-0" />
                   {i.title}
-                  <span className="text-[11px] text-muted-2">{i.fact ? 'факт' : 'план'}</span>
+                  <span className="text-[13px] text-muted-2">{i.fact ? 'факт' : 'план'}</span>
                 </div>
               ))}
             </div>
@@ -146,8 +146,8 @@ export function ClientRewards() {
 
   return (
     <>
-      <h1 className="text-xl font-bold text-ink mb-1">Пазл и персональный подарок</h1>
-      <p className="text-sm text-muted mb-5">
+      <h1 className="text-2xl font-bold text-ink mb-1">Пазл и персональный подарок</h1>
+      <p className="text-[15px] text-muted mb-5">
         Пять частей — по одной за каждый основной этап, принятый в срок. Подготовительный этап
         части не открывает.
       </p>
@@ -157,7 +157,7 @@ export function ClientRewards() {
           {puzzle.parts.map((p) => (
             <div key={p.index} className="text-center">
               <div
-                className={`aspect-square rounded-xl grid place-items-center text-xl font-bold transition-all duration-500 ${
+                className={`aspect-square rounded-xl grid place-items-center text-2xl font-bold transition-all duration-500 ${
                   p.open
                     ? 'bg-green text-white shadow-soft'
                     : p.missed
@@ -169,13 +169,13 @@ export function ClientRewards() {
               >
                 {p.open ? <CheckCircle2 size={22} /> : p.index}
               </div>
-              <div className="text-[10px] text-muted-2 mt-1 leading-tight line-clamp-2">
+              <div className="text-[12px] text-muted-2 mt-1 leading-tight line-clamp-2">
                 {p.title}
               </div>
             </div>
           ))}
         </div>
-        <div className="mt-4 text-sm text-ink-2">
+        <div className="mt-4 text-[15px] text-ink-2">
           Собрано {puzzle.collected} из {puzzle.total}.
         </div>
       </section>
@@ -186,12 +186,12 @@ export function ClientRewards() {
           <h2 className="sec-title">Персональный подарок</h2>
         </div>
         {gift.earned ? (
-          <p className="text-sm text-green-d">
+          <p className="text-[15px] text-green-d">
             Право на подарок подтверждено. Мы подберём его индивидуально — с учётом вашего
             бизнеса, бренда и интересов — и свяжемся отдельно.
           </p>
         ) : (
-          <p className="text-sm text-muted">
+          <p className="text-[15px] text-muted">
             Соберите все пять частей, принимая этапы в срок, — и получите гарантированный
             персональный подарок от FRANCHONE. Что именно это будет, узнаете в конце.
           </p>
@@ -213,8 +213,8 @@ export function ClientLearn() {
 
   return (
     <>
-      <h1 className="text-xl font-bold text-ink mb-1">Полезные материалы</h1>
-      <p className="text-sm text-muted mb-5">
+      <h1 className="text-2xl font-bold text-ink mb-1">Полезные материалы</h1>
+      <p className="text-[15px] text-muted mb-5">
         Видео, статьи и тесты от команды FRANCHONE. На ход проекта они не влияют — это польза
         сверх упаковки.
       </p>
@@ -253,9 +253,9 @@ export function ClientLearn() {
                     </span>
                   )}
                 </div>
-                <div className="text-sm font-semibold text-ink mt-2">{c.title}</div>
+                <div className="text-[15px] font-semibold text-ink mt-2">{c.title}</div>
                 {c.summary && (
-                  <p className="text-[12px] text-muted mt-1 line-clamp-2">{c.summary}</p>
+                  <p className="text-[13px] text-muted mt-1 line-clamp-2">{c.summary}</p>
                 )}
               </div>
             </button>
@@ -282,7 +282,7 @@ function ContentView({
   const video = youtubeId(content.url)
   return (
     <>
-      <button onClick={onBack} className="btn btn-ghost h-9 px-3 text-sm mb-4">
+      <button onClick={onBack} className="btn btn-ghost h-9 px-3 text-[15px] mb-4">
         <ArrowLeft size={14} /> Ко всем материалам
       </button>
 
@@ -292,8 +292,8 @@ function ContentView({
             {CONTENT_KIND_LABEL[content.kind] ?? content.kind}
           </span>
         </div>
-        <h2 className="text-lg font-bold text-ink">{content.title}</h2>
-        {content.summary && <p className="text-sm text-muted mt-1">{content.summary}</p>}
+        <h2 className="text-xl font-bold text-ink">{content.title}</h2>
+        {content.summary && <p className="text-[15px] text-muted mt-1">{content.summary}</p>}
 
         {content.coverUrl && content.kind !== 'video' && (
           <img src={content.coverUrl} alt="" className="w-full rounded-xl mt-4 max-h-80 object-cover" />
@@ -312,7 +312,7 @@ function ContentView({
                 />
               </div>
             ) : (
-              <p className="text-sm text-muted">Ссылка на видео не распознана.</p>
+              <p className="text-[15px] text-muted">Ссылка на видео не распознана.</p>
             )}
           </div>
         )}
@@ -354,7 +354,7 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
   if (result) {
     return (
       <div className="mt-5 rounded-xl bg-[#e2f2ef] p-4">
-        <div className="text-sm font-semibold text-green-d">Тест пройден</div>
+        <div className="text-[15px] font-semibold text-green-d">Тест пройден</div>
         <div className="text-2xl font-bold text-green-d mt-1 tabular-nums">
           {result.correct} из {result.total}
         </div>
@@ -363,7 +363,7 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
             setResult(null)
             setAnswers(content.questions.map(() => []))
           }}
-          className="btn btn-ghost h-8 px-3 text-sm mt-3"
+          className="btn btn-ghost h-8 px-3 text-[15px] mt-3"
         >
           Пройти заново
         </button>
@@ -375,7 +375,7 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
     <div className="mt-5 flex flex-col gap-4">
       {content.questions.map((q, qi) => (
         <div key={qi} className="rounded-xl border border-line p-4">
-          <div className="text-sm font-semibold text-ink">
+          <div className="text-[15px] font-semibold text-ink">
             {qi + 1}. {q.text}
           </div>
           {q.imageUrl && (
@@ -400,7 +400,7 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
                     {on && <CheckCircle2 size={10} />}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="text-[13px] text-ink-2">{o.text}</span>
+                    <span className="text-[15px] text-ink-2">{o.text}</span>
                     {o.imageUrl && (
                       <img src={o.imageUrl} alt="" className="rounded-md mt-2 max-h-40 object-contain" />
                     )}
@@ -410,11 +410,11 @@ function TestRunner({ content, packId }: { content: ContentRow; packId: Id<'pack
             })}
           </div>
           {q.multiple && (
-            <div className="text-[11px] text-muted-2 mt-2">Можно выбрать несколько вариантов</div>
+            <div className="text-[13px] text-muted-2 mt-2">Можно выбрать несколько вариантов</div>
           )}
         </div>
       ))}
-      {error && <p className="text-sm text-[#c53030]">{error}</p>}
+      {error && <p className="text-[15px] text-[#c53030]">{error}</p>}
       <div>
         <button
           onClick={async () => {
@@ -458,13 +458,13 @@ export function ClientHub() {
 
   return (
     <>
-      <h1 className="text-xl font-bold text-ink mb-1">Итоговый хаб · {data.title}</h1>
-      <p className="text-sm text-muted mb-5">
+      <h1 className="text-2xl font-bold text-ink mb-1">Итоговый хаб · {data.title}</h1>
+      <p className="text-[15px] text-muted mb-5">
         Проект завершён{data.finishedAt ? ` ${longDate(new Date(data.finishedAt).toISOString().slice(0, 10))}` : ''}. Всё
         нужное остаётся здесь.
       </p>
 
-      {data.note && <div className="card p-4 mb-4 text-[13px] text-ink-2">{data.note}</div>}
+      {data.note && <div className="card p-4 mb-4 text-[15px] text-ink-2">{data.note}</div>}
 
       <section className="card p-5 mb-4">
         <div className="flex items-center gap-2 mb-3">
@@ -473,12 +473,12 @@ export function ClientHub() {
           <span className="chip bg-chip text-muted">{data.materials.length}</span>
         </div>
         {data.materials.length === 0 ? (
-          <p className="text-sm text-muted">Документов нет.</p>
+          <p className="text-[15px] text-muted">Документов нет.</p>
         ) : (
           <div className="flex flex-col gap-2">
             {data.materials.map((m) => (
               <div key={m._id} className="rounded-xl border border-line p-3 flex items-center gap-2 flex-wrap">
-                <span className="text-[13px] font-semibold text-ink flex-1">{m.title}</span>
+                <span className="text-[15px] font-semibold text-ink flex-1">{m.title}</span>
                 <span className="chip bg-chip text-muted">{m.stage}</span>
                 {m.latest && (
                   <AttachmentLink kind={m.latest.kind} name={m.latest.name} url={m.latest.url} />
@@ -512,7 +512,7 @@ export function ClientHub() {
         </div>
         <div className="flex flex-col gap-1.5">
           {data.events.map((e) => (
-            <div key={e._id} className="text-[12px] text-ink-2 flex gap-2 flex-wrap py-1 border-b border-line last:border-0">
+            <div key={e._id} className="text-[13px] text-ink-2 flex gap-2 flex-wrap py-1 border-b border-line last:border-0">
               <span className="text-muted-2 w-32 shrink-0">{dateTime(e.at)}</span>
               <span className="font-medium">{EVENT_LABEL[e.type] ?? e.type}</span>
               {e.stage && <span className="text-muted">· {e.stage}</span>}
