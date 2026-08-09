@@ -6,7 +6,9 @@ import { UserPlus, Pencil, X, Loader2, CheckCircle2, Mail, Save } from 'lucide-r
 import type { Employee } from '@/types'
 import { errMessage } from '@/lib/errors'
 import { usePerms } from '@/lib/usePerms'
+import { useCurrentUser } from '@/store'
 import Select from './ui/Select'
+import AvatarEdit from './ui/AvatarEdit'
 import TelegramBlock from './settings/TelegramBlock'
 
 const inputCls =
@@ -71,6 +73,7 @@ export default function TeamMemberDrawer({
   // Оклад и роль показываем/шлём только владельцу (инвариант). Роль владельца
   // не редактируем вовсе.
   const { isOwner } = usePerms()
+  const me = useCurrentUser()
   // Имя бота нужно, чтобы собрать ссылку-приглашение целиком (§3.1).
   const settings = useQuery(api.settings.get, {})
   const canSetPayRole = isOwner && !isOwnerEdit
@@ -197,6 +200,20 @@ export default function TeamMemberDrawer({
         ) : (
           <form onSubmit={submit} className="flex-1 min-h-0 flex flex-col">
             <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5 flex flex-col gap-4">
+              {/* Фото есть только у заведённого сотрудника: пока его нет в
+                  базе, файл некуда привязать. Меняет владелец или он сам. */}
+              {isEdit && employee && (isOwner || employee.id === me.id) && (
+                <Field label="Фото">
+                  <AvatarEdit
+                    id={employee.id as Id<'employees'>}
+                    initials={employee.initials}
+                    color={employee.avatarColor}
+                    size={64}
+                    showRemove
+                    hint="JPG, PNG или WebP до 8 МБ"
+                  />
+                </Field>
+              )}
               <Field label="Имя">
                 <input
                   ref={firstRef}

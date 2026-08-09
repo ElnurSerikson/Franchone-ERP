@@ -267,20 +267,20 @@ export default function PackDetail() {
           )}
           {pack.client && (
             <span className="inline-flex items-center gap-2 chip bg-chip text-ink-2">
-              <Avatar initials={pack.client.initials} color={pack.client.avatarColor} size={18} />
+              <Avatar id={pack.client._id} initials={pack.client.initials} color={pack.client.avatarColor} size={18} />
               {pack.client.name} · клиент
             </span>
           )}
           {pack.packer && (
             <span className="inline-flex items-center gap-2 chip bg-chip text-ink-2">
-              <Avatar initials={pack.packer.initials} color={pack.packer.avatarColor} size={18} />
+              <Avatar id={pack.packer._id} initials={pack.packer.initials} color={pack.packer.avatarColor} size={18} />
               {pack.packer.name} · упаковщик
             </span>
           )}
           {pack.members.map((m) =>
             m ? (
               <span key={m._id} className="inline-flex items-center gap-2 chip bg-chip text-muted">
-                <Avatar initials={m.initials} color={m.avatarColor} size={18} />
+                <Avatar id={m._id} initials={m.initials} color={m.avatarColor} size={18} />
                 {m.name}
               </span>
             ) : null,

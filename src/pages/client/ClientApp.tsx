@@ -124,7 +124,7 @@ export default function ClientApp() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <Avatar initials={data.me.initials} color={data.me.avatarColor} size={32} />
+                <Avatar src={data.me.avatarUrl} initials={data.me.initials} color={data.me.avatarColor} size={32} />
                 <div className="min-w-0 hidden sm:block">
                   <div className="text-[13px] font-semibold text-ink truncate max-w-[140px]">
                     {data.me.name}

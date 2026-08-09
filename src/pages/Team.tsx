@@ -95,7 +95,7 @@ export default function Team() {
                       className={`${td} sticky left-0 z-10 bg-card border-r border-line md:static md:z-auto md:border-r-0 md:bg-transparent`}
                     >
                       <div className="flex items-center gap-3">
-                        <Avatar initials={e.initials} color={e.avatarColor} size={38} />
+                        <Avatar id={e.id} initials={e.initials} color={e.avatarColor} size={38} />
                         <div className="min-w-0">
                           <div className="font-semibold text-ink whitespace-nowrap">{e.name}</div>
                           <div className="flex flex-col sm:flex-row sm:items-center gap-0.5 sm:gap-3 text-[11px] text-muted mt-0.5">

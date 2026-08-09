@@ -31,6 +31,9 @@ export default defineSchema({
     phone: v.string(),
     avatarColor: v.string(),
     initials: v.string(),
+    // Загруженное фото. Пусто — показываем цветной кружок с инициалами, он
+    // остаётся запасным вариантом навсегда: аватар необязателен.
+    avatarId: v.optional(v.id('_storage')),
     status: v.union(v.literal('active'), v.literal('archived')),
     hiredAt: v.string(),
     // Telegram для уведомлений (§11/§2). Пока хранится; заработает с модулем №2.

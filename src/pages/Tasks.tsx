@@ -88,7 +88,7 @@ function TaskCard({ task, assignee }: { task: Task; assignee?: Employee }) {
 
       <div className="flex items-center justify-between pt-2 border-t border-line">
         <div className="flex items-center gap-3 text-muted">
-          {assignee && <Avatar initials={assignee.initials} color={assignee.avatarColor} size={26} />}
+          {assignee && <Avatar id={assignee.id} initials={assignee.initials} color={assignee.avatarColor} size={26} />}
           <span className={`text-[11px] ${over ? 'text-[#c53030] font-semibold' : ''}`}>
             {task.deadline ? `${over ? 'Просрочено ' : ''}${shortDate(task.deadline)}` : 'Без срока'}
           </span>
@@ -420,7 +420,7 @@ function TaskStatsView({ tasks, employees }: { tasks: Task[]; employees: Employe
       {stats.map((s) => (
         <div key={s.employee.id} className="card p-5">
           <div className="flex items-center gap-3 mb-4">
-            <Avatar initials={s.employee.initials} color={s.employee.avatarColor} size={40} />
+            <Avatar id={s.employee.id} initials={s.employee.initials} color={s.employee.avatarColor} size={40} />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-ink truncate">{s.employee.name}</div>
               <div className="text-xs text-muted truncate">{s.employee.positionLabel}</div>

@@ -85,10 +85,12 @@ export const dashboard = query({
   handler: async (ctx, { packId }) => {
     const me = await requireClient(ctx)
     if (!me) return null
+    // §10: своё фото заказчик видит, но не меняет — его ставит команда.
+    const avatarUrl = me.avatarId ? await ctx.storage.getUrl(me.avatarId) : null
     const packs = await myPacks(ctx, me)
     if (packs.length === 0) {
       return {
-        me: { name: me.name, initials: me.initials, avatarColor: me.avatarColor, company: me.positionLabel },
+        me: { name: me.name, initials: me.initials, avatarColor: me.avatarColor, company: me.positionLabel, avatarUrl },
         packs: [],
         pack: null,
       }
@@ -164,7 +166,7 @@ export const dashboard = query({
             : 'Ожидание'
 
     return {
-      me: { name: me.name, initials: me.initials, avatarColor: me.avatarColor, company: me.positionLabel },
+      me: { name: me.name, initials: me.initials, avatarColor: me.avatarColor, company: me.positionLabel, avatarUrl },
       packs: packs.map((p) => ({ _id: p._id, title: p.title })),
       pack: {
         _id: pack._id,

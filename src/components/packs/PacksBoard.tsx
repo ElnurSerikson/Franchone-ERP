@@ -223,7 +223,7 @@ export default function PacksBoard({ onCreate }: { onCreate: () => void }) {
                     <td className={td}>
                       {r.client ? (
                         <span className="inline-flex items-center gap-2">
-                          <Avatar initials={r.client.initials} color={r.client.avatarColor} size={26} />
+                          <Avatar id={r.client._id} initials={r.client.initials} color={r.client.avatarColor} size={26} />
                           <span className="whitespace-nowrap">{r.client.name}</span>
                         </span>
                       ) : (
@@ -233,7 +233,7 @@ export default function PacksBoard({ onCreate }: { onCreate: () => void }) {
                     <td className={td}>
                       {r.packer && (
                         <span className="inline-flex items-center gap-2">
-                          <Avatar initials={r.packer.initials} color={r.packer.avatarColor} size={26} />
+                          <Avatar id={r.packer._id} initials={r.packer.initials} color={r.packer.avatarColor} size={26} />
                           <span className="whitespace-nowrap">{r.packer.name}</span>
                         </span>
                       )}
@@ -291,7 +291,7 @@ export default function PacksBoard({ onCreate }: { onCreate: () => void }) {
           <div className="flex flex-col divide-y divide-line">
             {packers.map((p) => (
               <div key={p._id} className="py-3 first:pt-0 last:pb-0 flex items-center gap-3 flex-wrap">
-                <Avatar initials={p.initials} color={p.avatarColor} size={34} />
+                <Avatar id={p._id} initials={p.initials} color={p.avatarColor} size={34} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-semibold text-ink truncate">{p.name}</div>
                   <div className="text-[11px] text-muted truncate">{p.positionLabel}</div>

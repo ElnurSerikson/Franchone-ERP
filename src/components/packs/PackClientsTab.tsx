@@ -8,6 +8,7 @@ import { Check, Loader2, Pencil, Plus, UserRound, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
 import Avatar from '@/components/ui/Avatar'
+import AvatarEdit from '@/components/ui/AvatarEdit'
 import { errMessage } from '@/lib/errors'
 import { th, td, theadRow } from '@/lib/table'
 import { Empty, Field, inputCls, dateTime } from './ui'
@@ -77,7 +78,7 @@ export default function PackClientsTab() {
                   <tr key={r._id} className="hover:bg-chip/40 transition-colors">
                     <td className={td}>
                       <span className="inline-flex items-center gap-2.5">
-                        <Avatar initials={r.initials} color={r.avatarColor} size={30} />
+                        <Avatar id={r._id} initials={r.initials} color={r.avatarColor} size={30} />
                         <span className="font-semibold text-ink whitespace-nowrap">{r.name}</span>
                       </span>
                     </td>
@@ -169,6 +170,26 @@ function ClientDrawer({ row, onClose }: { row: Row | null; onClose: () => void }
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-5 flex flex-col gap-4">
+          {/* Фото заказчика ставит команда — сам он его только видит у себя в
+              кабинете. У нового клиента фото появится после сохранения:
+              привязывать файл ещё не к кому. */}
+          {row ? (
+            <Field label="Фото">
+              <AvatarEdit
+                id={row._id}
+                initials={row.initials}
+                color={row.avatarColor}
+                size={64}
+                showRemove
+                hint="JPG, PNG или WebP до 8 МБ"
+              />
+            </Field>
+          ) : (
+            <div className="rounded-xl bg-chip p-3 text-[11px] text-muted">
+              Фото можно будет загрузить сразу после сохранения — откройте карточку клиента
+              ещё раз.
+            </div>
+          )}
           <Field label="Имя и фамилия">
             <input className={inputCls} value={name} onChange={(e) => setName(e.target.value)} placeholder="Айдана Сериковна" />
           </Field>

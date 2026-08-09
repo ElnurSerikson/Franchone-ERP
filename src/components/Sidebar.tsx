@@ -25,7 +25,8 @@ import { usePerms } from '@/lib/usePerms'
 import { useData } from '@/lib/useData'
 import { useIsPhone, useIsDesktop } from '@/lib/useMediaQuery'
 import { reportsDaily } from '@/lib/constants'
-import Avatar from './ui/Avatar'
+import AvatarEdit from './ui/AvatarEdit'
+import type { Id } from '../../convex/_generated/dataModel'
 
 interface NavItem {
   to: string
@@ -271,18 +272,32 @@ export default function Sidebar({
 
         <div className="flex-1" />
 
-        {/* Profile */}
+        {/* Profile. Свой аватар — здесь же и меняется: раздел «Команда»
+            рядовому сотруднику закрыт правами, и другого места у него нет. */}
         {collapsed ? (
-          <button
-            onClick={() => void signOut()}
-            title={`${user.name} · выйти`}
-            className="mx-auto rounded-full hover:ring-2 hover:ring-line-2 transition-all"
-          >
-            <Avatar initials={user.initials} color={user.avatarColor} size={40} />
-          </button>
+          <div className="flex flex-col items-center gap-2">
+            <AvatarEdit
+              id={user.id as Id<'employees'>}
+              initials={user.initials}
+              color={user.avatarColor}
+              size={40}
+            />
+            <button
+              onClick={() => void signOut()}
+              title={`${user.name} · выйти`}
+              className="text-muted hover:text-ink transition-colors"
+            >
+              <LogOut size={17} />
+            </button>
+          </div>
         ) : (
           <div className="rounded-2xl bg-chip border border-line p-3 flex items-center gap-3">
-            <Avatar initials={user.initials} color={user.avatarColor} size={40} />
+            <AvatarEdit
+              id={user.id as Id<'employees'>}
+              initials={user.initials}
+              color={user.avatarColor}
+              size={40}
+            />
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold text-ink truncate">{user.name}</div>
               {/* Должность, а не роль: роль — это уровень доступа, а под именем

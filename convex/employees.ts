@@ -1,9 +1,11 @@
-import { query, mutation, internalAction } from './_generated/server'
+import { query, mutation, internalAction, type MutationCtx } from './_generated/server'
 import { v, ConvexError } from 'convex/values'
 import { internal } from './_generated/api'
+import type { Id } from './_generated/dataModel'
 import { Resend as ResendAPI } from 'resend'
 import { inviteEmail } from './emails'
 import { currentEmployee, isStaff } from './lib'
+import { isPacker } from './packs'
 import { requireCan, inScope } from './permissions'
 import { disable as disableTelegram } from './telegram'
 
@@ -213,6 +215,76 @@ export const setActive = mutation({
     }
     if (!inScope(me, target)) throw new ConvexError('Можно менять только сотрудников в вашем доступе')
     await ctx.db.patch(id, { status: active ? 'active' : 'archived' })
+  },
+})
+
+// ——— Аватары ———
+//
+// Кто чьё фото ставит:
+//   сотрудник — своё; владелец — любому сотруднику;
+//   заказчик упаковки — только владелец или упаковщик (ТЗ Упаковка §3:
+//   клиента заводят и ведут они, сам он себе фото не грузит).
+// Сам заказчик своё фото только видит.
+
+async function requireAvatarRights(ctx: MutationCtx, employeeId: Id<'employees'>) {
+  const me = await currentEmployee(ctx)
+  if (!me || me.status !== 'active') throw new ConvexError('Нет доступа')
+  const target = await ctx.db.get(employeeId)
+  if (!target) throw new ConvexError('Сотрудник не найден')
+
+  if (target.role === 'client') {
+    if (me.role !== 'owner' && !isPacker(me)) {
+      throw new ConvexError('Фото заказчика меняет администратор или упаковщик')
+    }
+  } else if (me.role !== 'owner' && me._id !== employeeId) {
+    throw new ConvexError('Чужое фото может менять только владелец')
+  }
+  return { me, target }
+}
+
+export const avatarUploadUrl = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const me = await currentEmployee(ctx)
+    if (!me || me.status !== 'active') throw new ConvexError('Нет доступа')
+    return await ctx.storage.generateUploadUrl()
+  },
+})
+
+export const setAvatar = mutation({
+  args: { id: v.id('employees'), storageId: v.id('_storage') },
+  handler: async (ctx, { id, storageId }) => {
+    const { target } = await requireAvatarRights(ctx, id)
+    // Старый файл удаляем сразу: аватар всегда один, копить их незачем.
+    if (target.avatarId) await ctx.storage.delete(target.avatarId).catch(() => {})
+    await ctx.db.patch(id, { avatarId: storageId })
+  },
+})
+
+export const removeAvatar = mutation({
+  args: { id: v.id('employees') },
+  handler: async (ctx, { id }) => {
+    const { target } = await requireAvatarRights(ctx, id)
+    if (target.avatarId) await ctx.storage.delete(target.avatarId).catch(() => {})
+    await ctx.db.patch(id, { avatarId: undefined })
+  },
+})
+
+// Один запрос на все аватары вместо запроса на каждый кружок: id → ссылка.
+// Заказчику отдаём только его собственное фото — чужие ему видеть незачем.
+export const avatars = query({
+  args: {},
+  handler: async (ctx) => {
+    const me = await currentEmployee(ctx)
+    if (!me || me.status !== 'active') return []
+    const rows = (await ctx.db.query('employees').collect()).filter((e) => e.avatarId)
+    const mine = me.role === 'client' ? rows.filter((e) => e._id === me._id) : rows
+    const out: { id: Id<'employees'>; url: string }[] = []
+    for (const e of mine) {
+      const url = await ctx.storage.getUrl(e.avatarId!)
+      if (url) out.push({ id: e._id, url })
+    }
+    return out
   },
 })
 

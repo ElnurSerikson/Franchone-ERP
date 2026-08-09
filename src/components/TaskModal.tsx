@@ -193,7 +193,7 @@ export default function TaskModal({
             </Field>
             <Field label="Постановщик">
               <div className="flex items-center gap-2 h-[34px]">
-                {reporter && <Avatar initials={reporter.initials} color={reporter.avatarColor} size={22} />}
+                {reporter && <Avatar id={reporter.id} initials={reporter.initials} color={reporter.avatarColor} size={22} />}
                 <span className="text-sm text-ink-2 truncate">{reporter?.name ?? '—'}</span>
               </div>
             </Field>

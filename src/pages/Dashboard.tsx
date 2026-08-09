@@ -235,7 +235,7 @@ function ManagerView({ me }: { me: Employee }) {
                 const missed = todayCell(r)?.status === 'missed'
                 return (
                   <div key={r.employeeId} className="flex items-center gap-3 rounded-xl border border-line p-2.5">
-                    <Avatar initials={r.initials} color={r.avatarColor} size={30} />
+                    <Avatar id={r.employeeId} initials={r.initials} color={r.avatarColor} size={30} />
                     <div className="min-w-0 flex-1">
                       <div className="text-xs font-medium text-ink truncate">{r.name}</div>
                       <div className="text-[11px] text-muted truncate">{r.positionLabel}</div>
@@ -268,7 +268,7 @@ function ManagerView({ me }: { me: Employee }) {
                 return (
                 <div key={e.id} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex items-center gap-3 sm:gap-4">
-                    <Avatar initials={e.initials} color={e.avatarColor} size={38} />
+                    <Avatar id={e.id} initials={e.initials} color={e.avatarColor} size={38} />
                     <div className="min-w-0 flex-1 sm:w-44 sm:flex-none">
                       <div className="text-sm font-semibold text-ink truncate">{e.name}</div>
                       <div className="text-xs text-muted truncate">{e.positionLabel}</div>
@@ -429,7 +429,7 @@ function PayrollTable({ employees }: { employees: Employee[] }) {
                 <tr key={r.employeeId} className="hover:bg-chip/40 transition-colors">
                   <td className={td}>
                     <div className="flex items-center gap-3">
-                      {e && <Avatar initials={e.initials} color={e.avatarColor} size={34} />}
+                      {e && <Avatar id={e.id} initials={e.initials} color={e.avatarColor} size={34} />}
                       <span className="font-semibold text-ink whitespace-nowrap">{r.name}</span>
                     </div>
                   </td>
@@ -760,7 +760,7 @@ function OverdueList({
             const a = employees?.find((e) => e.id === t.assigneeId)
             return (
               <div key={t.id} className="flex items-center gap-3 rounded-xl border border-line p-2.5">
-                {a && <Avatar initials={a.initials} color={a.avatarColor} size={30} />}
+                {a && <Avatar id={a.id} initials={a.initials} color={a.avatarColor} size={30} />}
                 <div className="min-w-0 flex-1">
                   <div className="text-xs font-medium text-ink truncate">{t.title}</div>
                   <div className="text-[11px] text-[#c53030] font-semibold">

@@ -101,7 +101,7 @@ export default function Activity() {
                   <tr key={e.id} className="hover:bg-chip/40 transition-colors">
                     <td className={`${td} sticky left-0 z-10 bg-card border-r border-line md:static md:z-auto md:border-r-0 md:bg-transparent`}>
                       <div className="flex items-center gap-3">
-                        <Avatar initials={e.initials} color={e.avatarColor} size={36} />
+                        <Avatar id={e.id} initials={e.initials} color={e.avatarColor} size={36} />
                         <div className="min-w-0">
                           <div className="font-semibold text-ink whitespace-nowrap">{e.name}</div>
                           <div className="text-[11px] text-muted whitespace-nowrap">{e.positionLabel}</div>
@@ -242,7 +242,7 @@ function LoginHistoryModal({
         className="relative w-full max-w-md max-h-[80vh] flex flex-col bg-white rounded-card shadow-soft"
       >
         <div className="shrink-0 px-5 py-4 border-b border-line flex items-center gap-3">
-          <Avatar initials={employee.initials} color={employee.avatarColor} size={38} />
+          <Avatar id={employee.id} initials={employee.initials} color={employee.avatarColor} size={38} />
           <div className="min-w-0 flex-1">
             <h2 className="font-bold text-ink leading-tight">История посещений</h2>
             <p className="text-[13px] text-muted truncate">{employee.name}</p>

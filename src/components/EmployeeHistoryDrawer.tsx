@@ -62,7 +62,7 @@ export default function EmployeeHistoryDrawer({
           <div className="p-5 flex flex-col gap-5">
             {/* Профиль */}
             <div className="flex items-center gap-3">
-              <Avatar initials={data.employee.initials} color={data.employee.avatarColor} size={48} />
+              <Avatar id={data.employee.id} initials={data.employee.initials} color={data.employee.avatarColor} size={48} />
               <div className="min-w-0">
                 <div className="text-base font-bold text-ink truncate">{data.employee.name}</div>
                 <div className="text-sm text-muted truncate">

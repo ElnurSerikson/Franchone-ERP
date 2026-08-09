@@ -1,10 +1,11 @@
-import { Suspense, lazy, useEffect } from 'react'
+import { Suspense, lazy, useEffect, useMemo } from 'react'
 import { Authenticated, Unauthenticated, AuthLoading, useQuery, useMutation } from 'convex/react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { api } from '../convex/_generated/api'
 import { AppProvider, useAccessState, useCurrentUser } from './store'
 import { usePerms } from './lib/usePerms'
+import { AvatarsProvider } from './components/ui/Avatar'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import AccessRevoked from './pages/AccessRevoked'
@@ -73,6 +74,17 @@ function usePresence(enabled: boolean) {
   }, [enabled, ping])
 }
 
+// Справочник загруженных фото: один запрос на всё приложение, дальше каждый
+// <Avatar id={…}> берёт ссылку отсюда.
+function Avatars({ children }: { children: JSX.Element }) {
+  const rows = useQuery(api.employees.avatars, {})
+  const urls = useMemo(
+    () => Object.fromEntries((rows ?? []).map((r) => [r.id as string, r.url])),
+    [rows],
+  )
+  return <AvatarsProvider urls={urls}>{children}</AvatarsProvider>
+}
+
 function AuthedApp() {
   // Деактивированного пользователя выкидываем из кабинета сразу, не дожидаясь
   // истечения сессии. Мутации дополнительно закрыты на сервере (requireEmployee).
@@ -95,6 +107,7 @@ function AuthedApp() {
   return (
     <BrowserRouter>
       <AppProvider>
+        <Avatars>
         <Suspense fallback={<FullScreenLoader />}>
           <Routes>
             <Route element={<Layout />}>
@@ -116,6 +129,7 @@ function AuthedApp() {
             </Route>
           </Routes>
         </Suspense>
+        </Avatars>
       </AppProvider>
     </BrowserRouter>
   )

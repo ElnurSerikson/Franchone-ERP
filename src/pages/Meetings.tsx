@@ -498,7 +498,7 @@ function MeetingCard({
             className="inline-flex items-center gap-1.5 chip bg-chip text-ink-2"
             title={p.positionLabel}
           >
-            <Avatar initials={p.initials} color={p.avatarColor} size={18} />
+            <Avatar id={p._id} initials={p.initials} color={p.avatarColor} size={18} />
             {p.name}
             {p._id === meeting.createdBy._id && (
               <span className="text-[10px] text-muted">создатель</span>
@@ -686,7 +686,7 @@ function MeetingDrawer({ employees, onClose }: { employees: Person[]; onClose: (
                         on ? 'bg-[#e2f2ef] text-green-d' : 'bg-chip text-muted hover:text-ink-2'
                       }`}
                     >
-                      <Avatar initials={e.initials} color={e.avatarColor} size={18} />
+                      <Avatar id={e._id} initials={e.initials} color={e.avatarColor} size={18} />
                       {e.name}
                       {on && <Check size={12} />}
                     </button>

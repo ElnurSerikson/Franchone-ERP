@@ -256,7 +256,7 @@ export default function Effectiveness() {
                     >
                       <td className={td}>
                         <div className="flex items-center gap-2.5">
-                          <Avatar initials={r.initials} color={r.avatarColor} size={32} />
+                          <Avatar id={r.employeeId} initials={r.initials} color={r.avatarColor} size={32} />
                           <div className="min-w-0">
                             <div className="text-sm font-semibold text-ink truncate">{r.name}</div>
                             <div className="text-[11px] text-muted truncate">
@@ -490,7 +490,7 @@ function EmployeeCard({
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div className="relative w-full max-w-3xl h-full bg-bg flex flex-col">
         <div className="shrink-0 bg-white border-b border-line px-5 sm:px-6 py-4 flex items-center gap-3">
-          {data && <Avatar initials={data.initials} color={data.avatarColor} size={36} />}
+          {data && <Avatar id={data.employeeId} initials={data.initials} color={data.avatarColor} size={36} />}
           <div className="min-w-0 flex-1">
             <h2 className="text-base font-bold text-ink truncate">{data?.name ?? 'Сотрудник'}</h2>
             <p className="text-[11px] text-muted">
