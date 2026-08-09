@@ -155,14 +155,19 @@ function MaterialRow({ material }: { material: Stage['materials'][number] }) {
         <span className="text-[15px] font-semibold text-ink min-w-0 flex-1">{material.title}</span>
         <MaterialChip status={material.status} />
         {mine && <span className="chip bg-[#e8effd] text-[#2563eb]">загружаете вы</span>}
-        {material.versions[0] && (
+      </div>
+
+      {/* Файл — отдельной строкой: имена бывают в полсотни символов и в одной
+          строке с названием перетягивают на себя весь документ. */}
+      {material.versions[0] && (
+        <div className="mt-2 flex">
           <AttachmentLink
             kind={material.versions[0].kind}
             name={material.versions[0].name}
             url={material.versions[0].url}
           />
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Решение — сразу в строке, а не под раскрытием: это главное действие
           экрана, ради него сюда и заходят. */}

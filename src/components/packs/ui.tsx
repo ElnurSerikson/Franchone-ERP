@@ -144,10 +144,13 @@ export function AttachmentLink({
   url: string | null
 }) {
   const Icon = kind === 'link' ? Link2 : FileText
+  // Имена файлов бывают длиннее строки — обрезаем многоточием, полное видно
+  // по наведению. Иначе одна ссылка растягивает всю карточку.
   if (!url) {
     return (
-      <span className="inline-flex items-center gap-1.5 chip bg-chip text-muted">
-        <Paperclip size={12} /> {name}
+      <span className="inline-flex items-center gap-1.5 chip bg-chip text-muted max-w-full">
+        <Paperclip size={12} className="shrink-0" />
+        <span className="truncate">{name}</span>
       </span>
     )
   }
@@ -156,9 +159,11 @@ export function AttachmentLink({
       href={url}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center gap-1.5 chip bg-chip text-ink-2 hover:bg-line-2 transition-colors"
+      title={name}
+      className="inline-flex items-center gap-1.5 chip bg-chip text-ink-2 hover:bg-line-2 transition-colors max-w-full"
     >
-      <Icon size={12} /> {name}
+      <Icon size={12} className="shrink-0" />
+      <span className="truncate">{name}</span>
     </a>
   )
 }
