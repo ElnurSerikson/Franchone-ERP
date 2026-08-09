@@ -76,64 +76,64 @@ export default function ClientHome() {
           )}
         </section>
 
-        {/* §6.1, §7: линейка из пяти этапов с их статусами. Колонки тянутся по
-            ширине карточки, поэтому трек живёт и в половине экрана — без
-            горизонтальной прокрутки и обрезанных названий. */}
-        <section className="card p-5 sm:p-6 flex flex-col">
-          <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-4">
-            Пять этапов упаковки
-          </div>
-          <div className="flex items-start flex-1">
-            {p.path.map((s, i) => {
-              const done = s.status === 'approved'
-              const active = !done && p.currentStage?._id === s._id
-              const prevDone = i > 0 && p.path[i - 1].status === 'approved'
-              return (
-                <div key={s._id} className="flex-1 min-w-0 flex flex-col items-center gap-2">
-                  {/* Перемычки рисуем половинками по бокам кружка: так трек
-                      растягивается вместе с колонками. */}
-                  <div className="relative w-full h-11 flex items-center justify-center">
-                    {i > 0 && (
-                      <span
-                        className={`absolute left-0 top-1/2 -translate-y-1/2 h-1 w-1/2 ${
-                          prevDone ? 'bg-green' : 'bg-line'
-                        }`}
-                      />
-                    )}
-                    {i < p.path.length - 1 && (
-                      <span
-                        className={`absolute right-0 top-1/2 -translate-y-1/2 h-1 w-1/2 ${
-                          done ? 'bg-green' : 'bg-line'
-                        }`}
-                      />
-                    )}
-                    <div
-                      className={`relative w-11 h-11 rounded-full grid place-items-center text-sm font-bold ${
-                        done
-                          ? 'bg-green text-white'
-                          : active
-                            ? 'bg-[#e2f2ef] text-green-d ring-2 ring-green-light'
-                            : 'bg-chip text-muted'
-                      }`}
-                    >
-                      {done ? <CheckCircle2 size={20} /> : i + 1}
-                    </div>
-                  </div>
-                  <div className="px-1 text-[11px] text-center leading-tight text-ink-2 line-clamp-3">
-                    {s.title}
-                  </div>
-                  <div className="px-1 text-[10px] text-center leading-tight text-muted-2">
-                    {s.weight}% · {STAGE_STATUS[s.status].label}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        </section>
+        {/* §6.1, §7: пазл — собранные части, активная и закрытые. */}
+        <Puzzle puzzle={data.puzzle} gift={data.gift} />
       </div>
 
-      {/* §6.1, §7: блок пазла — собранные части, активная и закрытые. */}
-      <Puzzle puzzle={data.puzzle} gift={data.gift} />
+      {/* §6.1, §7: линейка из пяти этапов с их статусами — во всю ширину.
+          Колонки тянутся по ширине карточки, поэтому трек обходится без
+          горизонтальной прокрутки и обрезанных названий. */}
+      <section className="card p-5 sm:p-6 mb-5">
+        <div className="text-[11px] font-semibold text-muted uppercase tracking-wide mb-4">
+          Пять этапов упаковки
+        </div>
+        <div className="flex items-start">
+          {p.path.map((s, i) => {
+            const done = s.status === 'approved'
+            const active = !done && p.currentStage?._id === s._id
+            const prevDone = i > 0 && p.path[i - 1].status === 'approved'
+            return (
+              <div key={s._id} className="flex-1 min-w-0 flex flex-col items-center gap-2">
+                {/* Перемычки рисуем половинками по бокам кружка: так трек
+                    растягивается вместе с колонками. */}
+                <div className="relative w-full h-11 flex items-center justify-center">
+                  {i > 0 && (
+                    <span
+                      className={`absolute left-0 top-1/2 -translate-y-1/2 h-1 w-1/2 ${
+                        prevDone ? 'bg-green' : 'bg-line'
+                      }`}
+                    />
+                  )}
+                  {i < p.path.length - 1 && (
+                    <span
+                      className={`absolute right-0 top-1/2 -translate-y-1/2 h-1 w-1/2 ${
+                        done ? 'bg-green' : 'bg-line'
+                      }`}
+                    />
+                  )}
+                  <div
+                    className={`relative w-11 h-11 rounded-full grid place-items-center text-sm font-bold ${
+                      done
+                        ? 'bg-green text-white'
+                        : active
+                          ? 'bg-[#e2f2ef] text-green-d ring-2 ring-green-light'
+                          : 'bg-chip text-muted'
+                    }`}
+                  >
+                    {done ? <CheckCircle2 size={20} /> : i + 1}
+                  </div>
+                </div>
+                <div className="px-1 text-[11px] text-center leading-tight text-ink-2 line-clamp-3">
+                  {s.title}
+                </div>
+                <div className="px-1 text-[10px] text-center leading-tight text-muted-2">
+                  {s.weight}% · {STAGE_STATUS[s.status].label}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </section>
 
       {/* §6.1: блок «Требуется ваше внимание» */}
       <section className="card p-5 mb-5">
@@ -262,8 +262,15 @@ function Puzzle({
   }
   gift: { earned: boolean }
 }) {
+  // Бенто из пяти плиток в квадрате 3×3: первая часть занимает четверть
+  // побольше, четвёртая — широкую полосу. Раскладка рассчитана ровно на пять
+  // частей (PUZZLE_PARTS); если их вдруг станет иначе, спокойно вырождается
+  // в равный ряд.
+  const bento = puzzle.parts.length === 5
+  const SPAN = ['col-span-2 row-span-2', '', '', 'col-span-2', '']
+
   return (
-    <section className="card p-5 mb-5">
+    <section className="card p-5 sm:p-6 flex flex-col">
       <div className="flex items-center gap-2 flex-wrap mb-1">
         <Puzzle_ size={16} className="text-green" />
         <h2 className="sec-title">Пазл</h2>
@@ -282,28 +289,37 @@ function Puzzle({
         персональный подарок от FRANCHONE.
       </p>
 
-      <div className="grid grid-cols-5 gap-2 max-w-md">
-        {puzzle.parts.map((p) => (
-          <div
-            key={p.index}
-            title={p.title}
-            className={`aspect-square rounded-xl grid place-items-center text-lg font-bold transition-all duration-500 ${
-              p.open
-                ? 'bg-green text-white shadow-soft scale-100'
-                : p.missed
-                  ? 'bg-[#fdeaea] text-[#c53030]'
-                  : p.active
-                    ? 'bg-[#e2f2ef] text-green-d ring-2 ring-green-light animate-pulse'
-                    : 'hatch text-muted-2'
-            }`}
-          >
-            {p.open ? <Check size={20} /> : p.index}
-          </div>
-        ))}
+      <div
+        className={`gap-2.5 w-full max-w-[340px] mx-auto ${
+          bento ? 'grid grid-cols-3 grid-rows-3 aspect-square' : 'grid grid-cols-5'
+        }`}
+      >
+        {puzzle.parts.map((p, i) => {
+          const big = bento && i === 0
+          return (
+            <div
+              key={p.index}
+              title={p.title}
+              className={`${bento ? SPAN[i] : 'aspect-square'} rounded-2xl grid place-items-center font-bold transition-all duration-500 ${
+                big ? 'text-4xl' : 'text-xl'
+              } ${
+                p.open
+                  ? 'bg-green text-white shadow-soft'
+                  : p.missed
+                    ? 'bg-[#fdeaea] text-[#c53030]'
+                    : p.active
+                      ? 'bg-[#e2f2ef] text-green-d ring-2 ring-green-light animate-pulse'
+                      : 'hatch text-muted-2'
+              }`}
+            >
+              {p.open ? <Check size={big ? 40 : 22} /> : p.index}
+            </div>
+          )
+        })}
       </div>
 
       {gift.earned ? (
-        <div className="mt-4 rounded-xl bg-[#e2f2ef] p-3 flex items-start gap-2.5">
+        <div className="mt-5 rounded-xl bg-[#e2f2ef] p-3 flex items-start gap-2.5">
           <Gift size={16} className="text-green-d shrink-0 mt-0.5" />
           <div className="text-sm text-green-d">
             Пазл собран полностью. За вами закреплён гарантированный персональный подарок от
@@ -311,7 +327,7 @@ function Puzzle({
           </div>
         </div>
       ) : (
-        <div className="mt-4 text-[11px] text-muted-2">
+        <div className="mt-5 text-[11px] text-muted-2 text-center">
           Осталось собрать частей: {puzzle.total - puzzle.collected}. Подготовительный этап в
           пазле не участвует.
         </div>
